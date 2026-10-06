@@ -1,8 +1,33 @@
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
+#include "lower_name.h"
+
 
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
+
+llvm::Constant* get_typeinfo_global(a_type_ptr type) {
+  if (!type) {
+    return llvm::ConstantPointerNull::get(llvm::Type::getInt8PtrTy(*be_state->context));
+  }
+  
+  // Use EDG mangler to get the typeinfo name
+  char* mangled = mangled_typeinfo_name(type);
+  llvm::StringRef name_ref(mangled);
+  
+  llvm::GlobalVariable* gv = be_state->module->getNamedGlobal(name_ref);
+  if (!gv) {
+      gv = new llvm::GlobalVariable(
+          *be_state->module,
+          llvm::Type::getInt8PtrTy(*be_state->context),
+          true,
+          llvm::GlobalValue::ExternalLinkage,
+          nullptr,
+          name_ref
+      );
+  }
+  return gv;
+}
 
 llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   while (ty) {
@@ -57,10 +82,23 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
        if (it != be_state->local_vars.end()) {
          ptr = it->second;
        } else {
-         ptr = be_state->module->getNamedGlobal(var->source_corresp.name ? var->source_corresp.name : "");
+         const char* name = var->source_corresp.name ? var->source_corresp.name : "";
+         ptr = be_state->module->getNamedGlobal(name);
+         if (!ptr && name[0] != '\0') {
+           // Auto-generate missing global reference (e.g. for undeclared externs or phase ordering gaps)
+           llvm::Type* var_ty = get_llvm_type(expr->type);
+           ptr = new llvm::GlobalVariable(
+             *be_state->module,
+             var_ty,
+             false, // isConstant
+             llvm::GlobalValue::ExternalLinkage,
+             nullptr,
+             name
+           );
+         }
        }
        if (!ptr) {
-         // Fallback for unresolved variable
+         f_fatal(expr->source_corresp.position, "Unresolved variable encountered in LLVM backend");
          return llvm::Constant::getNullValue(get_llvm_type(expr->type));
        }
        if (!expr->is_lvalue) {
@@ -170,7 +208,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
                 return be_state->builder->CreateIntToPtr(v1, dest_ty);
              }
              if (src_ty->isPointerTy() && dest_ty->isPointerTy()) {
-                return be_state->builder->CreateBitCast(v1, dest_ty);
+                return v1;
              }
              
              bool src_is_fp = src_ty->isFloatingPointTy();
@@ -241,7 +279,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
                  llvm::FunctionType::get(int8_ptr_ty, {size_t_ty}, false));
              
              uint32_t type_size = throw_info->type->size;
-             if (type_size == 0) type_size = 1; // Fallback
+             if (type_size == 0) type_size = 1; // Itanium ABI enforces 1-byte minimum for empty classes
              llvm::Value* size_val = llvm::ConstantInt::get(size_t_ty, type_size);
              llvm::Value* exc_mem = be_state->builder->CreateCall(alloc_fn, {size_val});
 
@@ -251,8 +289,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
                if (init_val) {
                  llvm::Type* exc_ty = get_llvm_type(throw_info->type);
                  if (exc_ty && exc_ty->isSized()) {
-                   llvm::Value* typed_exc_mem = be_state->builder->CreateBitCast(exc_mem, exc_ty->getPointerTo());
-                   be_state->builder->CreateStore(init_val, typed_exc_mem);
+                   be_state->builder->CreateStore(init_val, exc_mem);
                  }
                }
              }
@@ -261,17 +298,29 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
              llvm::FunctionCallee throw_fn = be_state->module->getOrInsertFunction("__cxa_throw",
                  llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), {int8_ptr_ty, int8_ptr_ty, int8_ptr_ty}, false));
              
-             // Null pointers for typeinfo and dtor for now (fallback behavior)
-             llvm::Value* null_ptr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty));
+             llvm::Value* typeinfo_ptr = get_typeinfo_global(throw_info->type);
+             llvm::Value* dtor_ptr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty));
+             
+             if (throw_info->dynamic_init && throw_info->dynamic_init->destructor) {
+               a_routine_ptr dtor_rt = throw_info->dynamic_init->destructor;
+               if (dtor_rt->source_corresp.name) {
+                 llvm::Function* dtor_func = be_state->module->getFunction(dtor_rt->source_corresp.name);
+                 if (!dtor_func) {
+                   llvm::Type* func_ty = get_llvm_type(dtor_rt->type);
+                   dtor_func = llvm::Function::Create(llvm::cast<llvm::FunctionType>(func_ty), llvm::GlobalValue::ExternalLinkage, dtor_rt->source_corresp.name, *be_state->module);
+                 }
+                 dtor_ptr = dtor_func;
+               }
+             }
              
              if (!be_state->current_landing_pads.empty()) {
                  llvm::BasicBlock* lpad_bb = be_state->current_landing_pads.back();
                  llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
                  llvm::BasicBlock* normal_bb = llvm::BasicBlock::Create(*be_state->context, "invoke.cont", func);
-                 be_state->builder->CreateInvoke(throw_fn, normal_bb, lpad_bb, {exc_mem, null_ptr, null_ptr});
+                 be_state->builder->CreateInvoke(throw_fn, normal_bb, lpad_bb, {exc_mem, typeinfo_ptr, dtor_ptr});
                  be_state->builder->SetInsertPoint(normal_bb);
              } else {
-                 be_state->builder->CreateCall(throw_fn, {exc_mem, null_ptr, null_ptr});
+                 be_state->builder->CreateCall(throw_fn, {exc_mem, typeinfo_ptr, dtor_ptr});
              }
              be_state->builder->CreateUnreachable();
              return nullptr;
@@ -324,23 +373,19 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
            if (v1 && op2 && op2->kind == enk_field) {
              a_field_ptr field = op2->variant.field.ptr;
              if (field) {
-               llvm::Type* i8_ptr_ty = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*be_state->context));
-               llvm::Value* i8_ptr = be_state->builder->CreateBitCast(v1, i8_ptr_ty);
                llvm::Value* offset_val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*be_state->context), field->offset);
-               llvm::Value* gep = be_state->builder->CreateInBoundsGEP(llvm::Type::getInt8Ty(*be_state->context), i8_ptr, offset_val);
+               llvm::Value* gep = be_state->builder->CreateInBoundsGEP(llvm::Type::getInt8Ty(*be_state->context), v1, offset_val);
                
                llvm::Type* field_llvm_ty = get_llvm_type(expr->type);
-               llvm::Type* field_ptr_ty = llvm::PointerType::getUnqual(field_llvm_ty);
-               llvm::Value* typed_gep = be_state->builder->CreateBitCast(gep, field_ptr_ty);
                
                if (!expr->is_lvalue) {
-                 llvm::LoadInst* load = be_state->builder->CreateLoad(field_llvm_ty, typed_gep);
+                 llvm::LoadInst* load = be_state->builder->CreateLoad(field_llvm_ty, gep);
                  if (is_volatile_qualified_type(expr->type)) {
                    load->setVolatile(true);
                  }
                  return load;
                }
-               return typed_gep;
+               return gep;
              }
            }
            break;

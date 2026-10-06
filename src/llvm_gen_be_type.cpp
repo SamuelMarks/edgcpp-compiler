@@ -55,33 +55,92 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
       break;
     }
     case tk_float: {
-      // Actually we should inspect the variant if available, but size is robust enough
-      if (edg_type->size * TARG_CHAR_BIT == 32) {
-        llvm_ty = llvm::Type::getFloatTy(*be_state->context);
-      } else if (edg_type->size * TARG_CHAR_BIT == 64) {
-        llvm_ty = llvm::Type::getDoubleTy(*be_state->context);
-      } else if (edg_type->size * TARG_CHAR_BIT == 80) {
-        llvm_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
-      } else if (edg_type->size * TARG_CHAR_BIT == 128) {
-        llvm_ty = llvm::Type::getFP128Ty(*be_state->context);
-      } else if (edg_type->size * TARG_CHAR_BIT == 16) {
-        llvm_ty = llvm::Type::getHalfTy(*be_state->context);
-      } else {
-        llvm_ty = llvm::Type::getDoubleTy(*be_state->context); // fallback
+      switch (edg_type->variant.float_kind) {
+        case fk_float16:
+        case fk_fp16:
+        case fk_std_float16:
+          llvm_ty = llvm::Type::getHalfTy(*be_state->context);
+          break;
+        case fk_std_bfloat16:
+          llvm_ty = llvm::Type::getBFloatTy(*be_state->context);
+          break;
+        case fk_float:
+        case fk_std_float32:
+        case fk_float32x:
+          llvm_ty = llvm::Type::getFloatTy(*be_state->context);
+          break;
+        case fk_double:
+        case fk_std_float64:
+        case fk_float64x:
+          llvm_ty = llvm::Type::getDoubleTy(*be_state->context);
+          break;
+        case fk_float80:
+          llvm_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
+          break;
+        case fk_float128:
+        case fk_std_float128:
+          llvm_ty = llvm::Type::getFP128Ty(*be_state->context);
+          break;
+        case fk_long_double:
+          // Depending on target, long double might be fp80, double, or fp128.
+          // For most systems (like x86 Linux), it's fp80.
+          if (edg_type->size * TARG_CHAR_BIT == 80) {
+            llvm_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
+          } else if (edg_type->size * TARG_CHAR_BIT == 128) {
+            llvm_ty = llvm::Type::getFP128Ty(*be_state->context);
+          } else {
+            llvm_ty = llvm::Type::getDoubleTy(*be_state->context);
+          }
+          break;
+        default:
+          f_error(ec_generated_c, "Unsupported floating-point kind in LLVM backend");
+          llvm_ty = llvm::Type::getDoubleTy(*be_state->context);
+          break;
       }
       break;
     }
 #if C99_IL_EXTENSIONS_SUPPORTED
     case tk_complex: {
       llvm::Type* elem_ty = nullptr;
-      if (edg_type->size * TARG_CHAR_BIT == 64) {
-        elem_ty = llvm::Type::getFloatTy(*be_state->context);
-      } else if (edg_type->size * TARG_CHAR_BIT == 128) {
-        elem_ty = llvm::Type::getDoubleTy(*be_state->context);
-      } else if (edg_type->size * TARG_CHAR_BIT == 160) {
-        elem_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
-      } else {
-        elem_ty = llvm::Type::getDoubleTy(*be_state->context); // fallback
+      switch (edg_type->variant.float_kind) {
+        case fk_float16:
+        case fk_fp16:
+        case fk_std_float16:
+          elem_ty = llvm::Type::getHalfTy(*be_state->context);
+          break;
+        case fk_std_bfloat16:
+          elem_ty = llvm::Type::getBFloatTy(*be_state->context);
+          break;
+        case fk_float:
+        case fk_std_float32:
+        case fk_float32x:
+          elem_ty = llvm::Type::getFloatTy(*be_state->context);
+          break;
+        case fk_double:
+        case fk_std_float64:
+        case fk_float64x:
+          elem_ty = llvm::Type::getDoubleTy(*be_state->context);
+          break;
+        case fk_float80:
+          elem_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
+          break;
+        case fk_float128:
+        case fk_std_float128:
+          elem_ty = llvm::Type::getFP128Ty(*be_state->context);
+          break;
+        case fk_long_double:
+          if (edg_type->size * TARG_CHAR_BIT == 160) {
+            elem_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
+          } else if (edg_type->size * TARG_CHAR_BIT == 256) {
+            elem_ty = llvm::Type::getFP128Ty(*be_state->context);
+          } else {
+            elem_ty = llvm::Type::getDoubleTy(*be_state->context);
+          }
+          break;
+        default:
+          f_error(ec_generated_c, "Unsupported complex floating-point kind in LLVM backend");
+          elem_ty = llvm::Type::getDoubleTy(*be_state->context);
+          break;
       }
       llvm_ty = llvm::StructType::get(*be_state->context, {elem_ty, elem_ty});
       break;
@@ -199,7 +258,7 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
       llvm_ty = get_llvm_type(edg_type->variant.typeref.type);
       break;
     default:
-      // Fallback
+      f_fatal(edg_type->source_corresp.position, "Unhandled AST type kind encountered in LLVM backend");
       llvm_ty = llvm::Type::getInt8Ty(*be_state->context);
       break;
   }

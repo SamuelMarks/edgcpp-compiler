@@ -173,6 +173,17 @@ void emit_function_definitions() {
     if (!be_state->builder->GetInsertBlock()->getTerminator()) {
       be_state->builder->CreateUnreachable();
     }
+    
+    std::string err_str;
+    llvm::raw_string_ostream os(err_str);
+    if (llvm::verifyFunction(*func, &os)) {
+      char error_msg[1024];
+      snprintf(error_msg, sizeof(error_msg), "LLVM Function Verification failed for %s: %s", routine->source_corresp.name, err_str.c_str());
+      
+      // Map to source position
+      error_position = routine->source_corresp.position;
+      f_error(ec_generated_c, error_msg);
+    }
   }
 }
 
@@ -219,7 +230,7 @@ void emit_global_ctors_and_dtors() {
       if (is_ctor || is_dtor) {
         llvm::Function* func = be_state->module->getFunction(routine->source_corresp.name);
         if (func) {
-          llvm::Constant* fn_ptr = llvm::ConstantExpr::getBitCast(func, ptr_ty);
+          llvm::Constant* fn_ptr = func;
           llvm::Constant* null_ptr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty));
           
           if (is_ctor) {

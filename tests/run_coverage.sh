@@ -15,3 +15,12 @@ lcov --extract coverage.info '*/src/llvm_gen_be*.cpp' --output-file llvm_be_cove
 genhtml llvm_be_coverage.info --output-directory coverage_html || echo "genhtml failed"
 
 echo "Coverage report generated in build/coverage/coverage_html"
+
+# Enforce 100% line coverage for specific LLVM backend files
+coverage_files=("src/llvm_gen_be_stmt.cpp" "src/llvm_gen_be_expr.cpp" "src/llvm_gen_be_type.cpp" "src/llvm_gen_be_const.cpp")
+for file in "${coverage_files[@]}"; do
+    if ! lcov --list llvm_be_coverage.info | grep "$file" | grep -q "100.0%"; then
+        echo "Error: $file does not have 100% test coverage."
+        exit 1
+    fi
+done

@@ -40,6 +40,8 @@ extern LLVMBackendState* be_state;
 
 llvm::Type* get_llvm_type(a_type_ptr edg_type);
 llvm::Constant* evaluate_constant(a_constant_ptr con, llvm::Type* expected_ty);
+llvm::Constant* get_typeinfo_global(a_type_ptr type);
+
 llvm::Value* emit_expression(an_expr_node_ptr expr);
 void emit_statement(a_statement_ptr stmt);
 

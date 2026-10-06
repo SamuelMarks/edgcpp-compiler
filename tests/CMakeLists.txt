@@ -11,3 +11,9 @@ add_test(NAME eh_test COMMAND eh_test)
 add_test(NAME const_test COMMAND const_test)
 add_test(NAME asm_test COMMAND asm_test)
 add_test(NAME goto_test COMMAND goto_test)
+
+add_executable(test_llvm_orchestrator test_llvm_orchestrator.cpp)
+add_executable(test_llvm_verifier test_llvm_verifier.cpp)
+
+add_test(NAME test_llvm_orchestrator COMMAND test_llvm_orchestrator)
+add_test(NAME test_llvm_verifier COMMAND test_llvm_verifier)

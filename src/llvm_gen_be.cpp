@@ -87,7 +87,7 @@ static void emit_global_ctors_and_dtors() {
   std::vector<llvm::Constant*> dtors;
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
   llvm::Type* void_fn_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
-  llvm::Type* ptr_ty = void_fn_ty->getPointerTo();
+  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::StructType* ctor_struct_ty = llvm::StructType::get(
       int32_ty, ptr_ty, ptr_ty); // { i32, void ()*, i8* }
 
@@ -125,7 +125,7 @@ static void emit_global_ctors_and_dtors() {
       if (is_ctor || is_dtor) {
         llvm::Function* func = be_state->module->getFunction(routine->source_corresp.name);
         if (func) {
-          llvm::Constant* fn_ptr = llvm::ConstantExpr::getBitCast(func, ptr_ty);
+          llvm::Constant* fn_ptr = func;
           llvm::Constant* null_ptr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty));
           
           if (is_ctor) {
@@ -160,10 +160,34 @@ static void emit_global_ctors_and_dtors() {
 
 void llvm_gen_be(void)
 {
-  be_state = new LLVMBackendState();
+  if (!be_state) {
+    be_state = new LLVMBackendState();
+  }
   be_state->context = std::make_unique<llvm::LLVMContext>();
   be_state->module = std::make_unique<llvm::Module>("edg_module", *be_state->context);
   be_state->builder = std::make_unique<llvm::IRBuilder<>>(*be_state->context);
+  
+  // Set TargetTriple
+#if TARG_MAC_OS_X
+  #if TARG_AARCH64
+    be_state->module->setTargetTriple("aarch64-apple-darwin");
+  #else
+    be_state->module->setTargetTriple("x86_64-apple-darwin");
+  #endif
+#elif TARG_MICROSOFT
+  #if TARG_AARCH64
+    be_state->module->setTargetTriple("aarch64-pc-windows-msvc");
+  #else
+    be_state->module->setTargetTriple("x86_64-pc-windows-msvc");
+  #endif
+#else
+  #if TARG_AARCH64
+    be_state->module->setTargetTriple("aarch64-unknown-linux-gnu");
+  #else
+    be_state->module->setTargetTriple("x86_64-unknown-linux-gnu");
+  #endif
+#endif
+
   be_state->module->setDataLayout(build_data_layout());
 
   emit_global_variables();
@@ -209,6 +233,16 @@ required.
 */
 {
   if (be_state) {
+    be_state->builder.reset();
+    be_state->module.reset();
+    be_state->context.reset();
+    be_state->type_cache.clear();
+    be_state->local_vars.clear();
+    be_state->break_blocks.clear();
+    be_state->continue_blocks.clear();
+    be_state->current_landing_pads.clear();
+    be_state->label_blocks.clear();
+    be_state->case_blocks.clear();
     delete be_state;
     be_state = nullptr;
   }

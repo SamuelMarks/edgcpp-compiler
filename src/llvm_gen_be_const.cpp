@@ -32,14 +32,12 @@ llvm::Constant* evaluate_constant(a_constant_ptr con, llvm::Type* expected_ty) {
       const char* chars = con->variant.string.value;
       llvm::StringRef str(chars, len);
 
+      llvm::Type* actual_array_ty = get_llvm_type(con->type);
       llvm::Type* elem_ty = nullptr;
-      if (expected_ty->isArrayTy()) {
-        elem_ty = expected_ty->getArrayElementType();
-      } else if (expected_ty->isPointerTy()) {
-        // If expected_ty is a pointer, we don't know the array element type directly.
-        // Fall back to i8. (In real usage, expected_ty for ck_string is usually an array type).
-        elem_ty = llvm::Type::getInt8Ty(*be_state->context);
+      if (actual_array_ty->isArrayTy()) {
+        elem_ty = actual_array_ty->getArrayElementType();
       } else {
+        f_fatal(con->source_corresp.position, "String constant type is not an array");
         elem_ty = llvm::Type::getInt8Ty(*be_state->context);
       }
 
