@@ -31,6 +31,7 @@ struct LLVMBackendState {
 
   std::vector<llvm::BasicBlock*> break_blocks;
   std::vector<llvm::BasicBlock*> continue_blocks;
+  std::vector<llvm::BasicBlock*> current_landing_pads;
   std::unordered_map<a_label_ptr, llvm::BasicBlock*> label_blocks;
   std::unordered_map<a_switch_case_entry_ptr, llvm::BasicBlock*> case_blocks;
 };

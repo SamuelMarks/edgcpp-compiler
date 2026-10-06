@@ -145,3 +145,8 @@ include(${CMAKE_SOURCE_DIR}/cmake/wrapper.cmake)
 # Handle wrapping eccp, needed for building the C library, and general
 # development
 add_edg_wrapper_script(eccp "." ${CMAKE_SOURCE_DIR}/util/eccp.sh)
+
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
+enable_testing()

@@ -127,8 +127,13 @@ void emit_function_definitions() {
     a_scope_ptr func_scope = def_descr.scope;
     if (!func_scope) continue;
 
-    // Clear local variables for the new function scope
+    // Clear local variables and labels for the new function scope
     be_state->local_vars.clear();
+    be_state->label_blocks.clear();
+
+    for (a_label_ptr label = func_scope->labels; label != nullptr; label = label->next) {
+      be_state->label_blocks[label] = llvm::BasicBlock::Create(*be_state->context, "label", func);
+    }
 
     // Allocate parameters and bind arguments
     unsigned arg_idx = 0;
@@ -164,13 +169,9 @@ void emit_function_definitions() {
       emit_statement(func_scope->assoc_block);
     }
 
-    // Fallback terminator if body translation is not implemented yet
+    // Ensure valid terminator, usually handled by stmk_return, but for safety in malformed IL
     if (!be_state->builder->GetInsertBlock()->getTerminator()) {
-      if (func->getReturnType()->isVoidTy()) {
-        be_state->builder->CreateRetVoid();
-      } else {
-        be_state->builder->CreateRet(llvm::Constant::getNullValue(func->getReturnType()));
-      }
+      be_state->builder->CreateUnreachable();
     }
   }
 }

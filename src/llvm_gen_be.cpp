@@ -82,7 +82,6 @@ void generate_llvm_output_file(const char* base_name) {
   }
 }
 
-void llvm_gen_be(void)
 static void emit_global_ctors_and_dtors() {
   std::vector<llvm::Constant*> ctors;
   std::vector<llvm::Constant*> dtors;
@@ -157,6 +156,22 @@ static void emit_global_ctors_and_dtors() {
         *be_state->module, dtors_array_ty, false,
         llvm::GlobalValue::AppendingLinkage, dtors_array, "llvm.global_dtors");
   }
+}
+
+void llvm_gen_be(void)
+{
+  be_state = new LLVMBackendState();
+  be_state->context = std::make_unique<llvm::LLVMContext>();
+  be_state->module = std::make_unique<llvm::Module>("edg_module", *be_state->context);
+  be_state->builder = std::make_unique<llvm::IRBuilder<>>(*be_state->context);
+  be_state->module->setDataLayout(build_data_layout());
+
+  emit_global_variables();
+  emit_function_declarations();
+  emit_function_definitions();
+  emit_global_ctors_and_dtors();
+
+  generate_llvm_output_file(primary_source_file_name);
 }
 
 #if !STANDALONE_UTILITY_PROGRAM

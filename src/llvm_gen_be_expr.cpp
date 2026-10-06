@@ -215,6 +215,68 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
              return v2;
            }
            break;
+         case enk_throw: {
+           a_throw_supplement_ptr throw_info = expr->variant.throw_info;
+           llvm::Type* int8_ptr_ty = llvm::Type::getInt8PtrTy(*be_state->context);
+
+           if (!throw_info) {
+             // Rethrow
+             llvm::FunctionCallee rethrow_fn = be_state->module->getOrInsertFunction("__cxa_rethrow",
+                 llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false));
+             if (!be_state->current_landing_pads.empty()) {
+                 llvm::BasicBlock* lpad_bb = be_state->current_landing_pads.back();
+                 llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
+                 llvm::BasicBlock* normal_bb = llvm::BasicBlock::Create(*be_state->context, "invoke.cont", func);
+                 be_state->builder->CreateInvoke(rethrow_fn, normal_bb, lpad_bb);
+                 be_state->builder->SetInsertPoint(normal_bb);
+             } else {
+                 be_state->builder->CreateCall(rethrow_fn);
+             }
+             be_state->builder->CreateUnreachable();
+             return nullptr;
+           } else {
+             // Allocate exception
+             llvm::Type* size_t_ty = llvm::Type::getInt64Ty(*be_state->context); // Assume 64-bit size_t
+             llvm::FunctionCallee alloc_fn = be_state->module->getOrInsertFunction("__cxa_allocate_exception",
+                 llvm::FunctionType::get(int8_ptr_ty, {size_t_ty}, false));
+             
+             uint32_t type_size = throw_info->type->size;
+             if (type_size == 0) type_size = 1; // Fallback
+             llvm::Value* size_val = llvm::ConstantInt::get(size_t_ty, type_size);
+             llvm::Value* exc_mem = be_state->builder->CreateCall(alloc_fn, {size_val});
+
+             // Initialize exception object
+             if (throw_info->expr) {
+               llvm::Value* init_val = emit_expression(throw_info->expr);
+               if (init_val) {
+                 llvm::Type* exc_ty = get_llvm_type(throw_info->type);
+                 if (exc_ty && exc_ty->isSized()) {
+                   llvm::Value* typed_exc_mem = be_state->builder->CreateBitCast(exc_mem, exc_ty->getPointerTo());
+                   be_state->builder->CreateStore(init_val, typed_exc_mem);
+                 }
+               }
+             }
+
+             // Throw exception
+             llvm::FunctionCallee throw_fn = be_state->module->getOrInsertFunction("__cxa_throw",
+                 llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), {int8_ptr_ty, int8_ptr_ty, int8_ptr_ty}, false));
+             
+             // Null pointers for typeinfo and dtor for now (fallback behavior)
+             llvm::Value* null_ptr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty));
+             
+             if (!be_state->current_landing_pads.empty()) {
+                 llvm::BasicBlock* lpad_bb = be_state->current_landing_pads.back();
+                 llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
+                 llvm::BasicBlock* normal_bb = llvm::BasicBlock::Create(*be_state->context, "invoke.cont", func);
+                 be_state->builder->CreateInvoke(throw_fn, normal_bb, lpad_bb, {exc_mem, null_ptr, null_ptr});
+                 be_state->builder->SetInsertPoint(normal_bb);
+             } else {
+                 be_state->builder->CreateCall(throw_fn, {exc_mem, null_ptr, null_ptr});
+             }
+             be_state->builder->CreateUnreachable();
+             return nullptr;
+           }
+         }
          case eok_call: {
            if (v1) {
              std::vector<llvm::Value*> args;
@@ -229,7 +291,16 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
                    callee_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
                 }
              }
-             return be_state->builder->CreateCall(callee_ty, v1, args);
+             if (!be_state->current_landing_pads.empty()) {
+               llvm::BasicBlock* lpad_bb = be_state->current_landing_pads.back();
+               llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
+               llvm::BasicBlock* normal_bb = llvm::BasicBlock::Create(*be_state->context, "invoke.cont", func);
+               llvm::InvokeInst* invoke = be_state->builder->CreateInvoke(callee_ty, v1, normal_bb, lpad_bb, args);
+               be_state->builder->SetInsertPoint(normal_bb);
+               return invoke;
+             } else {
+               return be_state->builder->CreateCall(callee_ty, v1, args);
+             }
            }
            break;
          }
