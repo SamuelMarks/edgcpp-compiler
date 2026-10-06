@@ -261,7 +261,12 @@ add_src_file_if_present(ifc_modules_write.c)
 add_src_file_if_present(unicode_name_fsm.c)
 
 if(ENABLE_LLVM_BACKEND)
-  add_src_file_if_present(llvm_gen_be.cpp)
+    add_src_file_if_present(llvm_gen_be.cpp)
+  add_src_file_if_present(llvm_gen_be_type.cpp)
+  add_src_file_if_present(llvm_gen_be_const.cpp)
+  add_src_file_if_present(llvm_gen_be_expr.cpp)
+  add_src_file_if_present(llvm_gen_be_stmt.cpp)
+  add_src_file_if_present(llvm_gen_be_decl.cpp)
 endif()
 
 # Prepend the project source directory to the file names.
