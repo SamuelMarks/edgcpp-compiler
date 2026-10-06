@@ -3455,7 +3455,7 @@ Display the indicated field.
              iek_constant);
     if (ptr->declared_bit_size != ptr->bit_size) {
       disp_unsigned_long("declared_bit_size", ptr->declared_bit_size);
-#if BACK_END_IS_C_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
       if (ptr->bit_field_alignment_type != NULL) {
         disp_ptr("bit_field_alignment_type",
                  (char *)ptr->bit_field_alignment_type, iek_type);
@@ -4891,7 +4891,7 @@ Display the indicated expression node.
         disp_boolean("requires_runtime_cast_check", TRUE);
       }  /* if */
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
-#if BACK_END_IS_C_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
       if (ptr->variant.operation.has_deferred_ampersand) {
         disp_boolean("has_deferred_ampersand", TRUE);
       }  /* if */

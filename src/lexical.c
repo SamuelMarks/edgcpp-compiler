@@ -28734,7 +28734,7 @@ pos_in_temp_text_buffer by the number of characters added.
   } else if (is_restrict_token(token)) {
 #if !SUPPRESS_RESTRICT_IN_GENERATED_CODE
     a_const_char *restrict_kw = "restrict";
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE
     /* When targeting a gcc/g++ compiler, put out "__restrict__" since
        "restrict" may not be accepted.  Clang accepts "restrict", but only
        in C mode. */

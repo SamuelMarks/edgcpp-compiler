@@ -990,7 +990,7 @@ header has been read and the target has been determined).
   va_list_using_using_decl_in_std_namespace = FALSE;
   instantiate_extern_inline = INSTANTIATE_EXTERN_INLINE;
   instantiate_inline_variables = INSTANTIATE_INLINE_VARIABLES;
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE
   sun_is_generated_code_target = SUN_IS_GENERATED_CODE_TARGET;
   clang_is_generated_code_target = CLANG_IS_GENERATED_CODE_TARGET;
   gcc_is_generated_code_target = GCC_IS_GENERATED_CODE_TARGET;
@@ -1020,7 +1020,7 @@ header has been read and the target has been determined).
   cp_gen_be_target_matches_source_dialect =
                                        CP_GEN_BE_TARGET_MATCHES_SOURCE_DIALECT;
 #endif /* BACK_END_IS_CP_GEN_BE */
-#if BACK_END_IS_C_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
   use_empty_struct_in_generated_c = USE_EMPTY_STRUCT_IN_GENERATED_C;
 #endif /* BACK_END_IS_C_GEN_BE */
   exc_spec_in_func_type = FALSE;

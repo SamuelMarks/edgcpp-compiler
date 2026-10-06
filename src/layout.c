@@ -1203,7 +1203,7 @@ container when that size is smaller than the alignment.
       a_type_ptr  int_type = longest_integer_type_fitting_in_bit_field(field);
       container_size = int_type->size;
       container_alignment = field_alignment_for(int_type);
-#if BACK_END_IS_C_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
       field->bit_field_alignment_type = int_type;
 #endif /* BACK_END_IS_C_GEN_BE */
       /* Force alignment. */

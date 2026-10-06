@@ -115,7 +115,7 @@ which function to call to process this pragma.
                        (may_bind_to_decl || may_bind_to_stmt),
                        "add_pragma_kind_description:",
 		       "bad next_construct binding");
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE
   /* The back end must be capable of handling any pragmas that are included
      in the IL, and which it is expected to process (i.e., not ignore).
      The C and C++ generating back ends can only handle pragmas that
@@ -1532,7 +1532,7 @@ Initialize the pragma description table.
 {
   int       i;
   a_boolean ignore_diag_pragma_in_be =
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE
     /* The GNU, clang, Microsoft, and Sun compilers do not recognize the
        EDG-specific diagnostic pragmas, so they should not be emitted in
        generated code intended for those compilers.  Other targets may or

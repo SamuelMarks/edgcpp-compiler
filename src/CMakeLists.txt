@@ -84,7 +84,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
   endif()
 
   # If we found a better linker than the default, use it.
-  if(DEFINED EDG_PREFERRED_LINKER)
+  if(DEFINED EDG_PREFERRED_LINKER AND NOT (APPLE AND EDG_PREFERRED_LINKER STREQUAL "lld"))
     add_link_options("-fuse-ld=${EDG_PREFERRED_LINKER}")
   endif()
 else()
@@ -155,6 +155,33 @@ if (${FORCE_COLORED_OUTPUT})
     add_compile_options (-fcolor-diagnostics)
   endif ()
 endif ()
+
+# LLVM IR Backend configuration
+set(ENABLE_LLVM_BACKEND FALSE CACHE BOOL "Enable LLVM IR generation backend")
+if(ENABLE_LLVM_BACKEND)
+  if(APPLE)
+    find_program(BREW_EXECUTABLE brew)
+    if(BREW_EXECUTABLE)
+      execute_process(
+        COMMAND ${BREW_EXECUTABLE} --prefix llvm
+        OUTPUT_VARIABLE BREW_LLVM_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+      )
+      if(EXISTS "${BREW_LLVM_PREFIX}")
+        list(APPEND CMAKE_PREFIX_PATH "${BREW_LLVM_PREFIX}")
+        # Hint to find_package where the CMake configuration files reside
+        set(LLVM_DIR "${BREW_LLVM_PREFIX}/lib/cmake/llvm" CACHE PATH "LLVM config dir" FORCE)
+      endif()
+    endif()
+  endif()
+
+  find_package(LLVM CONFIG)
+  if(NOT LLVM_FOUND)
+    message(FATAL_ERROR "LLVM IR backend was enabled (ENABLE_LLVM_BACKEND=TRUE), but LLVM was not found. Please install LLVM or specify LLVM_DIR.")
+  endif()
+  include_directories(${LLVM_INCLUDE_DIRS})
+  add_compile_definitions(BACK_END_IS_LLVM_GEN_BE=1)
+endif()
 
 # Disable undesirable C++ features.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
@@ -232,6 +259,10 @@ add_src_file_if_present(ifc_modules_read.c)
 add_src_file_if_present(ifc_modules_templ.c)
 add_src_file_if_present(ifc_modules_write.c)
 add_src_file_if_present(unicode_name_fsm.c)
+
+if(ENABLE_LLVM_BACKEND)
+  add_src_file_if_present(llvm_gen_be.cpp)
+endif()
 
 # Prepend the project source directory to the file names.
 list(TRANSFORM CORE_FRONT_END_SOURCE_FILES PREPEND ${PROJECT_SOURCE_DIR}/)

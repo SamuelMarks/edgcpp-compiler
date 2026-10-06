@@ -49,8 +49,8 @@ if(NOT DEFINED EDG_PREFERRED_LINKER)
     endif()
 
     # Only use lld with Clang, it doesn't understand GCC's LTO format well (at
-    # least at the time of writing).
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # least at the time of writing). Do not use lld on Apple due to TAPI bugs.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT APPLE)
       if(NOT DEFINED EDG_PREFERRED_LINKER_TRIAL)
         find_program(LLD_LINKER ld.lld NO_CACHE)
         if(NOT LLD_LINKER STREQUAL "LLD_LINKER-NOTFOUND")
