@@ -13041,6 +13041,11 @@ enable_microsoft_mode:
   create_template_deduction_name_references = NEED_NAME_MANGLING;
   /* If the -o option appeared, its file should have been taken for
      something. */
+  #if BACK_END_IS_GCC_GEN_BE
+  gcc_be_output_file_name = ofile_name;
+  ofile_name = NULL;
+#endif
+
   if (ofile_name != NULL) {
     command_line_error(ec_cl_no_output_file_needed);
   }  /* if */

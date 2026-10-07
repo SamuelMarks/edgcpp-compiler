@@ -480,6 +480,10 @@ EXTERN_THREAD FILE
 			   TRUE. */
 EXTERN_THREAD a_const_char
 		*pp_file_name;
+
+EXTERN_THREAD a_const_char
+		*gcc_be_output_file_name;
+
 			/* Name of the preprocessing output file to be
 			   opened, or NULL if no such file is needed or if
 			   a default file should be used. */
