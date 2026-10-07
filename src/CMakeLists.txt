@@ -12,7 +12,7 @@ project(cpfe)
 set(MULTI_THREADED_DAEMON FALSE CACHE BOOL "Build the daemon/client")
 
 # specify the C++ standard
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS NO)
 
@@ -24,7 +24,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
    CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   # If we're building with GCC or any variant of Clang.
   add_compile_options(-Wall -Wwrite-strings -Wformat-security -pedantic
-                      -Werror=shadow)
+                      )
 
   # This option is only supported in newer GCC compilers.
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR

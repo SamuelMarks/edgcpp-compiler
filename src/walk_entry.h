@@ -1425,7 +1425,7 @@ handle_next_entry:
         walk_ptr(eptr->property_or_event_descr, a_property_or_event_descr_ptr,
                  iek_property_or_event_descr);
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
         walk_ptr(eptr->bit_field_alignment_type, a_type_ptr, iek_type);
 #endif /* BACK_END_IS_C_GEN_BE */
 #undef eptr

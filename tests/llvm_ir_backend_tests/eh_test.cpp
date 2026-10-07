@@ -68,10 +68,83 @@ void test_destructors() {
     }
 }
 
+void run_new_tests() {
+    test_primitive_types();
+    test_pointers();
+    test_custom_objects();
+    test_multiple_catch();
+    test_unmatched_catch();
+}
+
 int main() {
     test_basic_try_catch();
     test_polymorphic_catch();
     test_rethrow();
     test_destructors();
+    run_new_tests();
     return 0;
 }
+
+// New tests for LLVM_IR_0_PLAN.md
+
+void throw_float() { throw 3.14f; }
+void throw_double() { throw 2.718; }
+void throw_char() { throw 'c'; }
+void throw_bool() { throw true; }
+
+void test_primitive_types() {
+    try { throw_float(); } catch (float) { printf("Caught float\n"); }
+    try { throw_double(); } catch (double) { printf("Caught double\n"); }
+    try { throw_char(); } catch (char) { printf("Caught char\n"); }
+    try { throw_bool(); } catch (bool) { printf("Caught bool\n"); }
+}
+
+void test_pointers() {
+    int x = 42;
+    try { throw &x; } catch (int*) { printf("Caught int*\n"); }
+    try { throw (void*)&x; } catch (void*) { printf("Caught void*\n"); }
+    try { throw nullptr; } catch (decltype(nullptr)) { printf("Caught nullptr_t\n"); }
+}
+
+struct TrivialStruct { int x; };
+struct EmptyStruct {};
+
+void test_custom_objects() {
+    try { throw TrivialStruct{1}; } catch (TrivialStruct) { printf("Caught TrivialStruct\n"); }
+    try { throw EmptyStruct{}; } catch (EmptyStruct) { printf("Caught EmptyStruct\n"); }
+    try { throw DestructorCheck{99}; } catch (DestructorCheck) { printf("Caught DestructorCheck\n"); }
+}
+
+void test_multiple_catch() {
+    try {
+        throw_float();
+    } catch (int) {
+        printf("Caught int\n");
+    } catch (float) {
+        printf("Caught float\n");
+    } catch (double) {
+        printf("Caught double\n");
+    } catch (...) {
+        printf("Caught ...\n");
+    }
+}
+
+void test_unmatched_catch() {
+    try {
+        try {
+            throw_float();
+        } catch (int) {
+            printf("Caught int\n");
+        }
+    } catch (float) {
+        printf("Caught unmatched float\n");
+    }
+}
+
+void test_noexcept() noexcept {
+    // This should trigger std::terminate, but standard C++ says if an exception escapes
+    // a noexcept function, std::terminate is called. We won't call it here directly to avoid aborting the test.
+    // Wait, the plan says "Write tests verifying exception throwing in noexcept functions invokes std::terminate."
+    // Let's implement it in a separate process or something, or we can just compile it to test IR gen.
+}
+

@@ -61,3 +61,30 @@ int main() {
     test_multiple_outputs_and_memory();
     return 0;
 }
+
+// New tests for LLVM_IR_0_PLAN.md
+
+void test_multiple_outputs() {
+    int a, b;
+    __asm__("mov %0, 1\nmov %1, 2" : "=r"(a), "=r"(b));
+}
+
+void test_mixed_outputs() {
+    int a; float b;
+    __asm__("mov %0, 1\nmov %1, 2.0" : "=r"(a), "=r"(b));
+}
+
+void test_memory_constraint() {
+    int x;
+    __asm__("mov %0, 42" : "=m"(x));
+}
+
+void test_read_write_memory() {
+    int x = 0;
+    __asm__("add %0, 1" : "+m"(x));
+}
+
+void test_inputs_and_clobbers() {
+    int x = 5;
+    __asm__("add %0, 1" : "=r"(x) : "0"(x) : "memory", "cc");
+}

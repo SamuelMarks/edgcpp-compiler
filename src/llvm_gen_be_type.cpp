@@ -1,5 +1,8 @@
+#include <type_traits>
+
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
+#include "target.h"
 
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
@@ -18,8 +21,7 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
     case tk_void:
       llvm_ty = llvm::Type::getVoidTy(*be_state->context);
       break;
-    case tk_integer:
-    case tk_enum: {
+    case tk_integer: {
       if (is_bool_type(edg_type)) {
         llvm_ty = llvm::Type::getInt1Ty(*be_state->context);
         break;
@@ -28,28 +30,28 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
         case ik_char:
         case ik_signed_char:
         case ik_unsigned_char:
-          llvm_ty = llvm::IntegerType::get(*be_state->context, TARG_CHAR_BIT);
+          llvm_ty = llvm::IntegerType::get(*be_state->context, targ_char_bit);
           break;
         case ik_short:
         case ik_unsigned_short:
-          llvm_ty = llvm::IntegerType::get(*be_state->context, TARG_SHORT_BIT);
+          llvm_ty = llvm::IntegerType::get(*be_state->context, (targ_sizeof_short * targ_char_bit));
           break;
         case ik_int:
         case ik_unsigned_int:
-          llvm_ty = llvm::IntegerType::get(*be_state->context, TARG_INT_BIT);
+          llvm_ty = llvm::IntegerType::get(*be_state->context, (targ_sizeof_int * targ_char_bit));
           break;
         case ik_long:
         case ik_unsigned_long:
-          llvm_ty = llvm::IntegerType::get(*be_state->context, TARG_LONG_BIT);
+          llvm_ty = llvm::IntegerType::get(*be_state->context, (targ_sizeof_long * targ_char_bit));
           break;
 #if LONG_LONG_ALLOWED
         case ik_long_long:
         case ik_unsigned_long_long:
-          llvm_ty = llvm::IntegerType::get(*be_state->context, TARG_LONG_LONG_BIT);
+          llvm_ty = llvm::IntegerType::get(*be_state->context, (targ_sizeof_long_long * targ_char_bit));
           break;
 #endif /* LONG_LONG_ALLOWED */
         default:
-          llvm_ty = llvm::IntegerType::get(*be_state->context, edg_type->size * TARG_CHAR_BIT);
+          llvm_ty = llvm::IntegerType::get(*be_state->context, edg_type->size * targ_char_bit);
           break;
       }
       break;
@@ -84,16 +86,16 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
         case fk_long_double:
           // Depending on target, long double might be fp80, double, or fp128.
           // For most systems (like x86 Linux), it's fp80.
-          if (edg_type->size * TARG_CHAR_BIT == 80) {
+          if (edg_type->size * targ_char_bit == 80) {
             llvm_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
-          } else if (edg_type->size * TARG_CHAR_BIT == 128) {
+          } else if (edg_type->size * targ_char_bit == 128) {
             llvm_ty = llvm::Type::getFP128Ty(*be_state->context);
           } else {
             llvm_ty = llvm::Type::getDoubleTy(*be_state->context);
           }
           break;
         default:
-          f_error(ec_generated_c, "Unsupported floating-point kind in LLVM backend");
+          internal_error("Unsupported floating-point kind in LLVM backend");
           llvm_ty = llvm::Type::getDoubleTy(*be_state->context);
           break;
       }
@@ -129,16 +131,16 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
           elem_ty = llvm::Type::getFP128Ty(*be_state->context);
           break;
         case fk_long_double:
-          if (edg_type->size * TARG_CHAR_BIT == 160) {
+          if (edg_type->size * targ_char_bit == 160) {
             elem_ty = llvm::Type::getX86_FP80Ty(*be_state->context);
-          } else if (edg_type->size * TARG_CHAR_BIT == 256) {
+          } else if (edg_type->size * targ_char_bit == 256) {
             elem_ty = llvm::Type::getFP128Ty(*be_state->context);
           } else {
             elem_ty = llvm::Type::getDoubleTy(*be_state->context);
           }
           break;
         default:
-          f_error(ec_generated_c, "Unsupported complex floating-point kind in LLVM backend");
+          internal_error("Unsupported complex floating-point kind in LLVM backend");
           elem_ty = llvm::Type::getDoubleTy(*be_state->context);
           break;
       }
@@ -164,11 +166,11 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
       a_type_ptr mem_ty = edg_type->variant.ptr_to_member.type;
       if (mem_ty->kind == tk_routine) {
         // Pointer to member function ({ptrdiff_t, ptrdiff_t})
-        llvm::Type* int_ty = llvm::IntegerType::get(*be_state->context, TARG_SIZEOF_POINTER * TARG_CHAR_BIT);
+        llvm::Type* int_ty = llvm::IntegerType::get(*be_state->context, targ_sizeof_pointer * targ_char_bit);
         llvm_ty = llvm::StructType::get(*be_state->context, {int_ty, int_ty});
       } else {
         // Pointer to data member (ptrdiff_t)
-        llvm_ty = llvm::IntegerType::get(*be_state->context, TARG_SIZEOF_POINTER * TARG_CHAR_BIT);
+        llvm_ty = llvm::IntegerType::get(*be_state->context, targ_sizeof_pointer * targ_char_bit);
       }
       break;
     }
@@ -250,15 +252,12 @@ llvm::Type* get_llvm_type(a_type_ptr edg_type) {
       llvm_ty = struct_ty;
       break;
     }
-    case tk_enum:
-      // Enums are lowered to their underlying integer type
-      llvm_ty = get_llvm_type(edg_type->variant.enum_type.underlying_type);
-      break;
+    
     case tk_typeref:
       llvm_ty = get_llvm_type(edg_type->variant.typeref.type);
       break;
     default:
-      f_fatal(edg_type->source_corresp.position, "Unhandled AST type kind encountered in LLVM backend");
+      internal_error("Unhandled AST type kind encountered in LLVM backend");
       llvm_ty = llvm::Type::getInt8Ty(*be_state->context);
       break;
   }

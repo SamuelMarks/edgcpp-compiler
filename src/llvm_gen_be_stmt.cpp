@@ -7,6 +7,8 @@ BEGIN_EDG_NAMESPACE
 
 void emit_statement(a_statement_ptr stmt) {
   if (!stmt) return;
+  llvm::errs() << "emit_statement kind: " << stmt->kind << "\n";
+  if (!stmt) return;
 
   switch (stmt->kind) {
     case stmk_expr:
@@ -23,6 +25,9 @@ void emit_statement(a_statement_ptr stmt) {
     }
     case stmk_if: {
       llvm::Value* cond = emit_expression(stmt->expr);
+      if (cond && !cond->getType()->isIntegerTy(1)) {
+        cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
+      }
       llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
 
       llvm::BasicBlock* then_bb = llvm::BasicBlock::Create(*be_state->context, "if.then", func);
@@ -34,7 +39,7 @@ void emit_statement(a_statement_ptr stmt) {
 
       be_state->builder->SetInsertPoint(then_bb);
       emit_statement(stmt->variant.if_stmt.then_statement);
-      if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+      if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
         be_state->builder->CreateBr(merge_bb);
       }
 
@@ -42,7 +47,7 @@ void emit_statement(a_statement_ptr stmt) {
         func->insert(func->end(), else_bb);
         be_state->builder->SetInsertPoint(else_bb);
         emit_statement(stmt->variant.if_stmt.else_statement);
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
           be_state->builder->CreateBr(merge_bb);
         }
       }
@@ -67,6 +72,9 @@ void emit_statement(a_statement_ptr stmt) {
         be_state->builder->SetInsertPoint(cond_bb);
 
         llvm::Value* cond = emit_expression(stmt->expr);
+      if (cond && !cond->getType()->isIntegerTy(1)) {
+        cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
+      }
         be_state->builder->CreateCondBr(cond, body_bb, end_bb);
 
         func->insert(func->end(), body_bb);
@@ -80,40 +88,9 @@ void emit_statement(a_statement_ptr stmt) {
         be_state->break_blocks.pop_back();
         be_state->continue_blocks.pop_back();
 
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
           be_state->builder->CreateBr(cond_bb);
         }
-
-        func->insert(func->end(), end_bb);
-        be_state->builder->SetInsertPoint(end_bb);
-        break;
-      }
-      case stmk_do: {
-        llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
-        llvm::BasicBlock* body_bb = llvm::BasicBlock::Create(*be_state->context, "do.body", func);
-        llvm::BasicBlock* cond_bb = llvm::BasicBlock::Create(*be_state->context, "do.cond");
-        llvm::BasicBlock* end_bb = llvm::BasicBlock::Create(*be_state->context, "do.end");
-
-        be_state->builder->CreateBr(body_bb);
-        be_state->builder->SetInsertPoint(body_bb);
-
-        be_state->break_blocks.push_back(end_bb);
-        be_state->continue_blocks.push_back(cond_bb);
-
-        emit_statement(stmt->variant.loop_statement);
-
-        be_state->break_blocks.pop_back();
-        be_state->continue_blocks.pop_back();
-
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
-          be_state->builder->CreateBr(cond_bb);
-        }
-
-        func->insert(func->end(), cond_bb);
-        be_state->builder->SetInsertPoint(cond_bb);
-
-        llvm::Value* cond = emit_expression(stmt->expr);
-        be_state->builder->CreateCondBr(cond, body_bb, end_bb);
 
         func->insert(func->end(), end_bb);
         be_state->builder->SetInsertPoint(end_bb);
@@ -136,6 +113,9 @@ void emit_statement(a_statement_ptr stmt) {
 
         if (stmt->expr) {
           llvm::Value* cond = emit_expression(stmt->expr);
+      if (cond && !cond->getType()->isIntegerTy(1)) {
+        cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
+      }
           llvm::Value* cond_bool = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()));
           be_state->builder->CreateCondBr(cond_bool, body_bb, end_bb);
         } else {
@@ -153,7 +133,7 @@ void emit_statement(a_statement_ptr stmt) {
         be_state->break_blocks.pop_back();
         be_state->continue_blocks.pop_back();
 
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
           be_state->builder->CreateBr(inc_bb);
         }
 
@@ -167,18 +147,6 @@ void emit_statement(a_statement_ptr stmt) {
 
         func->insert(func->end(), end_bb);
         be_state->builder->SetInsertPoint(end_bb);
-        break;
-      }
-      case stmk_break: {
-        if (!be_state->break_blocks.empty()) {
-          be_state->builder->CreateBr(be_state->break_blocks.back());
-        }
-        break;
-      }
-      case stmk_continue: {
-        if (!be_state->continue_blocks.empty()) {
-          be_state->builder->CreateBr(be_state->continue_blocks.back());
-        }
         break;
       }
       case stmk_label: {
@@ -197,7 +165,7 @@ void emit_statement(a_statement_ptr stmt) {
           be_state->label_blocks[label] = label_bb;
         }
 
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
           be_state->builder->CreateBr(label_bb);
         }
         be_state->builder->SetInsertPoint(label_bb);
@@ -218,6 +186,8 @@ void emit_statement(a_statement_ptr stmt) {
       }
       case stmk_assigned_goto: {
         llvm::Value* address = emit_expression(stmt->expr);
+        if (!address) { llvm::errs() << "address is NULL!\n"; be_state->builder->CreateUnreachable(); break; }
+        llvm::errs() << "CreateIndirectBr with address = " << *address << "\n";
         llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
 
         // Count address-taken labels to size the IndirectBrInst
@@ -247,6 +217,9 @@ void emit_statement(a_statement_ptr stmt) {
       }      case stmk_switch: {
         llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
         llvm::Value* cond = emit_expression(stmt->expr);
+      if (cond && !cond->getType()->isIntegerTy(1)) {
+        cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
+      }
         llvm::BasicBlock* end_bb = llvm::BasicBlock::Create(*be_state->context, "switch.end");
         
         a_switch_stmt_descr_ptr descr = stmt->variant.switch_stmt.extra_info;
@@ -282,7 +255,7 @@ void emit_statement(a_statement_ptr stmt) {
 
         be_state->break_blocks.pop_back();
 
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
           be_state->builder->CreateBr(end_bb);
         }
 
@@ -297,11 +270,12 @@ void emit_statement(a_statement_ptr stmt) {
           case_bb = be_state->case_blocks[c];
         }
         if (case_bb) {
-          if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+          if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
             be_state->builder->CreateBr(case_bb);
           }
           be_state->builder->SetInsertPoint(case_bb);
         }
+      }
         break;
       case stmk_asm: {
         an_asm_entry_ptr aep = stmt->variant.asm_entry;
@@ -313,6 +287,7 @@ void emit_statement(a_statement_ptr stmt) {
         std::string constraints;
         std::vector<llvm::Value*> args;
         std::vector<llvm::Type*> arg_types;
+        std::vector<llvm::Type*> arg_element_types;
         std::vector<llvm::Type*> output_types;
         std::vector<an_expr_node_ptr> output_exprs;
 
@@ -321,31 +296,27 @@ void emit_statement(a_statement_ptr stmt) {
           if (!first) constraints += ",";
           first = false;
 
-          bool output = (aop->modifiers & aom_output);
-          bool is_memory = false;
-          for (an_asm_operand_constraint_ptr c = aop->constraints; c != NULL; c = c->next) {
-            if (c->kind >= aoc_mem_any && c->kind <= aoc_mem_autodec) {
-              is_memory = true;
-            }
-          }
-
-          if (output) {
-            if (aop->modifiers & aom_input) constraints += "+";
-            else constraints += "=";
-            if (is_memory) constraints += "*"; // LLVM requires * for indirect memory outputs
-          } else {
-            if (is_memory) constraints += "*"; // LLVM requires * for indirect memory inputs
-          }
+          bool output = aop->is_output_operand;
+          std::string constr = aop->constraints_string ? aop->constraints_string : "";
+          bool is_memory = (constr.find("m") != std::string::npos);
           
-          for (an_asm_operand_constraint_ptr c = aop->constraints; c != NULL; c = c->next) {
-            constraints += asm_operand_constraint_letters[(int)c->kind];
-#if GNU_X86_ASM_EXTENSIONS_ALLOWED
-            if (c->kind == aoc_cc) {
-              constraints += "cc";
-              constraints += c->cond_code;
+          if (is_memory) {
+            if (output && constr.find("*") == std::string::npos) {
+              if (constr.find("=") != std::string::npos) {
+                constr.insert(constr.find("=") + 1, "*");
+              } else if (constr.find("+") != std::string::npos) {
+                constr.replace(constr.find("+"), 1, "*");
+              }
+            } else if (!output && constr.find("*") == std::string::npos) {
+              if (constr.find("+") != std::string::npos) {
+                 constr.replace(constr.find("+"), 1, "*");
+              } else {
+                 constr = "*" + constr;
+              }
             }
-#endif
           }
+          constraints += constr;
+
 
           if (output && !is_memory) {
             // Direct output: becomes part of the return type
@@ -357,6 +328,11 @@ void emit_statement(a_statement_ptr stmt) {
             llvm::Value* arg_val = emit_expression(aop->expression);
             args.push_back(arg_val);
             arg_types.push_back(arg_val->getType());
+            if (is_memory) {
+              arg_element_types.push_back(get_llvm_type(aop->expression->type));
+            } else {
+              arg_element_types.push_back(nullptr);
+            }
           }
         }
 
@@ -364,7 +340,7 @@ void emit_statement(a_statement_ptr stmt) {
           if (!first) constraints += ",";
           first = false;
           constraints += "~{";
-          constraints += clob->name;
+          constraints += named_register_names[(int)clob->reg];
           constraints += "}";
         }
 
@@ -380,6 +356,11 @@ void emit_statement(a_statement_ptr stmt) {
         llvm::FunctionType* asm_func_ty = llvm::FunctionType::get(ret_ty, arg_types, false);
         llvm::InlineAsm* inline_asm = llvm::InlineAsm::get(asm_func_ty, asm_str, constraints, aep->is_volatile);
         llvm::CallInst* call = be_state->builder->CreateCall(inline_asm, args);
+        for (unsigned i = 0; i < args.size(); ++i) {
+          if (arg_element_types[i]) {
+             call->addParamAttr(i, llvm::Attribute::get(*be_state->context, llvm::Attribute::ElementType, arg_element_types[i]));
+          }
+        }
 
         // Store outputs back to their LValues
         if (output_types.size() == 1) {
@@ -397,7 +378,7 @@ void emit_statement(a_statement_ptr stmt) {
       case stmk_try_block: {
         llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
 
-        llvm::Type* int8_ptr_ty = llvm::Type::getInt8PtrTy(*be_state->context);
+        llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
         llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
 
         // Personality function
@@ -418,7 +399,7 @@ void emit_statement(a_statement_ptr stmt) {
         }
         be_state->current_landing_pads.pop_back();
 
-        if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
           be_state->builder->CreateBr(end_try_bb);
         }
 
@@ -477,7 +458,7 @@ void emit_statement(a_statement_ptr stmt) {
           }
 
           be_state->builder->CreateCall(end_catch_fn);
-          if (!be_state->builder->GetInsertBlock()->getTerminator()) {
+          if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
             be_state->builder->CreateBr(end_try_bb);
           }
 

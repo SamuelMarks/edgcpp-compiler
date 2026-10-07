@@ -1,5 +1,8 @@
+#include <type_traits>
+
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
+#include "target.h"
 #include "lower_name.h"
 
 
@@ -8,7 +11,7 @@ BEGIN_EDG_NAMESPACE
 
 llvm::Constant* get_typeinfo_global(a_type_ptr type) {
   if (!type) {
-    return llvm::ConstantPointerNull::get(llvm::Type::getInt8PtrTy(*be_state->context));
+    return llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
   }
   
   // Use EDG mangler to get the typeinfo name
@@ -19,7 +22,7 @@ llvm::Constant* get_typeinfo_global(a_type_ptr type) {
   if (!gv) {
       gv = new llvm::GlobalVariable(
           *be_state->module,
-          llvm::Type::getInt8PtrTy(*be_state->context),
+          llvm::PointerType::getUnqual(*be_state->context),
           true,
           llvm::GlobalValue::ExternalLinkage,
           nullptr,
@@ -31,7 +34,7 @@ llvm::Constant* get_typeinfo_global(a_type_ptr type) {
 
 llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   while (ty) {
-    if (ty->kind == tk_pointer || ty->kind == tk_reference || ty->kind == tk_rvalue_reference) {
+    if (ty->kind == tk_pointer || is_reference_type(ty)) {
       ty = ty->variant.pointer.type;
     } else if (ty->kind == tk_typeref) {
       ty = ty->variant.typeref.type;
@@ -47,6 +50,8 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
 }
 
 llvm::Value* emit_expression(an_expr_node_ptr expr) {
+  if (!expr) return nullptr;
+  llvm::errs() << "emit_expression kind: " << expr->kind << "\n";
   if (!expr) return nullptr;
 
   switch (expr->kind) {
@@ -98,7 +103,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
          }
        }
        if (!ptr) {
-         f_fatal(expr->source_corresp.position, "Unresolved variable encountered in LLVM backend");
+         internal_error("Unresolved variable encountered in LLVM backend");
          return llvm::Constant::getNullValue(get_llvm_type(expr->type));
        }
        if (!expr->is_lvalue) {
@@ -117,7 +122,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
        llvm::Value* v1 = op1 ? emit_expression(op1) : nullptr;
        llvm::Value* v2 = op2 ? emit_expression(op2) : nullptr;
        
-       switch (expr->variant.operation.operator_kind) {
+       switch (expr->variant.operation.kind) {
          case eok_add:
            if (v1 && v2) {
              if (v1->getType()->isFloatingPointTy()) return be_state->builder->CreateFAdd(v1, v2);
@@ -152,19 +157,19 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
              return be_state->builder->CreateSRem(v1, v2);
            }
            break;
-         case eok_bitwise_and:
+         case eok_and:
            if (v1 && v2) return be_state->builder->CreateAnd(v1, v2);
            break;
-         case eok_bitwise_or:
+         case eok_or:
            if (v1 && v2) return be_state->builder->CreateOr(v1, v2);
            break;
-         case eok_bitwise_xor:
+         case eok_xor:
            if (v1 && v2) return be_state->builder->CreateXor(v1, v2);
            break;
-         case eok_shift_left:
+         case eok_shiftl:
            if (v1 && v2) return be_state->builder->CreateShl(v1, v2);
            break;
-         case eok_shift_right:
+         case eok_shiftr:
            if (v1 && v2) {
              bool is_unsigned = (op1->type->kind == tk_integer && !int_kind_is_signed[op1->type->variant.integer.int_kind]);
              if (is_unsigned) return be_state->builder->CreateLShr(v1, v2);
@@ -172,7 +177,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
            }
            break;
          case eok_eq:
-         case eok_neq:
+         case eok_ne:
          case eok_lt:
          case eok_le:
          case eok_gt:
@@ -181,9 +186,9 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
              bool is_fp = v1->getType()->isFloatingPointTy();
              bool is_unsigned = !is_fp && (op1->type->kind == tk_integer && !int_kind_is_signed[op1->type->variant.integer.int_kind]);
              llvm::CmpInst::Predicate pred;
-             switch (expr->variant.operation.operator_kind) {
+             switch (expr->variant.operation.kind) {
                 case eok_eq: pred = is_fp ? llvm::CmpInst::FCMP_OEQ : llvm::CmpInst::ICMP_EQ; break;
-                case eok_neq: pred = is_fp ? llvm::CmpInst::FCMP_ONE : llvm::CmpInst::ICMP_NE; break;
+                case eok_ne: pred = is_fp ? llvm::CmpInst::FCMP_ONE : llvm::CmpInst::ICMP_NE; break;
                 case eok_lt: pred = is_fp ? llvm::CmpInst::FCMP_OLT : (is_unsigned ? llvm::CmpInst::ICMP_ULT : llvm::CmpInst::ICMP_SLT); break;
                 case eok_le: pred = is_fp ? llvm::CmpInst::FCMP_OLE : (is_unsigned ? llvm::CmpInst::ICMP_ULE : llvm::CmpInst::ICMP_SLE); break;
                 case eok_gt: pred = is_fp ? llvm::CmpInst::FCMP_OGT : (is_unsigned ? llvm::CmpInst::ICMP_UGT : llvm::CmpInst::ICMP_SGT); break;
@@ -255,7 +260,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
            break;
          case enk_throw: {
            a_throw_supplement_ptr throw_info = expr->variant.throw_info;
-           llvm::Type* int8_ptr_ty = llvm::Type::getInt8PtrTy(*be_state->context);
+           llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
 
            if (!throw_info) {
              // Rethrow
@@ -284,8 +289,8 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
              llvm::Value* exc_mem = be_state->builder->CreateCall(alloc_fn, {size_val});
 
              // Initialize exception object
-             if (throw_info->expr) {
-               llvm::Value* init_val = emit_expression(throw_info->expr);
+             if ((throw_info->dynamic_init && throw_info->dynamic_init->kind == dik_expression ? throw_info->dynamic_init->variant.expression : nullptr)) {
+               llvm::Value* init_val = emit_expression((throw_info->dynamic_init && throw_info->dynamic_init->kind == dik_expression ? throw_info->dynamic_init->variant.expression : nullptr));
                if (init_val) {
                  llvm::Type* exc_ty = get_llvm_type(throw_info->type);
                  if (exc_ty && exc_ty->isSized()) {
@@ -429,13 +434,13 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
            be_state->builder->SetInsertPoint(true_bb);
            llvm::Value* true_val = emit_expression(true_expr);
            llvm::BasicBlock* true_end_bb = be_state->builder->GetInsertBlock();
-           if (!true_end_bb->getTerminator()) be_state->builder->CreateBr(end_bb);
+           if (!true_end_bb->getTerminatorOrNull()) be_state->builder->CreateBr(end_bb);
            
            func->insert(func->end(), false_bb);
            be_state->builder->SetInsertPoint(false_bb);
            llvm::Value* false_val = emit_expression(false_expr);
            llvm::BasicBlock* false_end_bb = be_state->builder->GetInsertBlock();
-           if (!false_end_bb->getTerminator()) be_state->builder->CreateBr(end_bb);
+           if (!false_end_bb->getTerminatorOrNull()) be_state->builder->CreateBr(end_bb);
            
            func->insert(func->end(), end_bb);
            be_state->builder->SetInsertPoint(end_bb);
@@ -462,7 +467,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
            llvm::Value* rhs_val = emit_expression(op2);
            llvm::Value* rhs_cond = be_state->builder->CreateICmpNE(rhs_val, llvm::Constant::getNullValue(rhs_val->getType()));
            llvm::BasicBlock* rhs_end_bb = be_state->builder->GetInsertBlock();
-           if (!rhs_end_bb->getTerminator()) be_state->builder->CreateBr(end_bb);
+           if (!rhs_end_bb->getTerminatorOrNull()) be_state->builder->CreateBr(end_bb);
 
            func->insert(func->end(), end_bb);
            be_state->builder->SetInsertPoint(end_bb);
@@ -486,7 +491,7 @@ llvm::Value* emit_expression(an_expr_node_ptr expr) {
            llvm::Value* rhs_val = emit_expression(op2);
            llvm::Value* rhs_cond = be_state->builder->CreateICmpNE(rhs_val, llvm::Constant::getNullValue(rhs_val->getType()));
            llvm::BasicBlock* rhs_end_bb = be_state->builder->GetInsertBlock();
-           if (!rhs_end_bb->getTerminator()) be_state->builder->CreateBr(end_bb);
+           if (!rhs_end_bb->getTerminatorOrNull()) be_state->builder->CreateBr(end_bb);
 
            func->insert(func->end(), end_bb);
            be_state->builder->SetInsertPoint(end_bb);

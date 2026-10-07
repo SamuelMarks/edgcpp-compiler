@@ -4292,7 +4292,7 @@ is_full_expr is TRUE.
 }  /* lower_c99_boolean_controlling_expr */
 
 
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
 
 static a_boolean constant_has_empty_initializer(a_constant_ptr con)
 /*
@@ -4385,7 +4385,7 @@ Do C99 lowering on the indicated stmk_init statement.
 {
   a_dynamic_init_ptr dip = statement->variant.dynamic_init;
   an_insert_location insert_location;
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
   a_boolean          zero_whole_variable = init_must_zero_whole_variable(dip);
 #endif /* BACK_END_IS_C_GEN_BE */
 
@@ -4406,7 +4406,7 @@ Do C99 lowering on the indicated stmk_init statement.
   lower_dynamic_init_designated_initializers(dip, (a_type_ptr)NULL,
                                              &insert_location);
 #endif /* LOWER_DESIGNATED_INITIALIZERS */
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
   if (zero_whole_variable) {
     /* Record that the initialization does not provide a value for every part
        of the variable, and that it must be done where it appears rather than

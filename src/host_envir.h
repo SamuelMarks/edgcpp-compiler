@@ -527,7 +527,7 @@ also require such an ordering.)
 #define ENSURE_LOWERED_TYPE_LIST_ORDERING BACK_END_IS_C_GEN_BE
 #endif /* ifndef ENSURE_LOWERED_TYPE_LIST_ORDERING */
 
-#if (BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE) && !ENSURE_LOWERED_TYPE_LIST_ORDERING
+#if BACK_END_IS_C_GEN_BE && !ENSURE_LOWERED_TYPE_LIST_ORDERING
  #error BACK_END_IS_C_GEN_BE requires ENSURE_LOWERED_TYPE_LIST_ORDERING
 #endif /* BACK_END_IS_C_GEN_BE && !ENSURE_LOWERED_TYPE_LIST_ORDERING */
 
@@ -541,7 +541,7 @@ be TRUE in the standalone IL display program.
 #define BACK_END_IS_CP_GEN_BE FALSE  /* You can change this. */
 #endif /* ifndef BACK_END_IS_CP_GEN_BE */
 
-#if (BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE) && BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_C_GEN_BE && BACK_END_IS_CP_GEN_BE
  #error -- BACK_END_IS_C_GEN_BE and BACK_END_IS_CP_GEN_BE cannot both be TRUE.
 #endif /* BACK_END_IS_C_GEN_BE && BACK_END_IS_CP_GEN_BE */
 
@@ -556,7 +556,7 @@ back end (cp_gen_be) is run, this is the suffix appended to the base of the
 primary source file to get the name of the generated C output file.
 */
 #ifndef GEN_C_FILE_SUFFIX
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
 #if EDG_MSDOS
 /* File names under MSDOS cannot have multiple periods. */
 #define GEN_C_FILE_SUFFIX ".ic"
@@ -575,7 +575,7 @@ read-only storage.  This flag defaults to TRUE when the C-generating back end
 is used.
 */
 #ifndef LOWER_STRING_LITERALS_TO_NON_CONST
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
 #define LOWER_STRING_LITERALS_TO_NON_CONST TRUE
 #else /* !BACK_END_IS_C_GEN_BE */
 #define LOWER_STRING_LITERALS_TO_NON_CONST FALSE
@@ -688,7 +688,7 @@ with a C back end.
 #endif /* defined(DOING_SOURCE_ANALYSIS) && DOING_SOURCE_ANALYSIS */
 #endif /* BACK_END_IS_CP_GEN_BE */
 #endif /* ifndef DO_IL_LOWERING */
-#if (BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE) && !DO_IL_LOWERING
+#if BACK_END_IS_C_GEN_BE && !DO_IL_LOWERING
  #error -- IL lowering must be done for the C-generating back end.
 #endif /* BACK_END_IS_C_GEN_BE && !DO_IL_LOWERING */
 #ifndef ALLOW_CPPCLI_AND_CPPCX_WITH_LOWERING
@@ -1110,7 +1110,7 @@ definition_needed flag in class/struct/union type entries should be
 maintained.
 */
 #ifndef MAINTAIN_NEEDED_FLAGS
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
 #define MAINTAIN_NEEDED_FLAGS TRUE  /* You can change this. */
 #else /* !BACK_END_IS_C_GEN_BE */
 #define MAINTAIN_NEEDED_FLAGS FALSE  /* You can change this. */
@@ -1155,7 +1155,7 @@ is disabled by default except when using the C generating back end.
 */
 #ifndef ONE_INSTANTIATION_PER_OBJECT
 #if DRIVER_COMPATIBILITY_VERSION >= 237
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if (BACK_END_IS_C_GEN_BE) && !BACK_END_IS_CP_GEN_BE
 #define ONE_INSTANTIATION_PER_OBJECT TRUE
 #else /* !BACK_END_IS_C_GEN_BE */
 #define ONE_INSTANTIATION_PER_OBJECT FALSE
@@ -1865,7 +1865,7 @@ This is intended mostly for use with the C-generating back end, and does
 not do anything very fancy.
 */
 #ifndef MINIMAL_INLINING
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if (BACK_END_IS_C_GEN_BE) && DO_IL_LOWERING
 #define MINIMAL_INLINING TRUE
 #else /* !BACK_END_IS_C_GEN_BE */
 #define MINIMAL_INLINING FALSE

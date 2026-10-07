@@ -960,7 +960,7 @@ associated variant fields to default values.
   cp->is_literal_field = FALSE;
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
   cp->is_pack_expansion = FALSE;
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
   cp->elide_aggregate_braces = FALSE;
 #endif /* BACK_END_IS_C_GEN_BE */
   cp->is_named_constant_definition = FALSE;
@@ -2280,7 +2280,7 @@ variant fields to default values.
 #if CFRONT_2_1_OBJECT_CODE_COMPATIBILITY
   pte->use_cfront_transitional_nested_type_name_mangling = FALSE;
 #endif /* CFRONT_2_1_OBJECT_CODE_COMPATIBILITY */
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
   pte->prototype_scope_types_if_any_promoted = FALSE;
   pte->typedef_pending = FALSE;
   pte->generated_as_empty_struct = FALSE;
@@ -2803,7 +2803,7 @@ to it.
   fp->property_or_event_descr = NULL;
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
   fp->declared_bit_size        = 0;
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
   fp->bit_field_alignment_type = NULL;
 #endif /* BACK_END_IS_C_GEN_BE */
 #if EXTRA_SOURCE_POSITIONS_IN_IL
@@ -3468,7 +3468,7 @@ fields to default values.
                                 (a_rewritten_property_reference_kind)rprk_none;
       node->variant.operation.requires_runtime_cast_check = FALSE;
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
       node->variant.operation.has_deferred_ampersand = FALSE;
 #endif /* BACK_END_IS_C_GEN_BE */
       node->variant.operation.eval_left_to_right = FALSE;

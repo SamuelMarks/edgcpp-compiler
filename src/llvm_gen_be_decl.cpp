@@ -1,5 +1,11 @@
+#include <type_traits>
+
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
+#include "il_read.h"
+
+#include <llvm/IR/Verifier.h>
+#include "target.h"
 
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
@@ -42,6 +48,10 @@ void emit_global_variables() {
        // Default to zero-initialized for static/global without explicit init
        llvm_init = llvm::Constant::getNullValue(llvm_ty);
     }
+    
+    if (!llvm_init) {
+       linkage = llvm::GlobalValue::ExternalLinkage;
+    }
 
     be_state->module->getOrInsertGlobal(var->source_corresp.name, llvm_ty);
     llvm::GlobalVariable* gvar = be_state->module->getNamedGlobal(var->source_corresp.name);
@@ -73,12 +83,12 @@ void emit_function_declarations() {
     llvm::FunctionType* func_ty = llvm::cast<llvm::FunctionType>(llvm_ty);
 
     llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
-    if (routine->storage_class == sc_static) {
-      linkage = llvm::GlobalValue::InternalLinkage;
-    }
-    // Inline functions
-    if (routine->is_inline) {
-      linkage = llvm::GlobalValue::LinkOnceODRLinkage;
+    if (routine->function_def_number != 0) {
+       if (routine->storage_class == sc_static) {
+         linkage = llvm::GlobalValue::InternalLinkage;
+       } else if (routine->is_inline) {
+         linkage = llvm::GlobalValue::LinkOnceODRLinkage;
+       }
     }
 
     llvm::Function* func = llvm::Function::Create(
@@ -109,6 +119,25 @@ void emit_function_declarations() {
   }
 }
 
+static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
+  a_memory_region_number region_number = mem_region_for_routine(rout);
+#if IL_SHOULD_BE_WRITTEN_TO_FILE
+  if (!skip_il_read && mem_region_table[region_number] == NULL) {
+    read_memory_region(region_number);
+  }
+#endif
+  a_scope_ptr res = scope_for_routine(rout);
+  llvm::errs() << "scope_for_routine for " << rout->source_corresp.name << " is " << (res ? "NOT NULL" : "NULL") << "\n";
+  a_memory_region_number region_number2 = mem_region_for_routine(rout);
+  llvm::errs() << "region_number is " << region_number2 << "\n";
+  if (!res) {
+     // fallback
+     a_function_def_descr def_descr = il_header.function_def_table[rout->function_def_number];
+     res = def_descr.scope;
+  }
+  return res;
+}
+
 void emit_function_definitions() {
   if (!il_header.primary_scope) return;
 
@@ -123,8 +152,7 @@ void emit_function_definitions() {
     be_state->builder->SetInsertPoint(entry_bb);
 
     // Look up the function definition
-    a_function_def_descr def_descr = il_header.function_def_table[routine->function_def_number];
-    a_scope_ptr func_scope = def_descr.scope;
+    a_scope_ptr func_scope = get_scope_for_routine_definition(routine);
     if (!func_scope) continue;
 
     // Clear local variables and labels for the new function scope
@@ -161,19 +189,30 @@ void emit_function_definitions() {
     // Map labels to BasicBlocks
     std::unordered_map<a_label_ptr, llvm::BasicBlock*> label_map;
     for (a_label_ptr lbl = func_scope->labels; lbl != nullptr; lbl = lbl->next) {
-      llvm::BasicBlock* bb = llvm::BasicBlock::Create(*be_state->context, lbl->name ? lbl->name : "lbl", func);
+      llvm::BasicBlock* bb = llvm::BasicBlock::Create(*be_state->context, lbl->source_corresp.name ? lbl->source_corresp.name : "lbl", func);
       label_map[lbl] = bb;
     }
 
     if (func_scope->assoc_block) {
+      llvm::errs() << "Emitting statements for " << routine->source_corresp.name << "\n";
       emit_statement(func_scope->assoc_block);
     }
 
-    // Ensure valid terminator, usually handled by stmk_return, but for safety in malformed IL
-    if (!be_state->builder->GetInsertBlock()->getTerminator()) {
-      be_state->builder->CreateUnreachable();
+    // Ensure all blocks have a terminator
+    for (llvm::BasicBlock& bb : *func) {
+      if (!bb.getTerminatorOrNull()) {
+        llvm::errs() << "Adding terminator to " << bb.getName() << "\n";
+        be_state->builder->SetInsertPoint(&bb);
+        if (func->getReturnType()->isVoidTy()) {
+          be_state->builder->CreateRetVoid();
+        } else {
+          be_state->builder->CreateUnreachable();
+        }
+      }
     }
     
+    be_state->module->print(llvm::errs(), nullptr);
+    llvm::errs() << "Verifying function " << routine->source_corresp.name << "\n";
     std::string err_str;
     llvm::raw_string_ostream os(err_str);
     if (llvm::verifyFunction(*func, &os)) {
@@ -181,8 +220,8 @@ void emit_function_definitions() {
       snprintf(error_msg, sizeof(error_msg), "LLVM Function Verification failed for %s: %s", routine->source_corresp.name, err_str.c_str());
       
       // Map to source position
-      error_position = routine->source_corresp.position;
-      f_error(ec_generated_c, error_msg);
+      
+      internal_error(error_msg);
     }
   }
 }

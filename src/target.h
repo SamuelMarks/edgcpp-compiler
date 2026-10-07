@@ -1128,7 +1128,7 @@ EXTERN_THREAD a_boolean
 			/* TRUE if the instantiation mechanism should be used
 			   to control the definition of inline variables. */
 
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
 
 EXTERN_THREAD a_boolean
 		sun_is_generated_code_target;
@@ -1238,7 +1238,7 @@ EXTERN_THREAD a_boolean
 			   a (one time) warning is issued when a try statement
 			   is encountered. */
 
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
 EXTERN_THREAD a_boolean
 		use_empty_struct_in_generated_c;
 			/* When TRUE, the C-generating back end will use an
@@ -1455,7 +1455,7 @@ EXTERN_THREAD an_integer_kind
 #if !IA64_ABI
 #undef TARG_RUNTIME_ELEM_COUNT_INT_KIND
 #endif /* !IA64_ABI */
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
 #undef USE_EMPTY_STRUCT_IN_GENERATED_C
 #if DO_IL_LOWERING
 #undef TARG_DELTA_INT_KIND
@@ -1674,7 +1674,7 @@ EXTERN_THREAD an_integer_kind
 #if !IA64_ABI
 #define TARG_RUNTIME_ELEM_COUNT_INT_KIND targ_runtime_elem_count_int_kind
 #endif /* !IA64_ABI */
-#if BACK_END_IS_C_GEN_BE || BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_C_GEN_BE
 #define USE_EMPTY_STRUCT_IN_GENERATED_C use_empty_struct_in_generated_c
 #if DO_IL_LOWERING
 #define TARG_DELTA_INT_KIND targ_delta_int_kind

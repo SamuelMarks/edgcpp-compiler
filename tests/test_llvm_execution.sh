@@ -6,7 +6,7 @@ if [ "$RUN_LLVM_LINK_TESTS" != "1" ]; then
     exit 0
 fi
 
-CPFE_PATH="build/test_llvm_enabled/bin/cpfe"
+CPFE_PATH="build/coverage/bin/cpfe"
 if [ ! -f "$CPFE_PATH" ]; then
     echo "FAIL: $CPFE_PATH not found."
     exit 1

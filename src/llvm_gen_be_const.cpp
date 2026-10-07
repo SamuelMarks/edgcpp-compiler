@@ -1,6 +1,11 @@
+#include <type_traits>
+
 #include "basic_hdrs.h"
+#include "fe_common.h"
+
 #include "float_pt.h"
 #include "llvm_gen_be_internal.h"
+#include "target.h"
 
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
@@ -17,14 +22,14 @@ llvm::Constant* evaluate_constant(a_constant_ptr con, llvm::Type* expected_ty) {
     case ck_float: {
       a_boolean pos_inf = FALSE, neg_inf = FALSE, nan = FALSE;
       a_float_kind fk = con->type->variant.float_kind;
-      a_number_buffer hex_str = fp_to_hex_constant_string(
+      a_number_buffer hex_str = fp_to_string(
           fk, &con->variant.float_value, &pos_inf, &neg_inf, &nan);
 
       if (pos_inf) return llvm::ConstantFP::getInfinity(expected_ty, false);
       if (neg_inf) return llvm::ConstantFP::getInfinity(expected_ty, true);
       if (nan) return llvm::ConstantFP::getQNaN(expected_ty);
 
-      llvm::StringRef str_ref(hex_str.c_str());
+      llvm::StringRef str_ref(hex_str.as_temp_characters());
       return llvm::ConstantFP::get(expected_ty, str_ref);
     }
     case ck_string: {
@@ -37,7 +42,7 @@ llvm::Constant* evaluate_constant(a_constant_ptr con, llvm::Type* expected_ty) {
       if (actual_array_ty->isArrayTy()) {
         elem_ty = actual_array_ty->getArrayElementType();
       } else {
-        f_fatal(con->source_corresp.position, "String constant type is not an array");
+        internal_error("String constant type is not an array");
         elem_ty = llvm::Type::getInt8Ty(*be_state->context);
       }
 
