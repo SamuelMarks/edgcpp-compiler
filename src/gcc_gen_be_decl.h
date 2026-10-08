@@ -1,0 +1,50 @@
+/**
+ * @file gcc_gen_be_decl.h
+ * @brief Declaration lowering for the GCC backend.
+ *
+ * This file declares functions for lowering EDG variables and functions
+ * into libgccjit global variables and functions.
+ *
+ * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM
+ * Exceptions.
+ * See https://edgcpp.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ */
+
+#ifndef GCC_GEN_BE_DECL_H
+#define GCC_GEN_BE_DECL_H
+
+#include "gcc_gen_be_error.h"
+#include "fe_common.h"
+#include "il.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct gcc_jit_lvalue gcc_jit_lvalue;
+typedef struct gcc_jit_function gcc_jit_function;
+
+/**
+ * @brief Lowers an EDG variable declaration into a libgccjit lvalue.
+ *
+ * @param var The frontend variable node.
+ * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
+ * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
+ */
+extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval);
+
+/**
+ * @brief Lowers an EDG function/routine declaration into a libgccjit function.
+ *
+ * @param rout The frontend routine node.
+ * @param out_func A pointer to a gcc_jit_function pointer that will receive the result.
+ * @return GCC_GEN_BE_SUCCESS on success, with `*out_func` populated.
+ */
+extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* GCC_GEN_BE_DECL_H */

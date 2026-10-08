@@ -1,0 +1,50 @@
+/**
+ * @file gcc_gen_be_expr.h
+ * @brief Expression lowering for the GCC backend.
+ *
+ * This file declares functions for lowering EDG AST expression nodes
+ * into libgccjit lvalues and rvalues.
+ *
+ * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM
+ * Exceptions.
+ * See https://edgcpp.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ */
+
+#ifndef GCC_GEN_BE_EXPR_H
+#define GCC_GEN_BE_EXPR_H
+
+#include "gcc_gen_be_error.h"
+#include "fe_common.h"
+#include "expr.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct gcc_jit_lvalue gcc_jit_lvalue;
+typedef struct gcc_jit_rvalue gcc_jit_rvalue;
+
+/**
+ * @brief Lowers an EDG expression into a libgccjit lvalue.
+ *
+ * @param expr The frontend expression node.
+ * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
+ * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
+ */
+extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_lvalue **out_lval);
+
+/**
+ * @brief Lowers an EDG expression into a libgccjit rvalue.
+ *
+ * @param expr The frontend expression node.
+ * @param out_rval A pointer to a gcc_jit_rvalue pointer that will receive the result.
+ * @return GCC_GEN_BE_SUCCESS on success, with `*out_rval` populated.
+ */
+extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* GCC_GEN_BE_EXPR_H */

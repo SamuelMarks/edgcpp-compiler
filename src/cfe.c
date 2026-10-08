@@ -48,7 +48,9 @@ Open-sourced in September of 2026.
 #include "cp_gen_be.h"
 #endif /* BACK_END_IS_CP_GEN_BE */
 #if BACK_END_IS_GCC_GEN_BE
-#include "gcc_gen_be.h"
+#include "gcc_gen_be_main.h"
+#include "gcc_gen_be_context.h"
+#include "gcc_gen_be_context.h"
 #endif /* BACK_END_IS_GCC_GEN_BE */
 #if BACK_END_SHOULD_BE_CALLED && \
     !BACK_END_IS_C_GEN_BE && !BACK_END_IS_CP_GEN_BE && !BACK_END_IS_GCC_GEN_BE
