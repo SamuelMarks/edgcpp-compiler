@@ -68,6 +68,12 @@ void test_destructors() {
     }
 }
 
+void test_primitive_types();
+void test_pointers();
+void test_custom_objects();
+void test_multiple_catch();
+void test_unmatched_catch();
+
 void run_new_tests() {
     test_primitive_types();
     test_pointers();

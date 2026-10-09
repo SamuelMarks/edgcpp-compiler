@@ -116,6 +116,9 @@ enum an_option_kind {
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
 #if BACK_END_IS_LLVM_GEN_BE
   optk_gen_llvm_file_name,
+  optk_gen_llvm_bc_file_name,
+  optk_gen_obj_file_name,
+  optk_gen_asm_file_name,
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   optk_create_pch,
   optk_use_pch,
@@ -1378,10 +1381,22 @@ EXTERN_THREAD a_const_char
 
 #if BACK_END_IS_LLVM_GEN_BE
 EXTERN_THREAD a_const_char
-		*gen_llvm_file_name;
-			/* Points to a string specifying the name of the
-			   generated LLVM IR file to be created.  The front end
-			   will generate a name if this string is NULL. */
+           *gen_llvm_file_name;
+                   /* Points to a string specifying the name of the
+                      generated LLVM IR file to be created.  The front end
+                      will generate a name if this string is NULL. */
+EXTERN_THREAD a_const_char
+           *gen_llvm_bc_file_name;
+                   /* Points to a string specifying the name of the
+                      generated LLVM bitcode file to be created. */
+EXTERN_THREAD a_const_char
+           *gen_obj_file_name;
+                   /* Points to a string specifying the name of the
+                      generated object file to be created. */
+EXTERN_THREAD a_const_char
+           *gen_asm_file_name;
+                   /* Points to a string specifying the name of the
+                      generated assembly file to be created. */
 #endif /* BACK_END_IS_LLVM_GEN_BE */
 
 EXTERN_THREAD a_boolean

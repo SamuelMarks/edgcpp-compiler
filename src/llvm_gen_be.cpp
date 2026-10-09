@@ -8,14 +8,16 @@
 
 
 #include "llvm_gen_be_internal.h"
+#include "llvm_gen_be_codegen.h"
 #include "target.h"
 
-#if BACK_END_IS_LLVM_GEN_BE
+// LLVM Includes
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Triple.h>
+#include <llvm/TargetParser/Host.h>
 
 BEGIN_EDG_NAMESPACE
 
@@ -54,20 +56,6 @@ std::string build_data_layout() {
 }
 
 void generate_llvm_output_file(const char* base_name) {
-  std::string file_name;
-  bool emit_bc = false; // Add CLI toggle logic later if needed
-
-  if (gen_llvm_file_name) {
-    file_name = gen_llvm_file_name;
-  } else if (base_name) {
-    const char* derived = derived_name(base_name, emit_bc ? ".bc" : ".ll");
-    if (derived) file_name = derived;
-  }
-
-  if (file_name.empty()) {
-    file_name = emit_bc ? "output.bc" : "output.ll";
-  }
-
   std::string err_str;
   llvm::raw_string_ostream os(err_str);
   if (llvm::verifyModule(*be_state->module, &os)) {
@@ -75,19 +63,57 @@ void generate_llvm_output_file(const char* base_name) {
     internal_error(err_str.c_str());
   }
 
-  std::error_code EC;
-  llvm::raw_fd_ostream dest(file_name, EC, llvm::sys::fs::OF_None);
-
-  if (EC) {
-    internal_error(file_name.c_str());
-    return;
+  // Initialize target registry once
+  static bool targets_initialized = false;
+  if (!targets_initialized) {
+    initialize_llvm_targets();
+    targets_initialized = true;
   }
 
-  if (emit_bc) {
-    llvm::WriteBitcodeToFile(*be_state->module, dest);
-  } else {
-    be_state->module->print(dest, nullptr);
+  llvm::TargetMachine* tm = nullptr;
+  std::string triple_str = be_state->module->getTargetTriple().str();
+  // Assume default target for now
+  llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, &tm);
+  if (tm_err != llvm_gen_be_error_t::ok) {
+    internal_error("Failed to create TargetMachine");
   }
+
+  // Emit .ll
+  std::string ll_name;
+  if (gen_llvm_file_name) {
+    ll_name = gen_llvm_file_name;
+  } else if (base_name) {
+    const char* derived = derived_name(base_name, ".ll");
+    if (derived) ll_name = derived;
+  }
+  if (ll_name.empty()) ll_name = "output.ll";
+  
+  if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::llvm_ir_text, ll_name.c_str()) != llvm_gen_be_error_t::ok) {
+    internal_error("Failed to emit LLVM IR text file");
+  }
+
+  // Emit .bc
+  if (gen_llvm_bc_file_name) {
+    if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::bitcode_file, gen_llvm_bc_file_name) != llvm_gen_be_error_t::ok) {
+      internal_error("Failed to emit LLVM bitcode file");
+    }
+  }
+
+  // Emit .s
+  if (gen_asm_file_name) {
+    if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::assembly_file, gen_asm_file_name) != llvm_gen_be_error_t::ok) {
+      internal_error("Failed to emit assembly file");
+    }
+  }
+
+  // Emit .o
+  if (gen_obj_file_name) {
+    if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::object_file, gen_obj_file_name) != llvm_gen_be_error_t::ok) {
+      internal_error("Failed to emit object file");
+    }
+  }
+
+  delete tm;
 }
 
 void llvm_gen_be(void)
@@ -100,32 +126,62 @@ void llvm_gen_be(void)
   be_state->builder = std::make_unique<llvm::IRBuilder<>>(*be_state->context);
   
   // Set TargetTriple
-#if 0
-  #if TARG_AARCH64
-    be_state->module->setTargetTriple(llvm::Triple("aarch64-apple-darwin"));
-  #else
-    be_state->module->setTargetTriple(llvm::Triple("x86_64-apple-darwin"));
-  #endif
-#elif TARG_MICROSOFT
-  #if TARG_AARCH64
-    be_state->module->setTargetTriple(llvm::Triple("aarch64-pc-windows-msvc"));
-  #else
-    be_state->module->setTargetTriple(llvm::Triple("x86_64-pc-windows-msvc"));
-  #endif
+// Initialize target registry once
+static bool targets_initialized = false;
+if (!targets_initialized) {
+  initialize_llvm_targets();
+  targets_initialized = true;
+}
+
+std::string triple_str;
+
+#if TARG_MAC_OS
+#if TARG_AARCH64
+  triple_str = "aarch64-apple-darwin";
 #else
-  #if TARG_AARCH64
-    be_state->module->setTargetTriple(llvm::Triple("aarch64-unknown-linux-gnu"));
-  #else
-    be_state->module->setTargetTriple(llvm::Triple("x86_64-unknown-linux-gnu"));
-  #endif
+  triple_str = "x86_64-apple-darwin";
+#endif
+#elif TARG_MICROSOFT
+#if TARG_AARCH64
+  triple_str = "aarch64-pc-windows-msvc";
+#else
+  triple_str = "x86_64-pc-windows-msvc";
+#endif
+#else
+#if TARG_AARCH64
+  triple_str = "aarch64-unknown-linux-gnu";
+#else
+  triple_str = "x86_64-unknown-linux-gnu";
+#endif
 #endif
 
-  be_state->module->setDataLayout(build_data_layout());
+be_state->module->setTargetTriple(llvm::Triple(triple_str));
 
-  emit_global_variables();
-  emit_function_declarations();
-  emit_function_definitions();
-  emit_global_ctors_and_dtors();
+llvm::TargetMachine* tm = nullptr;
+llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, &tm);
+if (tm_err != llvm_gen_be_error_t::ok) {
+  internal_error("Failed to create TargetMachine");
+}
+
+be_state->module->setDataLayout(tm->createDataLayout());
+delete tm;
+
+  
+  llvm_gen_be_error_t err = llvm_lower_global_variables();
+  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower global variables");
+
+  
+  err = llvm_lower_function_declarations();
+  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower function declarations");
+
+  
+  err = llvm_lower_function_definitions();
+  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower function definitions");
+
+  
+  err = llvm_lower_global_ctors_and_dtors();
+  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower global ctors and dtors");
+
 
   generate_llvm_output_file(primary_source_file_name);
 }
@@ -183,4 +239,3 @@ required.
 #endif /* MAKE_FRONT_END_CALLABLE */
 
 END_EDG_NAMESPACE
-#endif /* BACK_END_IS_LLVM_GEN_BE */

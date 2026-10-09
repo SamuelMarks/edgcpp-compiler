@@ -506,6 +506,15 @@ Initialize the option information table.
   add_option_description(optk_gen_llvm_file_name, "gen_llvm_file_name",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_none);
+  add_option_description(optk_gen_llvm_bc_file_name, "gen_llvm_bc_file_name",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
+  add_option_description(optk_gen_obj_file_name, "gen_obj_file_name",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
+  add_option_description(optk_gen_asm_file_name, "gen_asm_file_name",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   add_option_description(optk_create_pch, "create_pch",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
@@ -11124,6 +11133,18 @@ Process the arguments on the command line that invoked the compiler.
         /* The name to be used for the generated LLVM IR file. */
         gen_llvm_file_name = file_name_from_opt_arg(opt_arg);
         break;
+      case optk_gen_llvm_bc_file_name:
+        /* The name to be used for the generated LLVM bitcode file. */
+        gen_llvm_bc_file_name = file_name_from_opt_arg(opt_arg);
+        break;
+      case optk_gen_obj_file_name:
+        /* The name to be used for the generated object file. */
+        gen_obj_file_name = file_name_from_opt_arg(opt_arg);
+        break;
+      case optk_gen_asm_file_name:
+        /* The name to be used for the generated assembly file. */
+        gen_asm_file_name = file_name_from_opt_arg(opt_arg);
+        break;
 #endif /* BACK_END_IS_LLVM_GEN_BE */
       case optk_create_pch:
         /* Create precompiled header file as part of this compilation. */
@@ -13435,6 +13456,9 @@ variables declared in cmd_line.h.
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
 #if BACK_END_IS_LLVM_GEN_BE
   gen_llvm_file_name = NULL;
+  gen_llvm_bc_file_name = NULL;
+  gen_obj_file_name = NULL;
+  gen_asm_file_name = NULL;
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   precompiled_header_processing_required = FALSE;
   create_precompiled_header = FALSE;

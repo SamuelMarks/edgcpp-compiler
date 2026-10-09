@@ -21,7 +21,12 @@ jobs:
       run: |
         export CXX=clang++-14
         export CC=clang-14
-        ./tests/run_coverage.sh
+        OUTPUT=$(./dev_tools/bin/run_coverage.sh)
+        echo "$OUTPUT"
+        if ! echo "$OUTPUT" | grep -q "100%"; then
+          echo "Coverage is below strict 100% threshold!"
+          exit 1
+        fi
         
     - name: Run Valgrind Tests
       run: |

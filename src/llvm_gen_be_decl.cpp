@@ -1,7 +1,23 @@
+
+/**
+ * @file llvm_gen_be_decl.cpp
+ * @brief Declaration lowering subsystem for the EDG LLVM backend.
+ * @details Translates EDG front-end global variables, function prototypes, and
+ * function bodies into LLVM IR globals and functions.
+ *
+ * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://edgcpp.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ */
+
 #include <type_traits>
+#include <vector>
 
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
+#include "llvm_gen_be_abi_sysv_x86_64.h"
+#include "llvm_gen_be_abi_aapcs64.h"
+#include "llvm_gen_be_abi_win64.h"
 #include "il_read.h"
 
 #include <llvm/IR/Verifier.h>
@@ -10,10 +26,52 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-void emit_global_variables() {
-  if (!il_header.primary_scope) return;
-  for (a_variable_ptr var = il_header.primary_scope->variables; var != nullptr; var = var->next) {
-    if (!var->source_corresp.name) continue; // Skip unnamed
+static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr attributes) {
+    for (an_attribute_ptr attr = attributes; attr != nullptr; attr = attr->next) {
+        if (attr->kind == ak_section) {
+            if (attr->arguments && attr->arguments->kind == aak_constant) {
+                a_constant_ptr const_ptr = attr->arguments->variant.constant;
+                if (const_ptr && const_ptr->kind == ck_string) {
+                    std::string sec_name(const_ptr->variant.string.value, const_ptr->variant.string.length - 1);
+                    global->setSection(sec_name);
+                }
+            } else if (attr->arguments && (attr->arguments->kind == aak_token || attr->arguments->kind == aak_raw_token)) {
+                if (attr->arguments->variant.token) {
+                     std::string sec_name = attr->arguments->variant.token;
+                     if (sec_name.size() >= 2 && sec_name.front() == '"' && sec_name.back() == '"') {
+                         sec_name = sec_name.substr(1, sec_name.size() - 2);
+                     }
+                     global->setSection(sec_name);
+                }
+            }
+        } else if (attr->kind == ak_visibility) {
+            std::string vis_str;
+            if (attr->arguments && attr->arguments->kind == aak_constant) {
+                a_constant_ptr const_ptr = attr->arguments->variant.constant;
+                if (const_ptr && const_ptr->kind == ck_string) {
+                    vis_str = std::string(const_ptr->variant.string.value, const_ptr->variant.string.length - 1);
+                }
+            } else if (attr->arguments && (attr->arguments->kind == aak_token || attr->arguments->kind == aak_raw_token)) {
+                if (attr->arguments->variant.token) {
+                     vis_str = attr->arguments->variant.token;
+                     if (vis_str.size() >= 2 && vis_str.front() == '"' && vis_str.back() == '"') {
+                         vis_str = vis_str.substr(1, vis_str.size() - 2);
+                     }
+                }
+            }
+            if (vis_str == "hidden") {
+                global->setVisibility(llvm::GlobalValue::HiddenVisibility);
+            } else if (vis_str == "protected") {
+                global->setVisibility(llvm::GlobalValue::ProtectedVisibility);
+            } else if (vis_str == "default") {
+                global->setVisibility(llvm::GlobalValue::DefaultVisibility);
+            }
+        }
+    }
+}
+
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_global_variable(a_variable_ptr var) {
+    if (!var || !var->source_corresp.name) return llvm_gen_be_error_t::ok; // Skip unnamed
     
     llvm::Type* llvm_ty = get_llvm_type(var->type);
     
@@ -36,7 +94,8 @@ void emit_global_variables() {
 
     llvm::Constant* llvm_init = nullptr;
     if (init_kind == initk_static) {
-       llvm_init = evaluate_constant(initializer_ptr->constant, llvm_ty);
+       llvm_gen_be_error_t err = evaluate_constant(initializer_ptr->constant, llvm_ty, &llvm_init);
+       if (err != llvm_gen_be_error_t::ok) return err;
     } else if (init_kind == initk_dynamic) {
        a_dynamic_init_ptr dip = initializer_ptr->dynamic;
        if (dip && dip->kind == dik_constant && !dip->follows_an_exec_statement) {
@@ -57,6 +116,7 @@ void emit_global_variables() {
     llvm::GlobalVariable* gvar = be_state->module->getNamedGlobal(var->source_corresp.name);
     if (gvar) {
       gvar->setLinkage(linkage);
+      apply_llvm_attributes(gvar, var->source_corresp.attributes);
       if (var->is_thread_local) {
         gvar->setThreadLocalMode(llvm::GlobalValue::GeneralDynamicTLSModel);
       }
@@ -70,17 +130,33 @@ void emit_global_variables() {
         gvar->setInitializer(llvm_init);
       }
     }
-  }
+    return llvm_gen_be_error_t::ok;
 }
 
-void emit_function_declarations() {
-  if (!il_header.primary_scope) return;
-  for (a_routine_ptr routine = il_header.primary_scope->routines; routine != nullptr; routine = routine->next) {
-    if (!routine->source_corresp.name) continue;
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_global_variables() {
+  if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
+  for (a_variable_ptr var = il_header.primary_scope->variables; var != nullptr; var = var->next) {
+     llvm_gen_be_error_t err = llvm_lower_global_variable(var);
+     if (err != llvm_gen_be_error_t::ok) return err;
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) {
+    if (!routine || !routine->source_corresp.name) return llvm_gen_be_error_t::ok;
     
-    llvm::Type* llvm_ty = get_llvm_type(routine->type);
-    if (!llvm_ty->isFunctionTy()) continue;
-    llvm::FunctionType* func_ty = llvm::cast<llvm::FunctionType>(llvm_ty);
+    llvm::FunctionType* func_ty = nullptr;
+    llvm::AttributeList attrs;
+    llvm_gen_be_error_t err = llvm_gen_be_error_t::ok;
+    
+    llvm::Triple triple(be_state->module->getTargetTriple());
+    if (triple.isAArch64()) {
+      err = build_aapcs64_function_type(routine->type, &func_ty, &attrs);
+    } else {
+      err = build_sysv_function_type(routine->type, &func_ty, &attrs);
+    }
+    if (err != llvm_gen_be_error_t::ok) return err;
+    if (!func_ty) return llvm_gen_be_error_t::ok;
 
     llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
     if (routine->function_def_number != 0) {
@@ -93,6 +169,8 @@ void emit_function_declarations() {
 
     llvm::Function* func = llvm::Function::Create(
         func_ty, linkage, routine->source_corresp.name, be_state->module.get());
+    func->setAttributes(attrs);
+    apply_llvm_attributes(func, routine->source_corresp.attributes);
         
 #if GNU_EXTENSIONS_ALLOWED || MICROSOFT_EXTENSIONS_ALLOWED
     if (routine->always_inline) {
@@ -116,7 +194,16 @@ void emit_function_declarations() {
         }
       }
     }
+    return llvm_gen_be_error_t::ok;
+}
+
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_declarations() {
+  if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
+  for (a_routine_ptr routine = il_header.primary_scope->routines; routine != nullptr; routine = routine->next) {
+    llvm_gen_be_error_t err = llvm_lower_function_prototype(routine);
+    if (err != llvm_gen_be_error_t::ok) return err;
   }
+  return llvm_gen_be_error_t::ok;
 }
 
 static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
@@ -127,33 +214,26 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
   }
 #endif
   a_scope_ptr res = scope_for_routine(rout);
-  llvm::errs() << "scope_for_routine for " << rout->source_corresp.name << " is " << (res ? "NOT NULL" : "NULL") << "\n";
-  a_memory_region_number region_number2 = mem_region_for_routine(rout);
-  llvm::errs() << "region_number is " << region_number2 << "\n";
   if (!res) {
-     // fallback
      a_function_def_descr def_descr = il_header.function_def_table[rout->function_def_number];
      res = def_descr.scope;
   }
   return res;
 }
 
-void emit_function_definitions() {
-  if (!il_header.primary_scope) return;
-
-  for (a_routine_ptr routine = il_header.primary_scope->routines; routine != nullptr; routine = routine->next) {
-    if (!routine->source_corresp.name) continue;
-    if (!routine->function_def_number) continue; // No body
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) {
+    if (!routine || !routine->source_corresp.name) return llvm_gen_be_error_t::ok;
+    if (!routine->function_def_number) return llvm_gen_be_error_t::ok; // No body
 
     llvm::Function* func = be_state->module->getFunction(routine->source_corresp.name);
-    if (!func) continue;
+    if (!func) return llvm_gen_be_error_t::ok;
 
     llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create(*be_state->context, "entry", func);
     be_state->builder->SetInsertPoint(entry_bb);
 
     // Look up the function definition
     a_scope_ptr func_scope = get_scope_for_routine_definition(routine);
-    if (!func_scope) continue;
+    if (!func_scope) return llvm_gen_be_error_t::ok;
 
     // Clear local variables and labels for the new function scope
     be_state->local_vars.clear();
@@ -163,18 +243,57 @@ void emit_function_definitions() {
       be_state->label_blocks[label] = llvm::BasicBlock::Create(*be_state->context, "label", func);
     }
 
+    // Check if we have sret
+    bool sret = false;
+    llvm_gen_be_error_t err = llvm_gen_be_error_t::ok;
+    llvm::Triple triple(be_state->module->getTargetTriple());
+
+    if (triple.isAArch64()) {
+       aapcs64_arg_info_t ret_info;
+       err = compute_aapcs64_return_info(routine->type->variant.routine.return_type, &ret_info, &sret);
+    } else {
+       x86_64_abi_arg_info_t ret_info;
+       err = compute_sysv_return_info(routine->type->variant.routine.return_type, &ret_info, &sret);
+    }
+    if (err != llvm_gen_be_error_t::ok) return err;
+
+    unsigned arg_idx = sret ? 1 : 0;
+    if (sret && func->arg_size() > 0) {
+       func->getArg(0)->setName("sret_ptr");
+    }
+
     // Allocate parameters and bind arguments
-    unsigned arg_idx = 0;
-    for (a_variable_ptr param = func_scope->variant.routine.parameters; param != nullptr; param = param->next, ++arg_idx) {
+    for (a_variable_ptr param = func_scope->variant.routine.parameters; param != nullptr; param = param->next) {
       if (arg_idx < func->arg_size()) {
-        llvm::Argument* arg = func->getArg(arg_idx);
+        llvm::Argument* arg = func->getArg(arg_idx++);
         if (param->source_corresp.name) {
           arg->setName(param->source_corresp.name);
         }
 
         llvm::Type* param_ty = get_llvm_type(param->type);
         llvm::AllocaInst* alloca = be_state->builder->CreateAlloca(param_ty, nullptr, param->source_corresp.name ? std::string(param->source_corresp.name) + ".addr" : "");
-        be_state->builder->CreateStore(arg, alloca);
+        
+        // Unpacking logic for 1.3.4
+        // If the LLVM arg type differs from the EDG param type (due to register packing or byval ptr)
+        // we must cast or load it.
+        if (arg->hasByValAttr()) {
+           // For byval arguments, LLVM passes a pointer to the caller's stack copy.
+           // We can just use this pointer as the local variable or copy it.
+           // SROA handles pointer casts.
+           llvm::Value* cast_arg = be_state->builder->CreatePointerCast(arg, llvm::PointerType::getUnqual(*be_state->context));
+           llvm::Value* val = be_state->builder->CreateLoad(param_ty, cast_arg);
+           be_state->builder->CreateStore(val, alloca);
+        } else if (arg->getType() != param_ty) {
+           // Direct register packed struct
+           llvm::AllocaInst* temp_alloca = be_state->builder->CreateAlloca(arg->getType());
+           be_state->builder->CreateStore(arg, temp_alloca);
+           llvm::Value* cast_ptr = be_state->builder->CreatePointerCast(temp_alloca, llvm::PointerType::getUnqual(*be_state->context));
+           llvm::Value* unpacked_val = be_state->builder->CreateLoad(param_ty, cast_ptr);
+           be_state->builder->CreateStore(unpacked_val, alloca);
+        } else {
+           be_state->builder->CreateStore(arg, alloca);
+        }
+        
         be_state->local_vars[param] = alloca;
       }
     }
@@ -186,22 +305,14 @@ void emit_function_definitions() {
       be_state->local_vars[lvar] = alloca;
     }
 
-    // Map labels to BasicBlocks
-    std::unordered_map<a_label_ptr, llvm::BasicBlock*> label_map;
-    for (a_label_ptr lbl = func_scope->labels; lbl != nullptr; lbl = lbl->next) {
-      llvm::BasicBlock* bb = llvm::BasicBlock::Create(*be_state->context, lbl->source_corresp.name ? lbl->source_corresp.name : "lbl", func);
-      label_map[lbl] = bb;
-    }
-
     if (func_scope->assoc_block) {
-      llvm::errs() << "Emitting statements for " << routine->source_corresp.name << "\n";
-      emit_statement(func_scope->assoc_block);
+      llvm_gen_be_error_t err = llvm_lower_statement(func_scope->assoc_block);
+      if (err != llvm_gen_be_error_t::ok) return err;
     }
 
     // Ensure all blocks have a terminator
     for (llvm::BasicBlock& bb : *func) {
       if (!bb.getTerminatorOrNull()) {
-        llvm::errs() << "Adding terminator to " << bb.getName() << "\n";
         be_state->builder->SetInsertPoint(&bb);
         if (func->getReturnType()->isVoidTy()) {
           be_state->builder->CreateRetVoid();
@@ -211,22 +322,25 @@ void emit_function_definitions() {
       }
     }
     
-    be_state->module->print(llvm::errs(), nullptr);
-    llvm::errs() << "Verifying function " << routine->source_corresp.name << "\n";
     std::string err_str;
     llvm::raw_string_ostream os(err_str);
     if (llvm::verifyFunction(*func, &os)) {
-      char error_msg[1024];
-      snprintf(error_msg, sizeof(error_msg), "LLVM Function Verification failed for %s: %s", routine->source_corresp.name, err_str.c_str());
-      
-      // Map to source position
-      
-      internal_error(error_msg);
+      return llvm_gen_be_error_t::verification_failure;
     }
-  }
+    return llvm_gen_be_error_t::ok;
 }
 
-void emit_global_ctors_and_dtors() {
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_definitions() {
+  if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
+
+  for (a_routine_ptr routine = il_header.primary_scope->routines; routine != nullptr; routine = routine->next) {
+    llvm_gen_be_error_t err = llvm_lower_function_body(routine);
+    if (err != llvm_gen_be_error_t::ok) return err;
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+[[nodiscard]] llvm_gen_be_error_t llvm_lower_global_ctors_and_dtors() {
   std::vector<llvm::Constant*> ctors;
   std::vector<llvm::Constant*> dtors;
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
@@ -258,7 +372,6 @@ void emit_global_ctors_and_dtors() {
       if (routine->is_initialization_routine && gnu_routine_supp_or_null(routine) && gnu_routine_supp(routine)->init_priority != 0) {
          ctor_priority_val = gnu_routine_supp(routine)->init_priority;
       }
-      // Assuming finalization routines might also have init_priority if generated by lowering
       if (routine->is_finalization_routine && gnu_routine_supp_or_null(routine) && gnu_routine_supp(routine)->init_priority != 0) {
          dtor_priority_val = gnu_routine_supp(routine)->init_priority;
       }
@@ -300,6 +413,7 @@ void emit_global_ctors_and_dtors() {
         *be_state->module, dtors_array_ty, false,
         llvm::GlobalValue::AppendingLinkage, dtors_array, "llvm.global_dtors");
   }
+  return llvm_gen_be_error_t::ok;
 }
 
 END_EDG_NAMESPACE

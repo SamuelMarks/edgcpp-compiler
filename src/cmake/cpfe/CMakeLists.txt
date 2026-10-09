@@ -48,5 +48,6 @@ add_dependencies(cpfe-all cpfe)
 add_softfloat_to_target("${primary_front_end_target}")
 
 if(ENABLE_LLVM_BACKEND)
-  target_link_libraries(${primary_front_end_target} PRIVATE LLVMCore LLVMSupport LLVMTarget LLVMBitWriter LLVMAnalysis)
+  llvm_map_components_to_libnames(CPFE_LLVM_LIBS Core Support Target BitWriter Analysis Passes MC MCParser TargetParser AsmPrinter AsmParser ${LLVM_TARGETS_TO_BUILD})
+  target_link_libraries(${primary_front_end_target} PRIVATE ${CPFE_LLVM_LIBS})
 endif()
