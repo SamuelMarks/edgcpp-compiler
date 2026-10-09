@@ -27,12 +27,13 @@ BEGIN_EDG_NAMESPACE
  * @param out_type A pointer to a gcc_jit_type pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_type` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type) {
+gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type) GCC_GEN_BE_NOEXCEPT {
   if (!out_type) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_type = NULL;
   if (!tp) return GCC_GEN_BE_SUCCESS;
   
-  gcc_jit_context *ctx = gcc_gen_be_get_context();
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
   void *cached = NULL;
@@ -45,8 +46,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
   
   if (tp->kind == tk_typeref) {
     gcc_jit_type *base = NULL;
-    err = gcc_gen_be_lower_type(tp->variant.typeref.type, &base);
-    if (err != GCC_GEN_BE_SUCCESS) return err;
+    GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.typeref.type, &base));
 
     if (tp->variant.typeref.qualifiers & TQ_CONST) {
       base = gcc_jit_type_get_const(base);
@@ -54,7 +54,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
     if (tp->variant.typeref.qualifiers & TQ_VOLATILE) {
       base = gcc_jit_type_get_volatile(base);
     }
-    cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, base);
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, base));
     *out_type = base;
     return GCC_GEN_BE_SUCCESS;
   }
@@ -134,8 +134,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
     case tk_rvalue_reference:
       {
           gcc_jit_type *elem = NULL;
-          err = gcc_gen_be_lower_type(tp->variant.pointer.type, &elem);
-          if (err != GCC_GEN_BE_SUCCESS) return err;
+          GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.pointer.type, &elem));
           if (tp->variant.pointer.type->kind == tk_routine) {
               res = elem;
           } else {
@@ -148,13 +147,11 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
       if (!tp->variant.array.is_variable_size_array && !tp->variant.array.is_template_dependent_size_array) {
          int size = (int)tp->variant.array.variant.number_of_elements;
          gcc_jit_type *elem = NULL;
-         err = gcc_gen_be_lower_type(tp->variant.array.element_type, &elem);
-         if (err != GCC_GEN_BE_SUCCESS) return err;
+         GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.array.element_type, &elem));
          res = gcc_jit_context_new_array_type(ctx, NULL, elem, size);
       } else {
          gcc_jit_type *elem = NULL;
-         err = gcc_gen_be_lower_type(tp->variant.array.element_type, &elem);
-         if (err != GCC_GEN_BE_SUCCESS) return err;
+         GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.array.element_type, &elem));
          res = gcc_jit_type_get_pointer(elem);
       }
       break;
@@ -168,8 +165,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
          
          gcc_jit_struct *s = gcc_jit_context_new_opaque_struct(ctx, NULL, name);
          res = gcc_jit_struct_as_type(s);
-         err = cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res);
-         if (err != GCC_GEN_BE_SUCCESS) return err;
+         GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res));
          
          int num_fields = 0;
          a_field_ptr f;
@@ -198,7 +194,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
                 } else {
                     fields[i] = gcc_jit_context_new_field(ctx, NULL, ftype, fname);
                 }
-                cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[i]);
+                GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[i]));
                 i++;
             }
             if (tp->kind == tk_union) {
@@ -219,8 +215,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
       {
          a_routine_type_supplement_ptr supp = tp->variant.routine.extra_info;
          gcc_jit_type *ret_type = NULL;
-         err = gcc_gen_be_lower_type(tp->variant.routine.return_type, &ret_type);
-         if (err != GCC_GEN_BE_SUCCESS) return err;
+         GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.routine.return_type, &ret_type));
          
          int num_params = 0;
          a_param_type_ptr ptp;
@@ -270,8 +265,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
             size = (int)tp->variant.vector.number_of_elements->variant.integer_value;
          }
          gcc_jit_type *elem = NULL;
-         err = gcc_gen_be_lower_type(tp->variant.vector.element_type, &elem);
-         if (err != GCC_GEN_BE_SUCCESS) return err;
+         GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.vector.element_type, &elem));
          res = gcc_jit_context_new_array_type(ctx, NULL, elem, size);
       }
       break;
@@ -288,7 +282,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
   }
   
   if (res) {
-      cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res);
+      GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res));
   }
   
   *out_type = res;

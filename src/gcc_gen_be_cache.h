@@ -52,7 +52,7 @@ typedef enum {
  * @param out_value A pointer to a void pointer that will receive the value.
  * @return GCC_GEN_BE_SUCCESS if found, GCC_GEN_BE_ERROR_INVALID_ARGUMENT if not found, or another error.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_type_t cache_type, void *key, void **out_value);
+extern gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_type_t cache_type, void *key, void **out_value) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Inserts a key-value pair into a specified cache.
@@ -62,7 +62,7 @@ extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_typ
  * @param value The value to associate with the key.
  * @return GCC_GEN_BE_SUCCESS on success, or an error code (e.g., GCC_GEN_BE_ERROR_OOM).
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, void *value);
+extern gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, void *value) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Clears a specified cache, freeing all entries.
@@ -70,14 +70,14 @@ extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_typ
  * @param cache_type The type of cache to clear.
  * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t cache_clear(gcc_gen_be_cache_type_t cache_type);
+extern gcc_gen_be_error_t cache_clear(gcc_gen_be_cache_type_t cache_type) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Clears all global caches.
  *
  * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t cache_clear_all(void);
+extern gcc_gen_be_error_t cache_clear_all(void) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

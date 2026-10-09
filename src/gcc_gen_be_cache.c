@@ -20,21 +20,25 @@ static be_cache_entry *type_cache[GCC_GEN_BE_MAP_SIZE];
 static be_cache_entry *var_cache[GCC_GEN_BE_MAP_SIZE];
 static be_cache_entry *func_cache[GCC_GEN_BE_MAP_SIZE];
 static be_cache_entry *label_cache[GCC_GEN_BE_MAP_SIZE];
+static be_cache_entry *field_cache[GCC_GEN_BE_MAP_SIZE];
 
-static be_cache_entry ***get_cache_array(gcc_gen_be_cache_type_t cache_type) {
+static gcc_gen_be_error_t get_cache_array(gcc_gen_be_cache_type_t cache_type, be_cache_entry ****out_cache) GCC_GEN_BE_NOEXCEPT {
+    if (!out_cache) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     switch (cache_type) {
-        case GCC_GEN_BE_CACHE_TYPE: return (be_cache_entry ***)&type_cache;
-        case GCC_GEN_BE_CACHE_VAR: return (be_cache_entry ***)&var_cache;
-        case GCC_GEN_BE_CACHE_FUNC: return (be_cache_entry ***)&func_cache;
-        case GCC_GEN_BE_CACHE_LABEL: return (be_cache_entry ***)&label_cache;
-        default: return NULL;
+        case GCC_GEN_BE_CACHE_TYPE: *out_cache = (be_cache_entry ***)&type_cache; return GCC_GEN_BE_SUCCESS;
+        case GCC_GEN_BE_CACHE_VAR: *out_cache = (be_cache_entry ***)&var_cache; return GCC_GEN_BE_SUCCESS;
+        case GCC_GEN_BE_CACHE_FUNC: *out_cache = (be_cache_entry ***)&func_cache; return GCC_GEN_BE_SUCCESS;
+        case GCC_GEN_BE_CACHE_LABEL: *out_cache = (be_cache_entry ***)&label_cache; return GCC_GEN_BE_SUCCESS;
+        case GCC_GEN_BE_CACHE_FIELD: *out_cache = (be_cache_entry ***)&field_cache; return GCC_GEN_BE_SUCCESS;
+        default: return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     }
 }
 
-gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_type_t cache_type, void *key, void **out_value) {
+gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_type_t cache_type, void *key, void **out_value) GCC_GEN_BE_NOEXCEPT {
     if (!out_value) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
-    be_cache_entry ***cache_ptr = get_cache_array(cache_type);
+    be_cache_entry ***cache_ptr = NULL;
+    GCC_GEN_BE_CHECK(get_cache_array(cache_type, &cache_ptr));
     if (!cache_ptr) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     be_cache_entry **cache = *cache_ptr;
 
@@ -54,8 +58,9 @@ gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_type_t cache_type, void *key, v
     return GCC_GEN_BE_SUCCESS;
 }
 
-gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, void *value) {
-    be_cache_entry ***cache_ptr = get_cache_array(cache_type);
+gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, void *value) GCC_GEN_BE_NOEXCEPT {
+    be_cache_entry ***cache_ptr = NULL;
+    GCC_GEN_BE_CHECK(get_cache_array(cache_type, &cache_ptr));
     if (!cache_ptr) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     be_cache_entry **cache = *cache_ptr;
 
@@ -72,8 +77,9 @@ gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, v
     return GCC_GEN_BE_SUCCESS;
 }
 
-gcc_gen_be_error_t cache_clear(gcc_gen_be_cache_type_t cache_type) {
-    be_cache_entry ***cache_ptr = get_cache_array(cache_type);
+gcc_gen_be_error_t cache_clear(gcc_gen_be_cache_type_t cache_type) GCC_GEN_BE_NOEXCEPT {
+    be_cache_entry ***cache_ptr = NULL;
+    GCC_GEN_BE_CHECK(get_cache_array(cache_type, &cache_ptr));
     if (!cache_ptr) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     be_cache_entry **cache = *cache_ptr;
 
@@ -90,20 +96,12 @@ gcc_gen_be_error_t cache_clear(gcc_gen_be_cache_type_t cache_type) {
     return GCC_GEN_BE_SUCCESS;
 }
 
-gcc_gen_be_error_t cache_clear_all(void) {
-    gcc_gen_be_error_t err;
-    
-    err = cache_clear(GCC_GEN_BE_CACHE_TYPE);
-    if (err != GCC_GEN_BE_SUCCESS) return err;
-    
-    err = cache_clear(GCC_GEN_BE_CACHE_VAR);
-    if (err != GCC_GEN_BE_SUCCESS) return err;
-    
-    err = cache_clear(GCC_GEN_BE_CACHE_FUNC);
-    if (err != GCC_GEN_BE_SUCCESS) return err;
-    
-    err = cache_clear(GCC_GEN_BE_CACHE_LABEL);
-    if (err != GCC_GEN_BE_SUCCESS) return err;
+gcc_gen_be_error_t cache_clear_all(void) GCC_GEN_BE_NOEXCEPT {
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_TYPE));
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_VAR));
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_FUNC));
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_LABEL));
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_FIELD));
     
     return GCC_GEN_BE_SUCCESS;
 }

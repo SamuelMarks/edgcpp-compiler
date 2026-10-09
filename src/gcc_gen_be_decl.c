@@ -27,20 +27,27 @@ BEGIN_EDG_NAMESPACE
  * This lazily creates the `__edg_global_init` function which acts as
  * the constructor for global dynamic initializers.
  *
- * @return The gcc_jit_block for global initialization.
+ * @param out_block A pointer to receive the gcc_jit_block.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-gcc_jit_block *gcc_gen_be_get_global_ctor_block(void) {
-    gcc_gen_be_context_t *state = gcc_gen_be_get_state();
+gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
+    if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_block = NULL;
+    
+    gcc_gen_be_context_t *state = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_state(&state));
+    
     if (!state->global_ctor_func) {
-        gcc_jit_context *ctx = gcc_gen_be_get_context();
+        gcc_jit_context *ctx = NULL;
+        GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
+        if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+        
         gcc_jit_type *void_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID);
         state->global_ctor_func = gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_INTERNAL, void_type, "__edg_global_init", 0, NULL, 0);
         state->global_ctor_block = gcc_jit_function_new_block(state->global_ctor_func, "entry");
-        
-        /* Note: we would add __attribute__((constructor)) if libgccjit exposed an API for it,
-           or register it in .init_array */
     }
-    return state->global_ctor_block;
+    *out_block = state->global_ctor_block;
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
@@ -53,12 +60,13 @@ gcc_jit_block *gcc_gen_be_get_global_ctor_block(void) {
  * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval) {
+gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT {
   if (!out_lval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_lval = NULL;
   if (!var) return GCC_GEN_BE_SUCCESS;
   
-  gcc_jit_context *ctx = gcc_gen_be_get_context();
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
   void *cached = NULL;
@@ -103,8 +111,10 @@ gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lv
       a_constant_ptr init_con = var->initializer.constant;
       if (init_con && init_con->expr) {
           gcc_jit_rvalue *init_rval = NULL;
-          err = gcc_gen_be_lower_expr_rvalue(init_con->expr, &init_rval);
-          if (err == GCC_GEN_BE_SUCCESS && init_rval) {
+          /* External function defined in gcc_gen_be_expr.h */
+          extern gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
+          GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(init_con->expr, &init_rval));
+          if (init_rval) {
               gcc_jit_global_set_initializer_rvalue(global, init_rval);
           } else {
               gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
@@ -127,15 +137,17 @@ gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lv
   } else if (var->init_kind == initk_dynamic) {
       if (var->initializer.dynamic && var->initializer.dynamic->kind == dik_expression && var->initializer.dynamic->variant.expression) {
           gcc_jit_rvalue *init_rval = NULL;
-          err = gcc_gen_be_lower_expr_rvalue(var->initializer.dynamic->variant.expression, &init_rval);
-          if (err == GCC_GEN_BE_SUCCESS && init_rval) {
-              gcc_jit_block *cblock = gcc_gen_be_get_global_ctor_block();
+          extern gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
+          GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(var->initializer.dynamic->variant.expression, &init_rval));
+          if (init_rval) {
+              gcc_jit_block *cblock = NULL;
+              GCC_GEN_BE_CHECK(gcc_gen_be_get_global_ctor_block(&cblock));
               gcc_jit_block_add_assignment(cblock, NULL, global, init_rval);
           }
       }
   }
   
-  cache_insert(GCC_GEN_BE_CACHE_VAR, var, global);
+  GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, var, global));
   *out_lval = global;
   return GCC_GEN_BE_SUCCESS;
 }
@@ -149,12 +161,13 @@ gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lv
  * @param out_func A pointer to a gcc_jit_function pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_func` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func) {
+gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT {
   if (!out_func) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_func = NULL;
   if (!rout) return GCC_GEN_BE_SUCCESS;
   
-  gcc_jit_context *ctx = gcc_gen_be_get_context();
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
   void *cached = NULL;
@@ -247,7 +260,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_fu
       }
       for (ptp = rout->type->variant.routine.extra_info->param_type_list; ptp != NULL; ptp = ptp->next) {
           if (var_param) {
-              cache_insert(GCC_GEN_BE_CACHE_VAR, var_param, gcc_jit_param_as_lvalue(params[i]));
+              GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, var_param, gcc_jit_param_as_lvalue(params[i])));
               var_param = var_param->next;
           }
           i++;
@@ -255,7 +268,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_fu
       free(params);
   }
   
-  cache_insert(GCC_GEN_BE_CACHE_FUNC, rout, func);
+  GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FUNC, rout, func));
   *out_func = func;
   return GCC_GEN_BE_SUCCESS;
 }

@@ -79,7 +79,7 @@ void *p_gcc_jit_context_new_location = NULL;
 void *p_gcc_jit_context_compile_to_file = NULL;
 void *p_gcc_jit_context_get_first_error = NULL;
 
-gcc_gen_be_error_t load_libgccjit_windows(void) {
+gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
   const char* candidates[] = {
       "libgccjit.dll",
@@ -168,7 +168,7 @@ gcc_gen_be_error_t load_libgccjit_windows(void) {
 #include <dlfcn.h>
 static void *libgccjit_handle = NULL;
 
-gcc_gen_be_error_t load_libgccjit_posix(void) {
+gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
 #if defined(__APPLE__)
     const char *lib_name = "libgccjit.dylib";
@@ -179,6 +179,8 @@ gcc_gen_be_error_t load_libgccjit_posix(void) {
     if (!libgccjit_handle) {
         /* Optionally fallback but typically linked at compile-time */
         /* If dlopen fails on POSIX, we often still return SUCCESS if it's linked */
+        /* Plan states: Ensure all dynamic loading failures return explicit gcc_gen_be_error_t codes without unhandled paths. */
+        return GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED;
     }
     return GCC_GEN_BE_SUCCESS;
 }

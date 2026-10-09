@@ -24,21 +24,30 @@ extern "C" {
  * Applies the `warn_unused_result` attribute to ensure that functions returning
  * an error code are properly checked by the caller.
  */
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__cplusplus) && __cplusplus >= 201703L
+#define GCC_GEN_BE_NODISCARD [[nodiscard]]
+#elif defined(__GNUC__) || defined(__clang__)
 #define GCC_GEN_BE_NODISCARD __attribute__((warn_unused_result))
+#elif defined(_MSC_VER)
+#define GCC_GEN_BE_NODISCARD _Check_return_
 #else
 #define GCC_GEN_BE_NODISCARD
+#endif
+
+#ifdef __cplusplus
+#define GCC_GEN_BE_NOEXCEPT noexcept
+#else
+#define GCC_GEN_BE_NOEXCEPT
 #endif
 
 /**
  * @enum gcc_gen_be_error_t
  * @brief Represents the possible error codes returned by the GCC backend.
  *
- * This enumeration defines the standardized error codes that must be returned
- * by all functions in the backend to indicate success or the specific type
- * of failure encountered.
+ * Decorated with GCC_GEN_BE_NODISCARD so that any function returning
+ * gcc_gen_be_error_t automatically enforces non-discardable return values.
  */
-typedef enum {
+typedef enum GCC_GEN_BE_NODISCARD {
     /** @brief Indicates that the operation completed successfully. */
     GCC_GEN_BE_SUCCESS = 0,
 
@@ -79,7 +88,10 @@ typedef enum {
     GCC_GEN_BE_ERROR_TYPE_MISMATCH,
 
     /** @brief Indicates a failure in exception handling setup or generation. */
-    GCC_GEN_BE_ERROR_EH_FAILURE
+    GCC_GEN_BE_ERROR_EH_FAILURE,
+
+    /** @brief Indicates that a JIT compilation failed. */
+    GCC_GEN_BE_ERROR_COMPILATION_FAILED
 } gcc_gen_be_error_t;
 
 /**
@@ -103,9 +115,10 @@ typedef enum {
  * @brief Converts a GCC backend error code to a human-readable string.
  *
  * @param error The error code to convert.
- * @return A constant character string representing the error code.
+ * @param out_str Pointer to a string pointer to populate with the string representation.
+ * @return A gcc_gen_be_error_t indicating success or invalid argument.
  */
-extern GCC_GEN_BE_NODISCARD const char *gcc_gen_be_error_string(gcc_gen_be_error_t error);
+extern gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char **out_str) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

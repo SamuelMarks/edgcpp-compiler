@@ -26,13 +26,21 @@ typedef struct gcc_jit_lvalue gcc_jit_lvalue;
 typedef struct gcc_jit_function gcc_jit_function;
 
 /**
+ * @brief Retrieves or creates the global dynamic initialization block.
+ *
+ * @param out_block A pointer to receive the gcc_jit_block.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
+
+/**
  * @brief Lowers an EDG variable declaration into a libgccjit lvalue.
  *
  * @param var The frontend variable node.
  * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval);
+extern gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Lowers an EDG function/routine declaration into a libgccjit function.
@@ -41,7 +49,7 @@ extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_
  * @param out_func A pointer to a gcc_jit_function pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_func` populated.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func);
+extern gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

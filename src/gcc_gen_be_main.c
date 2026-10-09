@@ -24,23 +24,26 @@
 
 BEGIN_EDG_NAMESPACE
 
-void gcc_gen_be(void) {
+gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
   a_scope_ptr scope;
   a_routine_ptr rout;
   a_variable_ptr var;
 
   gcc_gen_be_error_t err = gcc_gen_be_init();
   if (err != GCC_GEN_BE_SUCCESS) {
-      fprintf(f_error, "gcc_gen_be init error: %s\n", gcc_gen_be_error_string(err));
+      const char *err_msg = NULL;
+      gcc_gen_be_error_string(err, &err_msg);
+      fprintf(f_error, "gcc_gen_be init error: %s\n", err_msg ? err_msg : "Unknown");
       diagnostic_counters.total.catastrophes++;
-      return;
+      return err;
   }
   
-  gcc_jit_context *ctx = gcc_gen_be_get_context();
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) {
       fprintf(f_error, "gcc_gen_be init error: Context is NULL\n");
       diagnostic_counters.total.catastrophes++;
-      return;
+      return GCC_GEN_BE_ERROR_INTERNAL;
   }
 
   scope = il_header.primary_scope;
@@ -50,7 +53,9 @@ void gcc_gen_be(void) {
         gcc_jit_lvalue *lval = NULL;
         err = gcc_gen_be_lower_variable_decl(var, &lval);
         if (err != GCC_GEN_BE_SUCCESS) {
-            fprintf(f_error, "gcc_gen_be variable lowering error: %s\n", gcc_gen_be_error_string(err));
+            const char *err_msg = NULL;
+            gcc_gen_be_error_string(err, &err_msg);
+            fprintf(f_error, "gcc_gen_be variable lowering error: %s\n", err_msg ? err_msg : "Unknown");
             diagnostic_counters.total.errors++;
         }
     }
@@ -61,7 +66,9 @@ void gcc_gen_be(void) {
       gcc_jit_function *func = NULL;
       err = gcc_gen_be_lower_function_decl(rout, &func);
       if (err != GCC_GEN_BE_SUCCESS || !func) {
-          fprintf(f_error, "gcc_gen_be function lowering error: %s\n", gcc_gen_be_error_string(err));
+          const char *err_msg = NULL;
+          gcc_gen_be_error_string(err, &err_msg);
+          fprintf(f_error, "gcc_gen_be function lowering error: %s\n", err_msg ? err_msg : "Unknown");
           diagnostic_counters.total.errors++;
           continue;
       }
@@ -78,19 +85,23 @@ void gcc_gen_be(void) {
                  err = gcc_gen_be_lower_type(var->type, &vtype);
                  if (err == GCC_GEN_BE_SUCCESS && vtype) {
                      gcc_jit_lvalue *local = gcc_jit_function_new_local(func, NULL, vtype, lname);
-                     cache_insert(GCC_GEN_BE_CACHE_VAR, var, local);
+                     GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, var, local));
                  } else {
-                     fprintf(f_error, "gcc_gen_be local variable lowering error: %s\n", gcc_gen_be_error_string(err));
+                     const char *err_msg = NULL;
+                     gcc_gen_be_error_string(err, &err_msg);
+                     fprintf(f_error, "gcc_gen_be local variable lowering error: %s\n", err_msg ? err_msg : "Unknown");
                      diagnostic_counters.total.errors++;
                  }
              }
           }
 
           gcc_jit_block *block = gcc_jit_function_new_block(func, "entry");
-          gcc_gen_be_set_current_block(block); 
+          GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(block)); 
           err = gcc_gen_be_lower_statement(def_scope->assoc_block, func);
           if (err != GCC_GEN_BE_SUCCESS) {
-              fprintf(f_error, "gcc_gen_be statement lowering error: %s\n", gcc_gen_be_error_string(err));
+              const char *err_msg = NULL;
+              gcc_gen_be_error_string(err, &err_msg);
+              fprintf(f_error, "gcc_gen_be statement lowering error: %s\n", err_msg ? err_msg : "Unknown");
               diagnostic_counters.total.errors++;
           }
         }
@@ -126,14 +137,17 @@ void gcc_gen_be(void) {
     if (err_str) {
         fprintf(f_error, "gcc_gen_be compilation error: %s\n", err_str);
         diagnostic_counters.total.catastrophes++;
+        return GCC_GEN_BE_ERROR_COMPILATION_FAILED;
     }
   }
 
-  gcc_gen_be_cleanup();
+  GCC_GEN_BE_CHECK(gcc_gen_be_cleanup());
+
+  return GCC_GEN_BE_SUCCESS;
 }
 
-void back_end(void) {
-  gcc_gen_be();
+gcc_gen_be_error_t back_end(void) GCC_GEN_BE_NOEXCEPT {
+  return gcc_gen_be();
 }
 
 END_EDG_NAMESPACE

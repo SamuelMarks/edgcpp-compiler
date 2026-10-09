@@ -26,46 +26,59 @@ static gcc_gen_be_context_t backend_state = {0};
 /**
  * @brief Retrieves the global GCC backend context object.
  *
- * @return A pointer to the backend state object.
+ * @param out_state Pointer to receive the backend state object.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
  */
-gcc_gen_be_context_t *gcc_gen_be_get_state(void) {
-    return &backend_state;
+gcc_gen_be_error_t gcc_gen_be_get_state(gcc_gen_be_context_t **out_state) GCC_GEN_BE_NOEXCEPT {
+    if (!out_state) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_state = &backend_state;
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
  * @brief Retrieves the currently active libgccjit context.
  *
- * @return The current gcc_jit_context pointer, or NULL if not initialized.
+ * @param out_ctx Pointer to receive the gcc_jit_context pointer.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
  */
-gcc_jit_context *gcc_gen_be_get_context(void) {
-    return gcc_jit_ctx;
+gcc_gen_be_error_t gcc_gen_be_get_context(gcc_jit_context **out_ctx) GCC_GEN_BE_NOEXCEPT {
+    if (!out_ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_ctx = gcc_jit_ctx;
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
  * @brief Sets the currently active libgccjit context.
  *
  * @param ctx The gcc_jit_context to set as active.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-void gcc_gen_be_set_context(gcc_jit_context *ctx) {
+gcc_gen_be_error_t gcc_gen_be_set_context(gcc_jit_context *ctx) GCC_GEN_BE_NOEXCEPT {
     gcc_jit_ctx = ctx;
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
  * @brief Retrieves the currently active libgccjit block.
  *
- * @return The current gcc_jit_block pointer, or NULL if none is active.
+ * @param out_block Pointer to receive the gcc_jit_block pointer.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
  */
-gcc_jit_block *gcc_gen_be_get_current_block(void) {
-    return current_block;
+gcc_gen_be_error_t gcc_gen_be_get_current_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
+    if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_block = current_block;
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
  * @brief Sets the currently active libgccjit block.
  *
  * @param block The gcc_jit_block to set as active.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-void gcc_gen_be_set_current_block(gcc_jit_block *block) {
+gcc_gen_be_error_t gcc_gen_be_set_current_block(gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT {
     current_block = block;
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
@@ -75,7 +88,7 @@ void gcc_gen_be_set_current_block(gcc_jit_block *block) {
  *
  * @return GCC_GEN_BE_SUCCESS on success, or an appropriate error code.
  */
-gcc_gen_be_error_t gcc_gen_be_early_init(void) {
+gcc_gen_be_error_t gcc_gen_be_early_init(void) GCC_GEN_BE_NOEXCEPT {
     gcc_gen_be_error_t err;
 #if defined(_WIN32)
     err = load_libgccjit_windows();
@@ -96,7 +109,7 @@ gcc_gen_be_error_t gcc_gen_be_early_init(void) {
  * @param ctx The gcc_jit_context to configure.
  * @return GCC_GEN_BE_SUCCESS on success, or an appropriate error code.
  */
-gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx) {
+gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx) GCC_GEN_BE_NOEXCEPT {
     if (!ctx) return GCC_GEN_BE_ERROR_NULL_POINTER;
 
     /* Set optimization level */
@@ -130,7 +143,7 @@ gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx) {
  *
  * @return GCC_GEN_BE_SUCCESS on success, or an appropriate error code.
  */
-gcc_gen_be_error_t gcc_gen_be_init(void) {
+gcc_gen_be_error_t gcc_gen_be_init(void) GCC_GEN_BE_NOEXCEPT {
     gcc_jit_ctx = gcc_jit_context_acquire();
     if (!gcc_jit_ctx) {
         return GCC_GEN_BE_ERROR_OOM;
@@ -148,16 +161,13 @@ gcc_gen_be_error_t gcc_gen_be_init(void) {
  *
  * @return GCC_GEN_BE_SUCCESS on success, or an appropriate error code.
  */
-gcc_gen_be_error_t gcc_gen_be_cleanup(void) {
+gcc_gen_be_error_t gcc_gen_be_cleanup(void) GCC_GEN_BE_NOEXCEPT {
     if (gcc_jit_ctx) {
         gcc_jit_context_release(gcc_jit_ctx);
         gcc_jit_ctx = NULL;
     }
     
-    gcc_gen_be_error_t err1 = cache_clear_all();
-    if (err1 != GCC_GEN_BE_SUCCESS) {
-        return err1;
-    }
+    GCC_GEN_BE_CHECK(cache_clear_all());
     
     return GCC_GEN_BE_SUCCESS;
 }

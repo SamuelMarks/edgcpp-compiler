@@ -33,7 +33,7 @@ typedef struct gcc_jit_function gcc_jit_function;
  * @param out_block A pointer to a gcc_jit_block pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_block` populated.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_get_label_block(gcc_jit_function *func, a_label_ptr label, gcc_jit_block **out_block);
+extern gcc_gen_be_error_t gcc_gen_be_get_label_block(gcc_jit_function *func, a_label_ptr label, gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Retrieves or creates a libgccjit block for a given switch case entry.
@@ -43,7 +43,7 @@ extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_get_label_block(gcc_ji
  * @param out_block A pointer to a gcc_jit_block pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_block` populated.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_get_switch_case_block(gcc_jit_function *func, a_switch_case_entry_ptr scep, gcc_jit_block **out_block);
+extern gcc_gen_be_error_t gcc_gen_be_get_switch_case_block(gcc_jit_function *func, a_switch_case_entry_ptr scep, gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Lowers an EDG statement node into the current libgccjit block.
@@ -52,7 +52,7 @@ extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_get_switch_case_block(
  * @param func The parent libgccjit function.
  * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_function *func);
+extern gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_function *func) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

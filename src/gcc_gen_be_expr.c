@@ -20,12 +20,13 @@
 
 BEGIN_EDG_NAMESPACE
 
-gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_lvalue **out_lval) {
+gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT {
   if (!out_lval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_lval = NULL;
   if (!expr) return GCC_GEN_BE_SUCCESS;
   
-  gcc_jit_context *ctx = gcc_gen_be_get_context();
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
   gcc_gen_be_error_t err;
@@ -111,7 +112,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_l
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   
                   gcc_jit_rvalue *one = gcc_jit_context_new_rvalue_from_int(ctx, type, 1);
-                  gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                  gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (cblock) {
                       gcc_jit_block_add_assignment_op(cblock, NULL, l1, 
                           op == eok_pre_incr ? GCC_JIT_BINARY_OP_PLUS : GCC_JIT_BINARY_OP_MINUS, one);
@@ -129,12 +131,13 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_l
   }
 }
 
-gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) {
+gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT {
   if (!out_rval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_rval = NULL;
   if (!expr) return GCC_GEN_BE_SUCCESS;
   
-  gcc_jit_context *ctx = gcc_gen_be_get_context();
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
   gcc_gen_be_error_t err;
@@ -190,7 +193,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
               if (err != GCC_GEN_BE_SUCCESS) return err;
               
               if (op == eok_land) {
-                  gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                  gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (!cblock) return GCC_GEN_BE_ERROR_INTERNAL;
                   gcc_jit_function *func = gcc_jit_block_get_function(cblock);
                   
@@ -207,22 +211,23 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   
                   gcc_jit_block_end_with_conditional(cblock, NULL, gcc_jit_context_new_cast(ctx, NULL, r1, bool_type), rhs_block, false_block);
                   
-                  gcc_gen_be_set_current_block(false_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(false_block));
                   gcc_jit_block_add_assignment(false_block, NULL, res, gcc_jit_context_new_rvalue_from_int(ctx, bool_type, 0));
                   gcc_jit_block_end_with_jump(false_block, NULL, merge_block);
                   
-                  gcc_gen_be_set_current_block(rhs_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(rhs_block));
                   gcc_jit_rvalue *r2 = NULL;
                   err = gcc_gen_be_lower_expr_rvalue(op2, &r2);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   gcc_jit_block_add_assignment(rhs_block, NULL, res, gcc_jit_context_new_cast(ctx, NULL, r2, bool_type));
                   gcc_jit_block_end_with_jump(rhs_block, NULL, merge_block);
                   
-                  gcc_gen_be_set_current_block(merge_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(merge_block));
                   *out_rval = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_as_rvalue(res), type);
                   return GCC_GEN_BE_SUCCESS;
               } else if (op == eok_lor) {
-                  gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                  gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (!cblock) return GCC_GEN_BE_ERROR_INTERNAL;
                   gcc_jit_function *func = gcc_jit_block_get_function(cblock);
                   
@@ -239,23 +244,24 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   
                   gcc_jit_block_end_with_conditional(cblock, NULL, gcc_jit_context_new_cast(ctx, NULL, r1, bool_type), true_block, rhs_block);
                   
-                  gcc_gen_be_set_current_block(true_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(true_block));
                   gcc_jit_block_add_assignment(true_block, NULL, res, gcc_jit_context_new_rvalue_from_int(ctx, bool_type, 1));
                   gcc_jit_block_end_with_jump(true_block, NULL, merge_block);
                   
-                  gcc_gen_be_set_current_block(rhs_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(rhs_block));
                   gcc_jit_rvalue *r2 = NULL;
                   err = gcc_gen_be_lower_expr_rvalue(op2, &r2);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   gcc_jit_block_add_assignment(rhs_block, NULL, res, gcc_jit_context_new_cast(ctx, NULL, r2, bool_type));
                   gcc_jit_block_end_with_jump(rhs_block, NULL, merge_block);
                   
-                  gcc_gen_be_set_current_block(merge_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(merge_block));
                   *out_rval = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_as_rvalue(res), type);
                   return GCC_GEN_BE_SUCCESS;
               } else if (op == eok_question) {
                   an_expr_node_ptr op3 = op2 ? op2->next : NULL;
-                  gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                  gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (!cblock) return GCC_GEN_BE_ERROR_INTERNAL;
                   
                   gcc_jit_function *func = gcc_jit_block_get_function(cblock);
@@ -271,19 +277,19 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   
                   gcc_jit_block_end_with_conditional(cblock, NULL, gcc_jit_context_new_cast(ctx, NULL, r1, gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_BOOL)), then_block, else_block);
                   
-                  gcc_gen_be_set_current_block(then_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(then_block));
                   gcc_jit_rvalue *r2 = NULL;
                   if (op2) { err = gcc_gen_be_lower_expr_rvalue(op2, &r2); if (err != GCC_GEN_BE_SUCCESS) return err; }
                   if (r2) gcc_jit_block_add_assignment(then_block, NULL, res, r2);
                   gcc_jit_block_end_with_jump(then_block, NULL, merge_block);
                   
-                  gcc_gen_be_set_current_block(else_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(else_block));
                   gcc_jit_rvalue *r3 = NULL;
                   if (op3) { err = gcc_gen_be_lower_expr_rvalue(op3, &r3); if (err != GCC_GEN_BE_SUCCESS) return err; }
                   if (r3) gcc_jit_block_add_assignment(else_block, NULL, res, r3);
                   gcc_jit_block_end_with_jump(else_block, NULL, merge_block);
                   
-                  gcc_gen_be_set_current_block(merge_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(merge_block));
                   *out_rval = gcc_jit_lvalue_as_rvalue(res);
                   return GCC_GEN_BE_SUCCESS;
               } else if (op == eok_assign || op == eok_bassign || op == eok_add_assign || op == eok_subtract_assign || op == eok_multiply_assign || op == eok_divide_assign || op == eok_remainder_assign || op == eok_shiftl_assign || op == eok_shiftr_assign || op == eok_and_assign || op == eok_or_assign || op == eok_xor_assign || op == eok_padd_assign || op == eok_psubtract_assign) {
@@ -295,7 +301,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   err = gcc_gen_be_lower_expr_rvalue(op2, &r2);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   
-                  gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                  gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (cblock) {
                       if (op == eok_assign || op == eok_bassign) {
                           gcc_jit_block_add_assignment(cblock, NULL, l1, r2);
@@ -387,7 +394,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   case eok_shiftr: *out_rval = gcc_jit_context_new_binary_op(ctx, NULL, GCC_JIT_BINARY_OP_RSHIFT, type, r1, r2); return GCC_GEN_BE_SUCCESS;
                   case eok_comma:
                       {
-                          gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                          gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                           if (r1 && cblock) gcc_jit_block_add_eval(cblock, NULL, r1);
                           *out_rval = r2;
                           return GCC_GEN_BE_SUCCESS;
@@ -414,7 +422,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                           err = gcc_gen_be_lower_expr_lvalue(op1, &l1);
                           if (err != GCC_GEN_BE_SUCCESS) return err;
                           
-                          gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+                          gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                           if (!cblock) return GCC_GEN_BE_ERROR_INTERNAL;
                           
                           gcc_jit_function *func = gcc_jit_block_get_function(cblock);
@@ -501,10 +510,10 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                                       if (err == GCC_GEN_BE_SUCCESS && base_lval) {
                                           this_ptr = gcc_jit_lvalue_get_address(base_lval, NULL);
                                       } else {
-                                          err = gcc_gen_be_lower_expr_rvalue(arg, &this_ptr);
+                                          GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(arg, &this_ptr));
                                       }
                                   } else {
-                                      err = gcc_gen_be_lower_expr_rvalue(arg, &this_ptr);
+                                      GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(arg, &this_ptr));
                                   }
                                   if (err != GCC_GEN_BE_SUCCESS) { free(args); return err; }
                                   args[i++] = this_ptr;
@@ -611,7 +620,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
               err = gcc_gen_be_lower_type(expr->type, &type);
               if (err != GCC_GEN_BE_SUCCESS) return err;
               
-              gcc_jit_block *cblock = gcc_gen_be_get_current_block();
+              gcc_jit_block *cblock = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
               if (cblock) {
                   a_throw_supplement_ptr tsp = expr->variant.throw_info;
                   if (tsp) {
@@ -633,10 +643,10 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                       a_dynamic_init_ptr dip = tsp->dip;
                       if (dip && dip->kind == dik_expression) {
                           gcc_jit_rvalue *val_rval = NULL;
-                          err = gcc_gen_be_lower_expr_rvalue(dip->variant.expression, &val_rval);
-                          if (err == GCC_GEN_BE_SUCCESS && val_rval) {
+                          GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(dip->variant.expression, &val_rval));
+                          if (val_rval) {
                               gcc_jit_type *exc_type = NULL;
-                              gcc_gen_be_lower_type(throw_type, &exc_type);
+                              GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(throw_type, &exc_type));
                               gcc_jit_lvalue *exc_deref = gcc_jit_rvalue_dereference(
                                   gcc_jit_context_new_cast(ctx, NULL, exc_buf, gcc_jit_type_get_pointer(exc_type)), NULL);
                               gcc_jit_block_add_assignment(cblock, NULL, exc_deref, val_rval);
@@ -665,7 +675,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   /* Control flow terminated after throw */
                   gcc_jit_block *unreachable_block = gcc_jit_function_new_block(gcc_jit_block_get_function(cblock), "unreachable_after_throw");
                   gcc_jit_block_end_with_jump(cblock, NULL, unreachable_block);
-                  gcc_gen_be_set_current_block(unreachable_block);
+                  GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(unreachable_block));
               }
               
               *out_rval = gcc_jit_context_zero(ctx, type);

@@ -32,7 +32,7 @@ typedef struct gcc_jit_rvalue gcc_jit_rvalue;
  * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_lvalue **out_lval);
+extern gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Lowers an EDG expression into a libgccjit rvalue.
@@ -41,7 +41,7 @@ extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_e
  * @param out_rval A pointer to a gcc_jit_rvalue pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_rval` populated.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval);
+extern gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

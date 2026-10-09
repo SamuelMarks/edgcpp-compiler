@@ -147,14 +147,14 @@ extern "C" {
  *
  * @return GCC_GEN_BE_SUCCESS if loaded successfully, or an error code otherwise.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t load_libgccjit_windows(void);
+extern gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Loads the libgccjit dynamic library on POSIX systems.
  *
  * @return GCC_GEN_BE_SUCCESS if loaded successfully, or an error code otherwise.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t load_libgccjit_posix(void);
+extern gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

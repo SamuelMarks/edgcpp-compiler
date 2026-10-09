@@ -25,15 +25,17 @@ extern "C" {
  *
  * It orchestrates the translation of the EDG AST into libgccjit constructs
  * and triggers compilation.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern void gcc_gen_be(void);
+extern gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Hook called by the EDG frontend to execute the backend.
  *
  * This is the standard entry point expected by the EDG frontend architecture.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern void back_end(void);
+extern gcc_gen_be_error_t back_end(void) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

@@ -23,7 +23,7 @@ BEGIN_EDG_NAMESPACE
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated (can be NULL if pos is invalid).
  */
-gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_location **out_loc) {
+gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
 
@@ -37,7 +37,8 @@ gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_locat
     a_source_file_ptr sfp = conv_seq_to_file_and_line(pos->seq, &file_name, &full_name, &line_number, &at_end);
     if (!file_name) return GCC_GEN_BE_SUCCESS;
     
-    gcc_jit_context *ctx = gcc_gen_be_get_context();
+    gcc_jit_context *ctx = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
     if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 
     *out_loc = gcc_jit_context_new_location(ctx, file_name, line_number, pos->column);
@@ -51,7 +52,7 @@ gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_locat
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_jit_location **out_loc) {
+gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
 
@@ -60,7 +61,7 @@ gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_
     /* Source positions for expressions are typically stored in the source_corresp or similar fields, but EDG's AST doesn't always have one simple position. 
        Let's stick to NULL for now or try to extract it if available. */
     if (expr->source_corresp.pos.seq != 0) {
-        return gcc_gen_be_get_location(&expr->source_corresp.pos, out_loc);
+        GCC_GEN_BE_CHECK(gcc_gen_be_get_location(&expr->source_corresp.pos, out_loc));
     }
     
     return GCC_GEN_BE_SUCCESS;
@@ -73,14 +74,14 @@ gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, gcc_jit_location **out_loc) {
+gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
 
     if (!stmt) return GCC_GEN_BE_SUCCESS;
 
     if (stmt->source_corresp.pos.seq != 0) {
-        return gcc_gen_be_get_location(&stmt->source_corresp.pos, out_loc);
+        GCC_GEN_BE_CHECK(gcc_gen_be_get_location(&stmt->source_corresp.pos, out_loc));
     }
 
     return GCC_GEN_BE_SUCCESS;

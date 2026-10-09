@@ -15,6 +15,7 @@
 #define GCC_GEN_BE_CONTEXT_H
 
 #include "gcc_gen_be_error.h"
+#include <stddef.h>
 
 /* Forward declarations for libgccjit types to avoid including the header in
  * every file that needs the context, though it may still be needed depending
@@ -29,30 +30,34 @@ extern "C" {
 /**
  * @brief Retrieves the global libgccjit context.
  *
- * @return The current gcc_jit_context pointer, or NULL if not initialized.
+ * @param out_ctx Pointer to receive the gcc_jit_context pointer.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
  */
-extern gcc_jit_context *gcc_gen_be_get_context(void);
+extern gcc_gen_be_error_t gcc_gen_be_get_context(gcc_jit_context **out_ctx) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Sets the global libgccjit context.
  *
  * @param ctx The gcc_jit_context to set as global.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern void gcc_gen_be_set_context(gcc_jit_context *ctx);
+extern gcc_gen_be_error_t gcc_gen_be_set_context(gcc_jit_context *ctx) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Retrieves the currently active libgccjit block.
  *
- * @return The current gcc_jit_block pointer.
+ * @param out_block Pointer to receive the gcc_jit_block pointer.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
  */
-extern gcc_jit_block *gcc_gen_be_get_current_block(void);
+extern gcc_gen_be_error_t gcc_gen_be_get_current_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Sets the currently active libgccjit block.
  *
  * @param block The gcc_jit_block to set as current.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern void gcc_gen_be_set_current_block(gcc_jit_block *block);
+extern gcc_gen_be_error_t gcc_gen_be_set_current_block(gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @struct gcc_gen_be_context_t
@@ -102,9 +107,10 @@ typedef struct {
 /**
  * @brief Retrieves the global GCC backend context object.
  *
- * @return A pointer to the backend state object.
+ * @param out_state Pointer to receive the backend state object.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
  */
-extern gcc_gen_be_context_t *gcc_gen_be_get_state(void);
+extern gcc_gen_be_error_t gcc_gen_be_get_state(gcc_gen_be_context_t **out_state) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Configures libgccjit context based on command line options.
@@ -112,28 +118,28 @@ extern gcc_gen_be_context_t *gcc_gen_be_get_state(void);
  * @param ctx The gcc_jit_context to configure.
  * @return A GCC_GEN_BE_SUCCESS on success, or an error code otherwise.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx);
+extern gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Performs early initialization of the backend, such as loading libraries.
  *
  * @return A GCC_GEN_BE_SUCCESS on success, or an error code otherwise.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_early_init(void);
+extern gcc_gen_be_error_t gcc_gen_be_early_init(void) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Initializes the main gcc_jit_context and sets default options.
  *
  * @return A GCC_GEN_BE_SUCCESS on success, or an error code otherwise.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_init(void);
+extern gcc_gen_be_error_t gcc_gen_be_init(void) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Cleans up the gcc_jit_context and associated caches.
  *
  * @return A GCC_GEN_BE_SUCCESS on success, or an error code otherwise.
  */
-extern GCC_GEN_BE_NODISCARD gcc_gen_be_error_t gcc_gen_be_cleanup(void);
+extern gcc_gen_be_error_t gcc_gen_be_cleanup(void) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }
