@@ -16,10 +16,10 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t get_or_create_di_type(
+llvm_gen_be_error_t get_or_create_di_type(
     llvm_gen_be_debug_state_t* dbg_state,
     a_type_ptr ty,
-    llvm::DIType** out_di_type) {
+    llvm::DIType** out_di_type) noexcept {
     
     if (!dbg_state || !ty || !out_di_type) return llvm_gen_be_error_t::invalid_argument;
 
@@ -102,10 +102,10 @@ BEGIN_EDG_NAMESPACE
     return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t emit_dbg_declare_for_variable(
+llvm_gen_be_error_t emit_dbg_declare_for_variable(
     llvm_gen_be_debug_state_t* dbg_state,
     a_variable_ptr var,
-    llvm::AllocaInst* alloca_inst) {
+    llvm::AllocaInst* alloca_inst) noexcept {
     
     if (!dbg_state || !var || !alloca_inst) return llvm_gen_be_error_t::invalid_argument;
 

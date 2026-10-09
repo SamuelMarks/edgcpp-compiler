@@ -1,3 +1,4 @@
+#include "llvm_gen_be_internal.h"
 #include "llvm_gen_be_codegen.h"
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
@@ -11,6 +12,9 @@
 #include <string>
 
 using namespace edg;
+LLVMBackendState state; LLVMBackendState* edg::be_state = &state;
+
+
 
 bool check_magic(const char* filename, const std::vector<uint8_t>& expected_magic) {
     std::ifstream ifs(filename, std::ios::binary);
@@ -49,7 +53,7 @@ void test_triple_format(llvm::Module* module, const char* triple_str, const std:
 }
 
 int main() {
-    initialize_llvm_targets();
+    assert(initialize_llvm_targets() == llvm_gen_be_error_t::ok);
 
     llvm::LLVMContext context;
     llvm::Module module("codegen_test_module", context);

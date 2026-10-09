@@ -30,14 +30,14 @@ BEGIN_EDG_NAMESPACE
  * @param[in] ... Variadic arguments matching the format string.
  * @return The error code passed in @p err.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_gen_be_set_error(
+llvm_gen_be_error_t llvm_gen_be_set_error(
     llvm_gen_be_error_context_t* ctx,
     llvm_gen_be_error_t err,
     const char* file_name,
     uint32_t line,
     uint32_t col,
     const char* format,
-    ...) {
+    ...) noexcept {
   if (ctx != nullptr) {
     ctx->error_code = err;
     ctx->file_name = file_name;
@@ -63,9 +63,9 @@ BEGIN_EDG_NAMESPACE
  *                     resulting string pointer is stored.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if out_str is null.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_gen_be_error_to_string(
+llvm_gen_be_error_t llvm_gen_be_error_to_string(
     llvm_gen_be_error_t err,
-    const char** out_str) {
+    const char** out_str) noexcept {
   if (out_str == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -120,8 +120,8 @@ BEGIN_EDG_NAMESPACE
  * @param[in,out] ctx Pointer to the error context to reset.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx is null.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_gen_be_error_context_reset(
-    llvm_gen_be_error_context_t* ctx) {
+llvm_gen_be_error_t llvm_gen_be_error_context_reset(
+    llvm_gen_be_error_context_t* ctx) noexcept {
   if (ctx == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }

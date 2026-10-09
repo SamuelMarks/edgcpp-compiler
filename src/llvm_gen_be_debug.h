@@ -59,12 +59,12 @@ struct llvm_gen_be_debug_state_t {
  * @param[in] is_optimized True if the code is compiled with optimizations.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t debug_info_init(
+llvm_gen_be_error_t debug_info_init(
     llvm_gen_be_debug_state_t** out_dbg_state,
     llvm::Module* module,
     const char* source_file,
     const char* comp_dir,
-    bool is_optimized);
+    bool is_optimized) noexcept;
 
 /**
  * @brief Finalizes the debug information in the `DIBuilder`.
@@ -74,7 +74,7 @@ struct llvm_gen_be_debug_state_t {
  * @param[in,out] dbg_state The debug state to finalize.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state);
+llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) noexcept;
 
 /**
  * @brief Cleans up and deallocates the debug information state.
@@ -84,7 +84,7 @@ struct llvm_gen_be_debug_state_t {
  * @param[in,out] dbg_state Pointer to the debug state pointer to be freed.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state);
+llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state) noexcept;
 
 /**
  * @brief Retrieves or creates a debug info file descriptor.
@@ -95,10 +95,10 @@ struct llvm_gen_be_debug_state_t {
  * @param[out] out_di_file Pointer to the resulting `DIFile`.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t get_or_create_di_file(
+llvm_gen_be_error_t get_or_create_di_file(
     llvm_gen_be_debug_state_t* dbg_state,
     const char* file_path,
-    llvm::DIFile** out_di_file);
+    llvm::DIFile** out_di_file) noexcept;
 
 /**
  * @brief Gets or creates a DILocation for a given source position and scope.
@@ -109,11 +109,11 @@ struct llvm_gen_be_debug_state_t {
  * @param[out] out_loc Pointer to the resulting `DILocation`.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t get_di_location(
+llvm_gen_be_error_t get_di_location(
     llvm_gen_be_debug_state_t* dbg_state,
     a_source_position src_pos,
     llvm::DIScope* scope,
-    llvm::DILocation** out_loc);
+    llvm::DILocation** out_loc) noexcept;
 
 /**
  * @brief Applies debug location metadata to an instruction.
@@ -122,9 +122,9 @@ struct llvm_gen_be_debug_state_t {
  * @param[in] src_pos The EDG source position.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t apply_instruction_debug_loc(
+llvm_gen_be_error_t apply_instruction_debug_loc(
     llvm::Instruction* inst,
-    a_source_position src_pos);
+    a_source_position src_pos) noexcept;
 
 /**
  * @brief Creates a DISubprogram for a given routine and attaches it to the function.
@@ -135,11 +135,11 @@ struct llvm_gen_be_debug_state_t {
  * @param[out] out_subprogram Pointer to the resulting `DISubprogram`.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t create_di_subprogram(
+llvm_gen_be_error_t create_di_subprogram(
     llvm_gen_be_debug_state_t* dbg_state,
     a_routine_ptr routine,
     llvm::Function* fn,
-    llvm::DISubprogram** out_subprogram);
+    llvm::DISubprogram** out_subprogram) noexcept;
 
 /**
  * @brief Pushes a new lexical block onto the scope stack.
@@ -149,10 +149,10 @@ struct llvm_gen_be_debug_state_t {
  * @param[out] out_block Pointer to the resulting `DILexicalBlock`.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t push_lexical_block(
+llvm_gen_be_error_t push_lexical_block(
     llvm_gen_be_debug_state_t* dbg_state,
     a_source_position src_pos,
-    llvm::DILexicalBlock** out_block);
+    llvm::DILexicalBlock** out_block) noexcept;
 
 /**
  * @brief Pops the current lexical block from the scope stack.
@@ -160,7 +160,7 @@ struct llvm_gen_be_debug_state_t {
  * @param[in,out] dbg_state The debug state.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t pop_lexical_block(llvm_gen_be_debug_state_t* dbg_state);
+llvm_gen_be_error_t pop_lexical_block(llvm_gen_be_debug_state_t* dbg_state) noexcept;
 
 /**
  * @brief Retrieves or creates a DIType for a given EDG type.
@@ -170,10 +170,10 @@ struct llvm_gen_be_debug_state_t {
  * @param[out] out_di_type Pointer to the resulting `DIType`.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t get_or_create_di_type(
+llvm_gen_be_error_t get_or_create_di_type(
     llvm_gen_be_debug_state_t* dbg_state,
     a_type_ptr ty,
-    llvm::DIType** out_di_type);
+    llvm::DIType** out_di_type) noexcept;
 
 /**
  * @brief Emits a debug declare intrinsic for a local variable or parameter.
@@ -183,10 +183,10 @@ struct llvm_gen_be_debug_state_t {
  * @param[in] alloca_inst The LLVM alloca instruction representing the variable's storage.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t emit_dbg_declare_for_variable(
+llvm_gen_be_error_t emit_dbg_declare_for_variable(
     llvm_gen_be_debug_state_t* dbg_state,
     a_variable_ptr var,
-    llvm::AllocaInst* alloca_inst);
+    llvm::AllocaInst* alloca_inst) noexcept;
 
 END_EDG_NAMESPACE
 

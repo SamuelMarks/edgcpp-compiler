@@ -22,7 +22,7 @@
 
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options_t* out_opts) {
+llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options_t* out_opts) noexcept {
   if (!opt_str || !out_opts) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -59,7 +59,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_opt_options_t* opts) {
+llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_opt_options_t* opts) noexcept {
   if (!module || !opts) {
     return llvm_gen_be_error_t::invalid_argument;
   }

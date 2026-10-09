@@ -45,9 +45,16 @@ add_test(NAME error_test COMMAND error_test)
 add_test(NAME type_test COMMAND type_test)
 
 add_executable(test_llvm_orchestrator test_llvm_orchestrator.cpp)
-add_executable(test_llvm_verifier test_llvm_verifier.cpp)
+target_compile_features(test_llvm_orchestrator PRIVATE cxx_std_17)
+target_include_directories(test_llvm_orchestrator PRIVATE ${LLVM_INCLUDE_DIRS})
+target_link_libraries(test_llvm_orchestrator PRIVATE ${LLVM_LIBS})
 
-add_test(NAME test_llvm_orchestrator COMMAND test_llvm_orchestrator)
+add_executable(test_llvm_verifier test_llvm_verifier.cpp)
+target_compile_features(test_llvm_verifier PRIVATE cxx_std_17)
+target_include_directories(test_llvm_verifier PRIVATE ${LLVM_INCLUDE_DIRS})
+target_link_libraries(test_llvm_verifier PRIVATE ${LLVM_LIBS})
+
+
 add_test(NAME test_llvm_verifier COMMAND test_llvm_verifier)
 
 add_executable(abi_win64_test llvm_ir_backend_tests/abi_win64_test.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_win64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_type.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_error.cpp)

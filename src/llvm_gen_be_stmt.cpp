@@ -19,12 +19,17 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_expr_stmt(a_statement_ptr stmt) {
+/**
+ * @brief Helper for lowering expr statement.
+ * @param[in] stmt The EDG statement node.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_lower_expr_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* tmp_val = nullptr;
   return llvm_lower_expression(stmt->expr, &tmp_val);
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_return_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_return_stmt(a_statement_ptr stmt) noexcept {
   if (stmt->expr) {
     llvm::Value* ret_val = nullptr;
     llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &ret_val);
@@ -47,7 +52,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_if_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_if_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* cond = nullptr;
   llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &cond);
   if (err != llvm_gen_be_error_t::ok) return err;
@@ -86,7 +91,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_block_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_block_stmt(a_statement_ptr stmt) noexcept {
   llvm::DILexicalBlock* block = nullptr;
   if (be_state->dbg_state) {
     llvm_gen_be_error_t err = push_lexical_block(be_state->dbg_state, stmt->position, &block);
@@ -105,7 +110,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_while_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_while_stmt(a_statement_ptr stmt) noexcept {
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   llvm::BasicBlock* cond_bb = llvm::BasicBlock::Create(*be_state->context, "while.cond", func);
   llvm::BasicBlock* body_bb = llvm::BasicBlock::Create(*be_state->context, "while.body");
@@ -143,7 +148,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_for_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_for_stmt(a_statement_ptr stmt) noexcept {
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   
   if (stmt->variant.for_loop.extra_info->initialization) {
@@ -203,7 +208,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_label_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_label_stmt(a_statement_ptr stmt) noexcept {
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   a_label_ptr label = stmt->variant.label.ptr;
   llvm::BasicBlock* label_bb = nullptr;
@@ -226,7 +231,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_goto_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_goto_stmt(a_statement_ptr stmt) noexcept {
   a_label_ptr label = stmt->variant.label.ptr;
   llvm::BasicBlock* label_bb = nullptr;
   if (be_state->label_blocks.count(label)) {
@@ -239,7 +244,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_assigned_goto_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_assigned_goto_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* address = nullptr;
   llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &address);
   if (err != llvm_gen_be_error_t::ok) return err;
@@ -272,7 +277,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) noexcept {
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   llvm::Value* cond = nullptr;
   llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &cond);
@@ -350,7 +355,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_switch_case_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_switch_case_stmt(a_statement_ptr stmt) noexcept {
   a_switch_case_entry_ptr c = stmt->variant.switch_case.extra_info;
   llvm::BasicBlock* case_bb = nullptr;
   if (be_state->case_blocks.count(c)) {
@@ -365,7 +370,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_vla_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_vla_stmt(a_statement_ptr stmt) noexcept {
   if (stmt->kind == stmk_set_vla_size) {
     a_vla_dimension_ptr dim = stmt->variant.vla_dimension;
     if (dim && dim->type) {
@@ -399,7 +404,9 @@ BEGIN_EDG_NAMESPACE
                     }
                     if (dim && dim->dimension_variable && be_state->local_vars.count(dim->dimension_variable)) {
                         llvm::AllocaInst* dim_alloca = llvm::cast<llvm::AllocaInst>(be_state->local_vars[dim->dimension_variable]);
-                        llvm::Type* dim_ty = get_llvm_type(dim->dimension_variable->type);
+                        llvm::Type* dim_ty = nullptr;
+                        llvm_gen_be_error_t err_ty = get_llvm_type(dim->dimension_variable->type, &dim_ty);
+                        if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
                         dim_size = be_state->builder->CreateLoad(dim_ty, dim_alloca);
                         dim_size = be_state->builder->CreateZExtOrTrunc(dim_size, llvm::Type::getInt64Ty(*be_state->context));
                     }
@@ -414,7 +421,9 @@ BEGIN_EDG_NAMESPACE
                 array_ty = skip_typerefs(array_ty->variant.array.element_type);
             }
 
-            llvm::Type* elem_llvm_ty = get_llvm_type(array_ty);
+            llvm::Type* elem_llvm_ty = nullptr;
+            llvm_gen_be_error_t err_ty = get_llvm_type(array_ty, &elem_llvm_ty);
+            if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
             llvm::AllocaInst* array_alloca = be_state->builder->CreateAlloca(elem_llvm_ty, total_size, var->source_corresp.name ? var->source_corresp.name : "vla");
             be_state->builder->CreateStore(array_alloca, be_state->local_vars[var]);
         }
@@ -423,7 +432,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_asm_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_asm_stmt(a_statement_ptr stmt) noexcept {
   an_asm_entry_ptr aep = stmt->variant.asm_entry;
   std::string asm_str;
   if (aep->asm_string && aep->asm_string->kind == ck_string) {
@@ -458,7 +467,9 @@ BEGIN_EDG_NAMESPACE
     constraints += constr;
 
     if (output && !is_memory) {
-      llvm::Type* ty = get_llvm_type(aop->expression->type);
+      llvm::Type* ty = nullptr;
+      llvm_gen_be_error_t err_ty = get_llvm_type(aop->expression->type, &ty);
+      if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
       output_types.push_back(ty);
       output_exprs.push_back(aop->expression);
     } else {
@@ -467,8 +478,14 @@ BEGIN_EDG_NAMESPACE
       if (err != llvm_gen_be_error_t::ok) return err;
       args.push_back(arg_val);
       arg_types.push_back(arg_val->getType());
-      if (is_memory) arg_element_types.push_back(get_llvm_type(aop->expression->type));
-      else arg_element_types.push_back(nullptr);
+      if (is_memory) {
+         llvm::Type* mem_ty = nullptr;
+         llvm_gen_be_error_t err_ty = get_llvm_type(aop->expression->type, &mem_ty);
+         if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
+         arg_element_types.push_back(mem_ty);
+      } else {
+         arg_element_types.push_back(nullptr);
+      }
     }
   }
 
@@ -511,7 +528,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
@@ -548,7 +565,9 @@ BEGIN_EDG_NAMESPACE
       has_catch_all = true;
       lpad->addClause(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty)));
     } else {
-      llvm::Constant* typeinfo_ptr = get_typeinfo_global(h->parameter->type);
+      llvm::Constant* typeinfo_ptr = nullptr;
+      llvm_gen_be_error_t err_ti = get_typeinfo_global(h->parameter->type, &typeinfo_ptr);
+      if (err_ti != llvm_gen_be_error_t::ok) return err_ti;
       lpad->addClause(typeinfo_ptr);
     }
   }
@@ -576,7 +595,9 @@ BEGIN_EDG_NAMESPACE
     if (!h->parameter) {
       be_state->builder->CreateBr(catch_bb);
     } else {
-      llvm::Constant* typeinfo_ptr = get_typeinfo_global(h->parameter->type);
+      llvm::Constant* typeinfo_ptr = nullptr;
+      llvm_gen_be_error_t err_ti = get_typeinfo_global(h->parameter->type, &typeinfo_ptr);
+      if (err_ti != llvm_gen_be_error_t::ok) return err_ti;
       llvm::Value* typeid_val = be_state->builder->CreateCall(typeid_fn, {typeinfo_ptr});
       llvm::Value* cmp = be_state->builder->CreateICmpEQ(exc_sel, typeid_val);
       be_state->builder->CreateCondBr(cmp, catch_bb, next_dispatch_bb);
@@ -609,14 +630,15 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) {
+llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) noexcept {
   if (!stmt) return llvm_gen_be_error_t::ok;
 
   if (be_state->dbg_state && !be_state->dbg_state->scope_stack.empty()) {
     llvm::DIScope* scope = be_state->dbg_state->scope_stack.back();
     llvm::DILocation* loc = nullptr;
     llvm_gen_be_error_t err = get_di_location(be_state->dbg_state, stmt->position, scope, &loc);
-    if (err == llvm_gen_be_error_t::ok && loc) {
+    if (err != llvm_gen_be_error_t::ok) return err;
+    if (loc) {
       be_state->builder->SetCurrentDebugLocation(loc);
     }
   }

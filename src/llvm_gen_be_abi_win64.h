@@ -68,7 +68,7 @@ struct win64_arg_info_t {
  * @param[out] out_info Pointer to the `win64_arg_info_t` struct to populate with classification results.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, win64_arg_info_t* out_info);
+llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, win64_arg_info_t* out_info) noexcept;
 
 /**
  * @brief Computes the ABI return passing mechanism for Windows x64.
@@ -78,7 +78,7 @@ struct win64_arg_info_t {
  * @param[out] out_sret Pointer to boolean set to true if the return uses the `sret` (structural return) mechanism.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t compute_win64_return_info(a_type_ptr ret_ty, win64_arg_info_t* out_info, bool* out_sret);
+llvm_gen_be_error_t compute_win64_return_info(a_type_ptr ret_ty, win64_arg_info_t* out_info, bool* out_sret) noexcept;
 
 /**
  * @brief Builds an LLVM function type and attributes according to Windows x64 ABI.
@@ -88,7 +88,7 @@ struct win64_arg_info_t {
  * @param[out] out_attrs Pointer to output LLVM attribute list.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::FunctionType** out_fn_ty, llvm::AttributeList* out_attrs);
+llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::FunctionType** out_fn_ty, llvm::AttributeList* out_attrs) noexcept;
 
 /**
  * @brief Lowers a va_start call for Windows x64 ABI.
@@ -97,7 +97,7 @@ struct win64_arg_info_t {
  * @param[out] out_val The resulting LLVM value for the lowered intrinsic.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_win64_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val);
+llvm_gen_be_error_t lower_win64_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept;
 
 END_EDG_NAMESPACE
 

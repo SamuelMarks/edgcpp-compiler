@@ -26,9 +26,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_integer(
+llvm_gen_be_error_t llvm_type_from_integer(
     a_type_ptr edg_type,
-    llvm::Type** out_type) {
+    llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -80,9 +80,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_float(
+llvm_gen_be_error_t llvm_type_from_float(
     a_type_ptr edg_type,
-    llvm::Type** out_type) {
+    llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -140,10 +140,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_pointer(
-    a_type_ptr edg_type,
-    llvm::Type** out_type) {
-  (void)edg_type;
+llvm_gen_be_error_t llvm_type_from_pointer(
+    [[maybe_unused]] a_type_ptr edg_type,
+    llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -159,9 +158,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_array(
+llvm_gen_be_error_t llvm_type_from_array(
     a_type_ptr edg_type,
-    llvm::Type** out_type) {
+    llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -200,9 +199,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_struct(
+llvm_gen_be_error_t llvm_type_from_struct(
     a_type_ptr edg_type,
-    llvm::Type** out_type) {
+    llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -299,9 +298,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_fn_type Pointer to the variable where the resulting FunctionType* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_routine(
+llvm_gen_be_error_t llvm_type_from_routine(
     a_type_ptr edg_type,
-    llvm::FunctionType** out_fn_type) {
+    llvm::FunctionType** out_fn_type) noexcept {
   if (out_fn_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -347,9 +346,9 @@ BEGIN_EDG_NAMESPACE
  * @return llvm_gen_be_error_t::ok on success, llvm_gen_be_error_t::invalid_argument if
  *         out_type is null, or an error code indicating the failure reason.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_edg_type(
+llvm_gen_be_error_t llvm_type_from_edg_type(
     a_type_ptr edg_type,
-    llvm::Type** out_type) {
+    llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -436,15 +435,19 @@ BEGIN_EDG_NAMESPACE
  * @brief Legacy compatibility helper redirecting to llvm_type_from_edg_type.
  * @details Convenience wrapper returning llvm::Type* while inspecting error codes internally.
  * @param[in] edg_type Pointer to the EDG type structure.
- * @return Pointer to the lowered llvm::Type*, or nullptr on severe error.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
-llvm::Type* get_llvm_type(a_type_ptr edg_type) {
+llvm_gen_be_error_t get_llvm_type(a_type_ptr edg_type, llvm::Type** out_type) noexcept {
+  if (out_type == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
   llvm::Type* ty = nullptr;
   llvm_gen_be_error_t err = llvm_type_from_edg_type(edg_type, &ty);
-  if (err != llvm_gen_be_error_t::ok && ty == nullptr) {
-    return llvm::Type::getInt8Ty(*be_state->context);
+  if (err != llvm_gen_be_error_t::ok) {
+    return err;
   }
-  return ty;
+  *out_type = ty;
+  return llvm_gen_be_error_t::ok;
 }
 
 END_EDG_NAMESPACE

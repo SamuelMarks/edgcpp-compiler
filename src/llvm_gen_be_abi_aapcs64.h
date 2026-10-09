@@ -60,11 +60,11 @@ struct aapcs64_arg_info_t {
  * @param[out] out_is_hfa True if the type qualifies as HFA or HVA.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t detect_hfa_hva(
+llvm_gen_be_error_t detect_hfa_hva(
     a_type_ptr ty,
     uint32_t* out_num_elements,
     llvm::Type** out_elem_ty,
-    bool* out_is_hfa);
+    bool* out_is_hfa) noexcept;
 
 
 
@@ -76,9 +76,9 @@ struct aapcs64_arg_info_t {
  * @param[out] out_info The classification result information structure.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t classify_aapcs64_argument(
+llvm_gen_be_error_t classify_aapcs64_argument(
     a_type_ptr ty,
-    aapcs64_arg_info_t* out_info);
+    aapcs64_arg_info_t* out_info) noexcept;
 
 
 
@@ -92,10 +92,10 @@ struct aapcs64_arg_info_t {
  * @param[out] out_sret Pointer to a boolean set to true if the return is via sret.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t compute_aapcs64_return_info(
+llvm_gen_be_error_t compute_aapcs64_return_info(
     a_type_ptr ret_ty,
     aapcs64_arg_info_t* out_info,
-    bool* out_sret);
+    bool* out_sret) noexcept;
 
 
 
@@ -109,10 +109,10 @@ struct aapcs64_arg_info_t {
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t build_aapcs64_function_type(
+llvm_gen_be_error_t build_aapcs64_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
-    llvm::AttributeList* out_attrs);
+    llvm::AttributeList* out_attrs) noexcept;
 
 
 
@@ -123,9 +123,9 @@ struct aapcs64_arg_info_t {
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_aapcs64_va_start(
+llvm_gen_be_error_t lower_aapcs64_va_start(
     llvm::Value* va_list_ptr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 END_EDG_NAMESPACE
 

@@ -18,12 +18,12 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t debug_info_init(
+llvm_gen_be_error_t debug_info_init(
     llvm_gen_be_debug_state_t** out_dbg_state,
     llvm::Module* module,
     const char* source_file,
     const char* comp_dir,
-    bool is_optimized) {
+    bool is_optimized) noexcept {
   
   if (out_dbg_state == nullptr || module == nullptr || source_file == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -48,8 +48,8 @@ BEGIN_EDG_NAMESPACE
   llvm::DIFile* di_file = nullptr;
   llvm_gen_be_error_t err = get_or_create_di_file(dbg_state, source_file, &di_file);
   if (err != llvm_gen_be_error_t::ok) {
-    (void)debug_info_cleanup(&dbg_state);
-    return err;
+    llvm_gen_be_error_t cleanup_err = debug_info_cleanup(&dbg_state);
+    return (cleanup_err != llvm_gen_be_error_t::ok) ? cleanup_err : err;
   }
 
   std::string producer = "EDG C++ Front End with LLVM IR Backend";
@@ -70,15 +70,15 @@ BEGIN_EDG_NAMESPACE
   );
 
   if (dbg_state->compile_unit == nullptr) {
-    (void)debug_info_cleanup(&dbg_state);
-    return llvm_gen_be_error_t::di_metadata_failure;
+    llvm_gen_be_error_t cleanup_err = debug_info_cleanup(&dbg_state);
+    return (cleanup_err != llvm_gen_be_error_t::ok) ? cleanup_err : llvm_gen_be_error_t::di_metadata_failure;
   }
 
   *out_dbg_state = dbg_state;
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) {
+llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) noexcept {
   if (dbg_state == nullptr || dbg_state->builder == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -87,7 +87,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state) {
+llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state) noexcept {
   if (dbg_state == nullptr || *dbg_state == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -107,10 +107,10 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t get_or_create_di_file(
+llvm_gen_be_error_t get_or_create_di_file(
     llvm_gen_be_debug_state_t* dbg_state,
     const char* file_path,
-    llvm::DIFile** out_di_file) {
+    llvm::DIFile** out_di_file) noexcept {
   
   if (dbg_state == nullptr || dbg_state->builder == nullptr || file_path == nullptr || out_di_file == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;

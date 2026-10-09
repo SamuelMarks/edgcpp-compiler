@@ -33,9 +33,9 @@ BEGIN_EDG_NAMESPACE
  * @return llvm_gen_be_error_t::ok on success, llvm_gen_be_error_t::invalid_argument if
  *         out_type is null, or an error code indicating the failure reason.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_edg_type(
+llvm_gen_be_error_t llvm_type_from_edg_type(
     a_type_ptr edg_type,
-    llvm::Type** out_type);
+    llvm::Type** out_type) noexcept;
 
 /**
  * @brief Lowers an EDG integer type into a matching LLVM IntegerType.
@@ -45,9 +45,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_integer(
+llvm_gen_be_error_t llvm_type_from_integer(
     a_type_ptr edg_type,
-    llvm::Type** out_type);
+    llvm::Type** out_type) noexcept;
 
 /**
  * @brief Lowers an EDG floating-point type into a matching LLVM floating-point Type.
@@ -56,9 +56,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_float(
+llvm_gen_be_error_t llvm_type_from_float(
     a_type_ptr edg_type,
-    llvm::Type** out_type);
+    llvm::Type** out_type) noexcept;
 
 /**
  * @brief Lowers an EDG pointer or reference type into an LLVM opaque PointerType.
@@ -67,9 +67,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_pointer(
+llvm_gen_be_error_t llvm_type_from_pointer(
     a_type_ptr edg_type,
-    llvm::Type** out_type);
+    llvm::Type** out_type) noexcept;
 
 /**
  * @brief Lowers an EDG array type into an LLVM ArrayType or PointerType.
@@ -79,9 +79,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_array(
+llvm_gen_be_error_t llvm_type_from_array(
     a_type_ptr edg_type,
-    llvm::Type** out_type);
+    llvm::Type** out_type) noexcept;
 
 /**
  * @brief Lowers an EDG struct, union, or class type into an LLVM StructType.
@@ -91,9 +91,9 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_struct(
+llvm_gen_be_error_t llvm_type_from_struct(
     a_type_ptr edg_type,
-    llvm::Type** out_type);
+    llvm::Type** out_type) noexcept;
 
 /**
  * @brief Lowers an EDG routine (function) type into an LLVM FunctionType.
@@ -102,17 +102,19 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_fn_type Pointer to the variable where the resulting FunctionType* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_type_from_routine(
+llvm_gen_be_error_t llvm_type_from_routine(
     a_type_ptr edg_type,
-    llvm::FunctionType** out_fn_type);
+    llvm::FunctionType** out_fn_type) noexcept;
 
 /**
  * @brief Legacy compatibility helper redirecting to llvm_type_from_edg_type.
  * @details Convenience wrapper returning llvm::Type* while inspecting error codes internally.
  * @param[in] edg_type Pointer to the EDG type structure.
- * @return Pointer to the lowered llvm::Type*, or nullptr on severe error.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
-llvm::Type* get_llvm_type(a_type_ptr edg_type);
+llvm_gen_be_error_t get_llvm_type(
+    a_type_ptr edg_type,
+    llvm::Type** out_type) noexcept;
 
 END_EDG_NAMESPACE
 

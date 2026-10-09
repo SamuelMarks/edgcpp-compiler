@@ -19,6 +19,8 @@
 
 using namespace edg;
 
+
+
 LLVMBackendState* edg::be_state = nullptr;
 
 namespace edg {
@@ -83,7 +85,9 @@ int main() {
     assert(ty->isVoidTy());
 
     /* get_llvm_type legacy wrapper */
-    assert(get_llvm_type(nullptr)->isVoidTy());
+    llvm::Type* ty2 = nullptr;
+    assert(get_llvm_type(nullptr, &ty2) == llvm_gen_be_error_t::ok);
+    assert(ty2->isVoidTy());
   }
 
   /* Test 3: Synthetic EDG types for all float variants */

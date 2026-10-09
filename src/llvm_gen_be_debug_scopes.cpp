@@ -15,11 +15,11 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t get_di_location(
+llvm_gen_be_error_t get_di_location(
     llvm_gen_be_debug_state_t* dbg_state,
     a_source_position src_pos,
     llvm::DIScope* scope,
-    llvm::DILocation** out_loc) {
+    llvm::DILocation** out_loc) noexcept {
   
   if (dbg_state == nullptr || scope == nullptr || out_loc == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -41,9 +41,9 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t apply_instruction_debug_loc(
+llvm_gen_be_error_t apply_instruction_debug_loc(
     llvm::Instruction* inst,
-    a_source_position src_pos) {
+    a_source_position src_pos) noexcept {
   
   if (inst == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -66,11 +66,11 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t create_di_subprogram(
+llvm_gen_be_error_t create_di_subprogram(
     llvm_gen_be_debug_state_t* dbg_state,
     a_routine_ptr routine,
     llvm::Function* fn,
-    llvm::DISubprogram** out_subprogram) {
+    llvm::DISubprogram** out_subprogram) noexcept {
 
   if (dbg_state == nullptr || routine == nullptr || fn == nullptr || out_subprogram == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -121,13 +121,14 @@ BEGIN_EDG_NAMESPACE
   );
 
   fn->setSubprogram(*out_subprogram);
+  dbg_state->scope_stack.push_back(*out_subprogram);
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t push_lexical_block(
+llvm_gen_be_error_t push_lexical_block(
     llvm_gen_be_debug_state_t* dbg_state,
     a_source_position src_pos,
-    llvm::DILexicalBlock** out_block) {
+    llvm::DILexicalBlock** out_block) noexcept {
   
   if (dbg_state == nullptr || out_block == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -172,7 +173,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t pop_lexical_block(llvm_gen_be_debug_state_t* dbg_state) {
+llvm_gen_be_error_t pop_lexical_block(llvm_gen_be_debug_state_t* dbg_state) noexcept {
   if (dbg_state == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }

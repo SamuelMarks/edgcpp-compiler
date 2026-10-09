@@ -17,33 +17,50 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-static x86_64_abi_class_t merge_classes(x86_64_abi_class_t accum, x86_64_abi_class_t field) {
+/**
+ * @brief Merges two ABI classes for an eightbyte according to System V rules.
+ * @param[in] accum The accumulated class so far.
+ * @param[in] field The class of the new field.
+ * @param[out] out_class Pointer to store the merged class.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+static llvm_gen_be_error_t merge_classes(x86_64_abi_class_t accum, x86_64_abi_class_t field, x86_64_abi_class_t* out_class) noexcept {
+  if (out_class == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
   if (accum == field) {
-    return accum;
+    *out_class = accum;
+    return llvm_gen_be_error_t::ok;
   }
   if (accum == x86_64_abi_class_t::no_class) {
-    return field;
+    *out_class = field;
+    return llvm_gen_be_error_t::ok;
   }
   if (field == x86_64_abi_class_t::no_class) {
-    return accum;
+    *out_class = accum;
+    return llvm_gen_be_error_t::ok;
   }
   if (accum == x86_64_abi_class_t::memory || field == x86_64_abi_class_t::memory) {
-    return x86_64_abi_class_t::memory;
+    *out_class = x86_64_abi_class_t::memory;
+    return llvm_gen_be_error_t::ok;
   }
   if (accum == x86_64_abi_class_t::integer || field == x86_64_abi_class_t::integer) {
-    return x86_64_abi_class_t::integer;
+    *out_class = x86_64_abi_class_t::integer;
+    return llvm_gen_be_error_t::ok;
   }
   if (accum == x86_64_abi_class_t::x87 || accum == x86_64_abi_class_t::x87up || accum == x86_64_abi_class_t::complex_x87 ||
       field == x86_64_abi_class_t::x87 || field == x86_64_abi_class_t::x87up || field == x86_64_abi_class_t::complex_x87) {
-    return x86_64_abi_class_t::memory;
+    *out_class = x86_64_abi_class_t::memory;
+    return llvm_gen_be_error_t::ok;
   }
-  return x86_64_abi_class_t::sse;
+  *out_class = x86_64_abi_class_t::sse;
+  return llvm_gen_be_error_t::ok;
 }
 
 static llvm_gen_be_error_t classify_internal(
     a_type_ptr ty,
     uint64_t offset,
-    x86_64_abi_class_t classes[2]) {
+    x86_64_abi_class_t classes[2]) noexcept {
 
   if (ty == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -66,10 +83,12 @@ static llvm_gen_be_error_t classify_internal(
 
   if (ty->kind == tk_integer || ty->kind == tk_pointer || ty->kind == tk_ptr_to_member) {
     uint64_t idx = offset / 8;
-    classes[idx] = merge_classes(classes[idx], x86_64_abi_class_t::integer);
+    llvm_gen_be_error_t err = merge_classes(classes[idx], x86_64_abi_class_t::integer, &classes[idx]);
+    if (err != llvm_gen_be_error_t::ok) return err;
     if (offset % 8 + size > 8) {
       if (idx + 1 < 2) {
-        classes[idx + 1] = merge_classes(classes[idx + 1], x86_64_abi_class_t::integer);
+        err = merge_classes(classes[idx + 1], x86_64_abi_class_t::integer, &classes[idx + 1]);
+        if (err != llvm_gen_be_error_t::ok) return err;
       }
     }
     return llvm_gen_be_error_t::ok;
@@ -78,22 +97,28 @@ static llvm_gen_be_error_t classify_internal(
   if (ty->kind == tk_float) {
     if (ty->variant.float_kind == fk_long_double && size == 16) {
       uint64_t idx = offset / 8;
-      classes[idx] = merge_classes(classes[idx], x86_64_abi_class_t::x87);
+      llvm_gen_be_error_t err = merge_classes(classes[idx], x86_64_abi_class_t::x87, &classes[idx]);
+      if (err != llvm_gen_be_error_t::ok) return err;
       if (idx + 1 < 2) {
-        classes[idx + 1] = merge_classes(classes[idx + 1], x86_64_abi_class_t::x87up);
+        err = merge_classes(classes[idx + 1], x86_64_abi_class_t::x87up, &classes[idx + 1]);
+        if (err != llvm_gen_be_error_t::ok) return err;
       }
     } else if (ty->variant.float_kind == fk_float128 || ty->variant.float_kind == fk_std_float128) {
       uint64_t idx = offset / 8;
-      classes[idx] = merge_classes(classes[idx], x86_64_abi_class_t::sse);
+      llvm_gen_be_error_t err = merge_classes(classes[idx], x86_64_abi_class_t::sse, &classes[idx]);
+      if (err != llvm_gen_be_error_t::ok) return err;
       if (idx + 1 < 2) {
-        classes[idx + 1] = merge_classes(classes[idx + 1], x86_64_abi_class_t::sseup);
+        err = merge_classes(classes[idx + 1], x86_64_abi_class_t::sseup, &classes[idx + 1]);
+        if (err != llvm_gen_be_error_t::ok) return err;
       }
     } else {
       uint64_t idx = offset / 8;
-      classes[idx] = merge_classes(classes[idx], x86_64_abi_class_t::sse);
+      llvm_gen_be_error_t err = merge_classes(classes[idx], x86_64_abi_class_t::sse, &classes[idx]);
+      if (err != llvm_gen_be_error_t::ok) return err;
       if (offset % 8 + size > 8) {
         if (idx + 1 < 2) {
-          classes[idx + 1] = merge_classes(classes[idx + 1], x86_64_abi_class_t::sse);
+          err = merge_classes(classes[idx + 1], x86_64_abi_class_t::sse, &classes[idx + 1]);
+          if (err != llvm_gen_be_error_t::ok) return err;
         }
       }
     }
@@ -151,10 +176,10 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_info The classification result information structure.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t classify_sysv_argument(
+llvm_gen_be_error_t classify_sysv_argument(
     a_type_ptr ty,
     uint64_t offset,
-    x86_64_abi_arg_info_t* out_info) {
+    x86_64_abi_arg_info_t* out_info) noexcept {
 
   if (out_info == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -228,10 +253,10 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_sret Pointer to a boolean set to true if the return is via sret.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t compute_sysv_return_info(
+llvm_gen_be_error_t compute_sysv_return_info(
     a_type_ptr ret_ty,
     x86_64_abi_arg_info_t* out_info,
-    bool* out_sret) {
+    bool* out_sret) noexcept {
 
   if (out_info == nullptr || out_sret == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -284,10 +309,10 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t build_sysv_function_type(
+llvm_gen_be_error_t build_sysv_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
-    llvm::AttributeList* out_attrs) {
+    llvm::AttributeList* out_attrs) noexcept {
 
   if (routine_ty == nullptr || out_fn_ty == nullptr || out_attrs == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -387,9 +412,9 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_start(
+llvm_gen_be_error_t lower_sysv_va_start(
     llvm::Value* va_list_ptr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
   llvm::Function* vastart_fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
@@ -408,10 +433,10 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_val The resulting loaded value.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_arg(
+llvm_gen_be_error_t lower_sysv_va_arg(
     llvm::Value* va_list_ptr,
     a_type_ptr ty,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !ty || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
   x86_64_abi_arg_info_t arg_info;
@@ -438,9 +463,9 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_end(
+llvm_gen_be_error_t lower_sysv_va_end(
     llvm::Value* va_list_ptr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
   llvm::Function* vaend_fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
@@ -458,10 +483,10 @@ static llvm_gen_be_error_t classify_internal(
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_copy(
+llvm_gen_be_error_t lower_sysv_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!dest_va_list_ptr || !src_va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
   llvm::Function* vacopy_fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});

@@ -27,64 +27,59 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_val Pointer to the variable where the resulting llvm::Value* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_expression(
+llvm_gen_be_error_t llvm_lower_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 /**
- * @brief Lowers an LValue expression.
- * @details Emits instructions to compute the address of an LValue expression.
+ * @brief Lowers an EDG lvalue expression to an LLVM pointer Value.
  * @param[in] expr Pointer to the EDG expression node.
- * @param[out] out_ptr Pointer to the variable where the resulting llvm::Value* (pointer) is stored.
+ * @param[out] out_ptr Pointer to the variable where the resulting llvm::Value* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_lvalue_expression(
+llvm_gen_be_error_t llvm_lower_lvalue_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_ptr);
+    llvm::Value** out_ptr) noexcept;
 
 /**
- * @brief Lowers unary and binary arithmetic expressions.
- * @details Handles +, -, *, /, %, etc.
- * @param[in] expr Pointer to the EDG arithmetic expression node.
+ * @brief Lowers an EDG arithmetic expression to an LLVM Value.
+ * @param[in] expr Pointer to the EDG expression node.
  * @param[out] out_val Pointer to the variable where the resulting llvm::Value* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_arithmetic_expression(
+llvm_gen_be_error_t llvm_lower_arithmetic_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 /**
- * @brief Lowers comparison and logical short-circuit expressions.
- * @details Handles ==, !=, <, >, &&, ||, etc.
- * @param[in] expr Pointer to the EDG comparison/logical expression node.
+ * @brief Lowers an EDG logical expression to an LLVM Value.
+ * @param[in] expr Pointer to the EDG expression node.
  * @param[out] out_val Pointer to the variable where the resulting llvm::Value* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_logical_expression(
+llvm_gen_be_error_t llvm_lower_logical_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 /**
- * @brief Lowers type cast and conversion expressions.
- * @details Handles implicit and explicit casts.
- * @param[in] expr Pointer to the EDG cast expression node.
+ * @brief Lowers an EDG cast expression to an LLVM Value.
+ * @param[in] expr Pointer to the EDG expression node.
  * @param[out] out_val Pointer to the variable where the resulting llvm::Value* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_cast_expression(
+llvm_gen_be_error_t llvm_lower_cast_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 /**
- * @brief Lowers function call and invoke expressions.
- * @details Emits call or invoke instructions with argument lowering.
- * @param[in] expr Pointer to the EDG call expression node.
+ * @brief Lowers an EDG call expression to an LLVM Value.
+ * @param[in] expr Pointer to the EDG expression node.
  * @param[out] out_val Pointer to the variable where the resulting llvm::Value* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_call_expression(
+llvm_gen_be_error_t llvm_lower_call_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 END_EDG_NAMESPACE
 

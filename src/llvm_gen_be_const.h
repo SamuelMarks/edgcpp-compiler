@@ -29,10 +29,10 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_const Pointer to store the resulting llvm::Constant*.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t evaluate_constant(
+llvm_gen_be_error_t evaluate_constant(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const);
+    llvm::Constant** out_const) noexcept;
 
 /**
  * @brief Lowers an EDG integral constant.
@@ -42,10 +42,10 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_const Pointer to store the resulting llvm::Constant*.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_integer(
+llvm_gen_be_error_t llvm_const_from_integer(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const);
+    llvm::Constant** out_const) noexcept;
 
 /**
  * @brief Lowers an EDG floating-point constant.
@@ -55,10 +55,10 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_const Pointer to store the resulting llvm::Constant*.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_float(
+llvm_gen_be_error_t llvm_const_from_float(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const);
+    llvm::Constant** out_const) noexcept;
 
 /**
  * @brief Lowers an EDG string constant.
@@ -68,10 +68,10 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_const Pointer to store the resulting llvm::Constant*.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_string(
+llvm_gen_be_error_t llvm_const_from_string(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const);
+    llvm::Constant** out_const) noexcept;
 
 /**
  * @brief Lowers an EDG aggregate or struct constant.
@@ -81,10 +81,10 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_const Pointer to store the resulting llvm::Constant*.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_aggregate(
+llvm_gen_be_error_t llvm_const_from_aggregate(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const);
+    llvm::Constant** out_const) noexcept;
 
 /**
  * @brief Lowers an EDG address constant.
@@ -94,10 +94,10 @@ BEGIN_EDG_NAMESPACE
  * @param[out] out_const Pointer to store the resulting llvm::Constant*.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_address(
+llvm_gen_be_error_t llvm_const_from_address(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const);
+    llvm::Constant** out_const) noexcept;
 
 END_EDG_NAMESPACE
 

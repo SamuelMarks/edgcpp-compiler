@@ -23,10 +23,11 @@ BEGIN_EDG_NAMESPACE
 /**
  * @enum llvm_gen_be_error_t
  * @brief Centralized error status codes for the LLVM generation backend.
- * @details Every function in the LLVM backend returns this enumeration and is
- * marked with [[nodiscard]] to enforce mandatory error inspection and bubbling.
+ * @details Every function in the LLVM backend returns this enumeration.
+ * Decorated with [[nodiscard]] directly on the typedef/type definition to enforce
+ * mandatory error inspection and bubbling without needing [[nodiscard]] on every function.
  */
-enum class [[nodiscard]] llvm_gen_be_error_t : int {
+typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   ok = 0,                        ///< Operation completed successfully without error.
   invalid_argument = 1,          ///< A null pointer or invalid argument was supplied.
   out_of_memory = 2,             ///< Dynamic heap allocation failed.
@@ -39,7 +40,7 @@ enum class [[nodiscard]] llvm_gen_be_error_t : int {
   code_gen_failure = 9,          ///< TargetMachine code generation or emission failure.
   verification_failure = 10,     ///< LLVM Module or Function verifier identified invalid IR.
   io_error = 11                  ///< File stream opening, writing, or flushing failure.
-};
+} llvm_gen_be_error_t;
 
 /**
  * @struct llvm_gen_be_error_context_t
@@ -69,14 +70,14 @@ struct llvm_gen_be_error_context_t {
  * @param[in] ... Variadic arguments matching the format string.
  * @return The error code passed in @p err.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_gen_be_set_error(
+llvm_gen_be_error_t llvm_gen_be_set_error(
     llvm_gen_be_error_context_t* ctx,
     llvm_gen_be_error_t err,
     const char* file_name,
     uint32_t line,
     uint32_t col,
     const char* format,
-    ...);
+    ...) noexcept;
 
 /**
  * @brief Converts an error code into a human-readable string representation.
@@ -86,9 +87,9 @@ struct llvm_gen_be_error_context_t {
  *                     resulting string pointer is stored.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if out_str is null.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_gen_be_error_to_string(
+llvm_gen_be_error_t llvm_gen_be_error_to_string(
     llvm_gen_be_error_t err,
-    const char** out_str);
+    const char** out_str) noexcept;
 
 /**
  * @brief Resets an error context structure to default success state.
@@ -96,8 +97,8 @@ struct llvm_gen_be_error_context_t {
  * @param[in,out] ctx Pointer to the error context to reset.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx is null.
  */
-[[nodiscard]] llvm_gen_be_error_t llvm_gen_be_error_context_reset(
-    llvm_gen_be_error_context_t* ctx);
+llvm_gen_be_error_t llvm_gen_be_error_context_reset(
+    llvm_gen_be_error_context_t* ctx) noexcept;
 
 END_EDG_NAMESPACE
 

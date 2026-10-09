@@ -26,9 +26,11 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-llvm::Constant* get_typeinfo_global(a_type_ptr type) {
+llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_const) noexcept {
+  if (!out_const) return llvm_gen_be_error_t::invalid_argument;
   if (!type) {
-    return llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
+    *out_const = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
+    return llvm_gen_be_error_t::ok;
   }
   
   // Use EDG mangler to get the typeinfo name
@@ -46,10 +48,13 @@ llvm::Constant* get_typeinfo_global(a_type_ptr type) {
           name_ref
       );
   }
-  return gv;
+  *out_const = gv;
+  return llvm_gen_be_error_t::ok;
 }
 
-llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
+static llvm_gen_be_error_t get_llvm_function_type(a_type_ptr ty, llvm::FunctionType** out_fn_ty) noexcept {
+  if (!out_fn_ty) return llvm_gen_be_error_t::invalid_argument;
+  *out_fn_ty = nullptr;
   while (ty) {
     if (ty->kind == tk_pointer || is_reference_type(ty)) {
       ty = ty->variant.pointer.type;
@@ -60,15 +65,17 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
     }
   }
   if (ty && ty->kind == tk_routine) {
-    llvm::Type* lt = get_llvm_type(ty);
-    if (lt->isFunctionTy()) return llvm::cast<llvm::FunctionType>(lt);
+    llvm::Type* lt = nullptr;
+    llvm_gen_be_error_t err = get_llvm_type(ty, &lt);
+    if (err != llvm_gen_be_error_t::ok) return err;
+    if (lt->isFunctionTy()) *out_fn_ty = llvm::cast<llvm::FunctionType>(lt);
   }
-  return nullptr;
+  return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_lvalue_expression(
+llvm_gen_be_error_t llvm_lower_lvalue_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_ptr) {
+    llvm::Value** out_ptr) noexcept {
   if (!expr || !out_ptr) return llvm_gen_be_error_t::invalid_argument;
   
   switch (expr->kind) {
@@ -82,7 +89,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
          const char* name = var->source_corresp.name ? var->source_corresp.name : "";
          ptr = be_state->module->getNamedGlobal(name);
          if (!ptr && name[0] != '\0') {
-           llvm::Type* var_ty = get_llvm_type(expr->type);
+           llvm::Type* var_ty = nullptr;
+           llvm_gen_be_error_t err = get_llvm_type(expr->type, &var_ty);
+           if (err != llvm_gen_be_error_t::ok) return err;
            ptr = new llvm::GlobalVariable(
              *be_state->module,
              var_ty,
@@ -112,7 +121,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
            err = llvm_lower_expression(op2, &v2);
            if (err != llvm_gen_be_error_t::ok) return err;
            
-           llvm::Type* elem_ty = get_llvm_type(expr->type);
+           llvm::Type* elem_ty = nullptr;
+           llvm_gen_be_error_t err_ty = get_llvm_type(expr->type, &elem_ty);
+           if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
            *out_ptr = be_state->builder->CreateInBoundsGEP(elem_ty, v1, v2);
            return llvm_gen_be_error_t::ok;
          }
@@ -148,9 +159,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   }
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_arithmetic_expression(
+llvm_gen_be_error_t llvm_lower_arithmetic_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!expr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   an_expr_node_ptr op1 = expr->variant.operation.operands;
   an_expr_node_ptr op2 = op1 ? op1->next : nullptr;
@@ -209,9 +220,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_logical_expression(
+llvm_gen_be_error_t llvm_lower_logical_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!expr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   an_expr_node_ptr op1 = expr->variant.operation.operands;
   an_expr_node_ptr op2 = op1 ? op1->next : nullptr;
@@ -249,7 +260,11 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
       (expr->variant.operation.kind == eok_land) ? "land.phi" : "lor.phi");
     phi->addIncoming((expr->variant.operation.kind == eok_land) ? llvm::ConstantInt::getFalse(*be_state->context) : llvm::ConstantInt::getTrue(*be_state->context), lhs_end_bb);
     phi->addIncoming(rhs_cond, rhs_end_bb);
-    *out_val = be_state->builder->CreateZExt(phi, get_llvm_type(expr->type));
+    
+    llvm::Type* expr_llvm_ty = nullptr;
+    err = get_llvm_type(expr->type, &expr_llvm_ty);
+    if (err != llvm_gen_be_error_t::ok) return err;
+    *out_val = be_state->builder->CreateZExt(phi, expr_llvm_ty);
     return llvm_gen_be_error_t::ok;
   }
   
@@ -277,9 +292,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_cast_expression(
+llvm_gen_be_error_t llvm_lower_cast_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!expr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   an_expr_node_ptr op1 = expr->variant.operation.operands;
   
@@ -289,7 +304,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   
   if (!v1) return llvm_gen_be_error_t::unsupported_expr;
   
-  llvm::Type* dest_ty = get_llvm_type(expr->type);
+  llvm::Type* dest_ty = nullptr;
+  err = get_llvm_type(expr->type, &dest_ty);
+  if (err != llvm_gen_be_error_t::ok) return err;
   llvm::Type* src_ty = v1->getType();
   if (src_ty == dest_ty) {
       *out_val = v1;
@@ -351,9 +368,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_call_expression(
+llvm_gen_be_error_t llvm_lower_call_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!expr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   an_expr_node_ptr op1 = expr->variant.operation.operands;
   
@@ -423,7 +440,8 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   }
   
   if (!callee_ty) {
-     callee_ty = get_llvm_function_type(op1->type);
+     err = get_llvm_function_type(op1->type, &callee_ty);
+     if (err != llvm_gen_be_error_t::ok) return err;
   }
 
   if (!callee_ty) {
@@ -446,9 +464,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_expression(
+llvm_gen_be_error_t llvm_lower_expression(
     an_expr_node_ptr expr,
-    llvm::Value** out_val) {
+    llvm::Value** out_val) noexcept {
   if (!out_val) return llvm_gen_be_error_t::invalid_argument;
   if (!expr) {
     *out_val = nullptr;
@@ -476,11 +494,17 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
     case enk_constant: {
        a_constant_ptr con = expr->variant.constant.ptr;
        if (!con) {
-           *out_val = llvm::Constant::getNullValue(get_llvm_type(expr->type));
+           llvm::Type* expr_llvm_ty = nullptr;
+           llvm_gen_be_error_t err = get_llvm_type(expr->type, &expr_llvm_ty);
+           if (err != llvm_gen_be_error_t::ok) return err;
+           *out_val = llvm::Constant::getNullValue(expr_llvm_ty);
            return llvm_gen_be_error_t::ok;
        }
        llvm::Constant* out_const = nullptr;
-       llvm_gen_be_error_t err = evaluate_constant(con, get_llvm_type(expr->type), &out_const);
+       llvm::Type* expr_llvm_ty = nullptr;
+       llvm_gen_be_error_t err = get_llvm_type(expr->type, &expr_llvm_ty);
+       if (err != llvm_gen_be_error_t::ok) return err;
+       err = evaluate_constant(con, expr_llvm_ty, &out_const);
        if (err != llvm_gen_be_error_t::ok) return err;
        *out_val = out_const;
        return llvm_gen_be_error_t::ok;
@@ -488,12 +512,17 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
     case enk_routine: {
        a_routine_ptr routine = expr->variant.routine.ptr;
        if (!routine || !routine->source_corresp.name) {
-           *out_val = llvm::Constant::getNullValue(get_llvm_type(expr->type));
+           llvm::Type* expr_llvm_ty = nullptr;
+           llvm_gen_be_error_t err = get_llvm_type(expr->type, &expr_llvm_ty);
+           if (err != llvm_gen_be_error_t::ok) return err;
+           *out_val = llvm::Constant::getNullValue(expr_llvm_ty);
            return llvm_gen_be_error_t::ok;
        }
        llvm::Function* func = be_state->module->getFunction(routine->source_corresp.name);
        if (!func) {
-         llvm::Type* func_ty = get_llvm_type(routine->type);
+         llvm::Type* func_ty = nullptr;
+         llvm_gen_be_error_t err = get_llvm_type(routine->type, &func_ty);
+         if (err != llvm_gen_be_error_t::ok) return err;
          func = llvm::Function::Create(
             llvm::cast<llvm::FunctionType>(func_ty),
             llvm::GlobalValue::ExternalLinkage,
@@ -509,7 +538,11 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
        llvm_gen_be_error_t err = llvm_lower_lvalue_expression(expr, &ptr);
        if (err != llvm_gen_be_error_t::ok) return err;
        
-       llvm::LoadInst* load = be_state->builder->CreateLoad(get_llvm_type(expr->type), ptr);
+       llvm::Type* expr_llvm_ty = nullptr;
+       err = get_llvm_type(expr->type, &expr_llvm_ty);
+       if (err != llvm_gen_be_error_t::ok) return err;
+       
+       llvm::LoadInst* load = be_state->builder->CreateLoad(expr_llvm_ty, ptr);
        if (is_volatile_qualified_type(expr->type)) load->setVolatile(true);
        *out_val = load;
        return llvm_gen_be_error_t::ok;
@@ -558,7 +591,10 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
              if (op2 && op2->kind == enk_field) {
                  a_field_ptr field = op2->variant.field.ptr;
                  if (field && field->is_bit_field) {
-                   llvm::Type* field_llvm_ty = get_llvm_type(expr->type);
+                   llvm::Type* field_llvm_ty = nullptr;
+                   err = get_llvm_type(expr->type, &field_llvm_ty);
+                   if (err != llvm_gen_be_error_t::ok) return err;
+                   
                    llvm::LoadInst* load = be_state->builder->CreateLoad(field_llvm_ty, ptr);
                    if (is_volatile_qualified_type(expr->type)) load->setVolatile(true);
                    
@@ -586,7 +622,10 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
              }
            }
            
-           llvm::LoadInst* load = be_state->builder->CreateLoad(get_llvm_type(expr->type), ptr);
+           llvm::Type* expr_llvm_ty = nullptr;
+           err = get_llvm_type(expr->type, &expr_llvm_ty);
+           if (err != llvm_gen_be_error_t::ok) return err;
+           llvm::LoadInst* load = be_state->builder->CreateLoad(expr_llvm_ty, ptr);
            if (is_volatile_qualified_type(expr->type)) load->setVolatile(true);
            *out_val = load;
            return llvm_gen_be_error_t::ok;
@@ -639,7 +678,10 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
            be_state->builder->SetInsertPoint(end_bb);
            
            if (expr->type->kind != tk_void && true_val && false_val) {
-             llvm::PHINode* phi = be_state->builder->CreatePHI(get_llvm_type(expr->type), 2, "cond.phi");
+             llvm::Type* expr_llvm_ty = nullptr;
+             err = get_llvm_type(expr->type, &expr_llvm_ty);
+             if (err != llvm_gen_be_error_t::ok) return err;
+             llvm::PHINode* phi = be_state->builder->CreatePHI(expr_llvm_ty, 2, "cond.phi");
              phi->addIncoming(true_val, true_end_bb);
              phi->addIncoming(false_val, false_end_bb);
              *out_val = phi;
@@ -668,7 +710,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
                      a_field_ptr field = sub_op2->variant.field.ptr;
                      if (field && field->is_bit_field) {
                          is_bitfield_assign = true;
-                         llvm::Type* container_ty = get_llvm_type(op1->type);
+                         llvm::Type* container_ty = nullptr;
+                         err = get_llvm_type(op1->type, &container_ty);
+                         if (err != llvm_gen_be_error_t::ok) return err;
                          
                          llvm::LoadInst* load = be_state->builder->CreateLoad(container_ty, v1);
                          if (is_volatile_qualified_type(op1->type)) load->setVolatile(true);
@@ -703,7 +747,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
              }
              
              if (!is_bitfield_assign) {
-                 llvm::Type* ty = get_llvm_type(expr->type);
+                 llvm::Type* ty = nullptr;
+                 err = get_llvm_type(expr->type, &ty);
+                 if (err != llvm_gen_be_error_t::ok) return err;
                  if (ty->isAggregateType() && be_state->module->getDataLayout().getTypeStoreSize(ty) > 16) {
                      if (llvm::LoadInst* li = llvm::dyn_cast<llvm::LoadInst>(v2)) {
                          llvm::Value* src_ptr = li->getPointerOperand();
@@ -764,7 +810,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
            if (err != llvm_gen_be_error_t::ok) return err;
            
            if (init_val) {
-             llvm::Type* exc_ty = get_llvm_type(throw_info->type);
+             llvm::Type* exc_ty = nullptr;
+             llvm_gen_be_error_t err_ty = get_llvm_type(throw_info->type, &exc_ty);
+             if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
              if (exc_ty && exc_ty->isSized()) {
                be_state->builder->CreateStore(init_val, exc_mem);
              }
@@ -775,7 +823,10 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
          llvm::FunctionCallee throw_fn = be_state->module->getOrInsertFunction("__cxa_throw",
              llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), {int8_ptr_ty, int8_ptr_ty, int8_ptr_ty}, false));
          
-         llvm::Value* typeinfo_ptr = get_typeinfo_global(throw_info->type);
+         llvm::Constant* typeinfo_const = nullptr;
+         llvm_gen_be_error_t err_ti = get_typeinfo_global(throw_info->type, &typeinfo_const);
+         if (err_ti != llvm_gen_be_error_t::ok) return err_ti;
+         llvm::Value* typeinfo_ptr = typeinfo_const;
          llvm::Value* dtor_ptr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty));
          
          if (throw_info->dynamic_init && throw_info->dynamic_init->destructor) {
@@ -783,7 +834,9 @@ llvm::FunctionType* get_llvm_function_type(a_type_ptr ty) {
            if (dtor_rt->source_corresp.name) {
              llvm::Function* dtor_func = be_state->module->getFunction(dtor_rt->source_corresp.name);
              if (!dtor_func) {
-               llvm::Type* func_ty = get_llvm_type(dtor_rt->type);
+               llvm::Type* func_ty = nullptr;
+               llvm_gen_be_error_t err_ty = get_llvm_type(dtor_rt->type, &func_ty);
+               if (err_ty != llvm_gen_be_error_t::ok) return err_ty;
                dtor_func = llvm::Function::Create(llvm::cast<llvm::FunctionType>(func_ty), llvm::GlobalValue::ExternalLinkage, dtor_rt->source_corresp.name, *be_state->module);
              }
              dtor_ptr = dtor_func;

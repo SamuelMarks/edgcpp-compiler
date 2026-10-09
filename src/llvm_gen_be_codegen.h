@@ -38,7 +38,7 @@ enum class codegen_file_type_t {
  * InitializeAllAsmPrinters(), and InitializeAllAsmParsers(). This must be called before
  * attempting to create a target machine.
  */
-void initialize_llvm_targets();
+llvm_gen_be_error_t initialize_llvm_targets(void) noexcept;
 
 /**
  * @brief Creates a configured TargetMachine instance.
@@ -53,12 +53,12 @@ void initialize_llvm_targets();
  * @return llvm_gen_be_error_t::invalid_argument if the target triple cannot be resolved.
  * @return llvm_gen_be_error_t::out_of_memory if allocation fails.
  */
-[[nodiscard]] llvm_gen_be_error_t create_target_machine(
+llvm_gen_be_error_t create_target_machine(
     const char* triple_str,
     const char* cpu,
     const char* features,
     llvm::CodeGenOptLevel opt_level,
-    llvm::TargetMachine** out_tm);
+    llvm::TargetMachine** out_tm) noexcept;
 
 /**
  * @brief Emits the given LLVM module to a file.
@@ -72,11 +72,11 @@ void initialize_llvm_targets();
  * @return llvm_gen_be_error_t::io_error if the output file cannot be opened or written to.
  * @return llvm_gen_be_error_t::code_gen_failure if file emission fails in the pass manager.
  */
-[[nodiscard]] llvm_gen_be_error_t emit_machine_code_to_file(
+llvm_gen_be_error_t emit_machine_code_to_file(
     llvm::Module* module,
     llvm::TargetMachine* tm,
     codegen_file_type_t file_type,
-    const char* output_file_path);
+    const char* output_file_path) noexcept;
 
 END_EDG_NAMESPACE
 

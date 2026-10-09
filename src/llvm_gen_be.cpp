@@ -9,6 +9,7 @@
 
 #include "llvm_gen_be_internal.h"
 #include "llvm_gen_be_codegen.h"
+#include "llvm_gen_be_debug.h"
 #include "target.h"
 
 // LLVM Includes
@@ -23,7 +24,8 @@ BEGIN_EDG_NAMESPACE
 
 LLVMBackendState* be_state = nullptr;
 
-std::string build_data_layout() {
+llvm_gen_be_error_t build_data_layout(std::string* out_dl) noexcept {
+  if (!out_dl) return llvm_gen_be_error_t::invalid_argument;
   std::string dl = "";
   // Endianness
 #if targ_little_endian
@@ -52,21 +54,22 @@ std::string build_data_layout() {
   dl += "f64:" + std::to_string((int)(targ_sizeof_double * targ_char_bit)) + "-";
   dl += "f128:" + std::to_string((int)(targ_sizeof_long_double * targ_char_bit));
 
-  return dl;
+  *out_dl = dl;
+  return llvm_gen_be_error_t::ok;
 }
 
-void generate_llvm_output_file(const char* base_name) {
+llvm_gen_be_error_t generate_llvm_output_file(const char* base_name) noexcept {
   std::string err_str;
   llvm::raw_string_ostream os(err_str);
   if (llvm::verifyModule(*be_state->module, &os)) {
-    // If it fails, report via EDG error handling
-    internal_error(err_str.c_str());
+    return llvm_gen_be_error_t::verification_failure;
   }
 
   // Initialize target registry once
   static bool targets_initialized = false;
   if (!targets_initialized) {
-    initialize_llvm_targets();
+    llvm_gen_be_error_t init_err = initialize_llvm_targets();
+    if (init_err != llvm_gen_be_error_t::ok) return init_err;
     targets_initialized = true;
   }
 
@@ -75,7 +78,7 @@ void generate_llvm_output_file(const char* base_name) {
   // Assume default target for now
   llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, &tm);
   if (tm_err != llvm_gen_be_error_t::ok) {
-    internal_error("Failed to create TargetMachine");
+    return tm_err;
   }
 
   // Emit .ll
@@ -88,48 +91,71 @@ void generate_llvm_output_file(const char* base_name) {
   }
   if (ll_name.empty()) ll_name = "output.ll";
   
-  if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::llvm_ir_text, ll_name.c_str()) != llvm_gen_be_error_t::ok) {
-    internal_error("Failed to emit LLVM IR text file");
+  llvm_gen_be_error_t emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::llvm_ir_text, ll_name.c_str());
+  if (emit_err != llvm_gen_be_error_t::ok) {
+    delete tm;
+    return emit_err;
   }
 
   // Emit .bc
   if (gen_llvm_bc_file_name) {
-    if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::bitcode_file, gen_llvm_bc_file_name) != llvm_gen_be_error_t::ok) {
-      internal_error("Failed to emit LLVM bitcode file");
+    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::bitcode_file, gen_llvm_bc_file_name);
+    if (emit_err != llvm_gen_be_error_t::ok) {
+      delete tm;
+      return emit_err;
     }
   }
 
   // Emit .s
   if (gen_asm_file_name) {
-    if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::assembly_file, gen_asm_file_name) != llvm_gen_be_error_t::ok) {
-      internal_error("Failed to emit assembly file");
+    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::assembly_file, gen_asm_file_name);
+    if (emit_err != llvm_gen_be_error_t::ok) {
+      delete tm;
+      return emit_err;
     }
   }
 
   // Emit .o
   if (gen_obj_file_name) {
-    if (emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::object_file, gen_obj_file_name) != llvm_gen_be_error_t::ok) {
-      internal_error("Failed to emit object file");
+    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::object_file, gen_obj_file_name);
+    if (emit_err != llvm_gen_be_error_t::ok) {
+      delete tm;
+      return emit_err;
     }
   }
 
   delete tm;
+  return llvm_gen_be_error_t::ok;
 }
 
-void llvm_gen_be(void)
+llvm_gen_be_error_t llvm_gen_be(void) noexcept
 {
   if (!be_state) {
-    be_state = new LLVMBackendState();
+    be_state = new (std::nothrow) LLVMBackendState();
   }
+  if (!be_state) return llvm_gen_be_error_t::out_of_memory;
+
   be_state->context = std::make_unique<llvm::LLVMContext>();
+  if (!be_state->context) return llvm_gen_be_error_t::out_of_memory;
+
   be_state->module = std::make_unique<llvm::Module>("edg_module", *be_state->context);
+  if (!be_state->module) return llvm_gen_be_error_t::out_of_memory;
+
   be_state->builder = std::make_unique<llvm::IRBuilder<>>(*be_state->context);
+  if (!be_state->builder) return llvm_gen_be_error_t::out_of_memory;
+
+  bool emit_debug_info = true; // Hardcode for now, or check an EDG option
+  if (emit_debug_info) {
+    llvm_gen_be_error_t err = debug_info_init(&be_state->dbg_state, be_state->module.get(), primary_source_file_name, "", false);
+    if (err != llvm_gen_be_error_t::ok) return err;
+  }
   
   // Set TargetTriple
 // Initialize target registry once
 static bool targets_initialized = false;
 if (!targets_initialized) {
-  initialize_llvm_targets();
+  llvm_gen_be_error_t init_err = initialize_llvm_targets();
+  if (init_err != llvm_gen_be_error_t::ok) return init_err;
   targets_initialized = true;
 }
 
@@ -160,7 +186,7 @@ be_state->module->setTargetTriple(llvm::Triple(triple_str));
 llvm::TargetMachine* tm = nullptr;
 llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, &tm);
 if (tm_err != llvm_gen_be_error_t::ok) {
-  internal_error("Failed to create TargetMachine");
+  return tm_err;
 }
 
 be_state->module->setDataLayout(tm->createDataLayout());
@@ -168,32 +194,37 @@ delete tm;
 
   
   llvm_gen_be_error_t err = llvm_lower_global_variables();
-  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower global variables");
+  if (err != llvm_gen_be_error_t::ok) return err;
 
   
   err = llvm_lower_function_declarations();
-  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower function declarations");
+  if (err != llvm_gen_be_error_t::ok) return err;
 
   
   err = llvm_lower_function_definitions();
-  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower function definitions");
+  if (err != llvm_gen_be_error_t::ok) return err;
 
   
   err = llvm_lower_global_ctors_and_dtors();
-  if (err != llvm_gen_be_error_t::ok) internal_error("Failed to lower global ctors and dtors");
+  if (err != llvm_gen_be_error_t::ok) return err;
 
+  if (be_state->dbg_state) {
+    err = debug_info_finalize(be_state->dbg_state);
+    if (err != llvm_gen_be_error_t::ok) return err;
+  }
 
-  generate_llvm_output_file(primary_source_file_name);
+  return generate_llvm_output_file(primary_source_file_name);
 }
 
 #if !STANDALONE_UTILITY_PROGRAM
 
-void back_end(void)
+llvm_gen_be_error_t back_end(void) noexcept
 /*
 Simple "back end" that generates LLVM IR. This version is for use as a
 subroutine called in the same program as the front end.
 */
 {
+  llvm_gen_be_error_t err = llvm_gen_be_error_t::ok;
 #if IL_SHOULD_BE_WRITTEN_TO_FILE
   /* If the intermediate language was written to a file, read it back in. */
   primary_source_file_name = NULL;
@@ -206,14 +237,15 @@ subroutine called in the same program as the front end.
 #endif /* IL_SHOULD_BE_WRITTEN_TO_FILE */
 
   /* Generate LLVM IR. */
-  llvm_gen_be();
+  err = llvm_gen_be();
+  return err;
 }
 
 #endif /* !STANDALONE_UTILITY_PROGRAM */
 
 #if MAKE_FRONT_END_CALLABLE
 
-void llvm_gen_be_cleanup(void)
+llvm_gen_be_error_t llvm_gen_be_cleanup(void) noexcept
 /*
 This routine is called at the end of compilation, or if compilation is
 terminated prematurely for some reason. It performs any cleanup operations
@@ -221,6 +253,10 @@ required.
 */
 {
   if (be_state) {
+    if (be_state->dbg_state) {
+      llvm_gen_be_error_t err = debug_info_cleanup(&be_state->dbg_state);
+      if (err != llvm_gen_be_error_t::ok) return err;
+    }
     be_state->builder.reset();
     be_state->module.reset();
     be_state->context.reset();
@@ -234,6 +270,7 @@ required.
     delete be_state;
     be_state = nullptr;
   }
+  return llvm_gen_be_error_t::ok;
 }
 
 #endif /* MAKE_FRONT_END_CALLABLE */

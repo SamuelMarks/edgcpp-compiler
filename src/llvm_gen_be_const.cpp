@@ -24,10 +24,10 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_integer(
+llvm_gen_be_error_t llvm_const_from_integer(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const) {
+    llvm::Constant** out_const) noexcept {
   if (!con || !out_const) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -39,10 +39,10 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_float(
+llvm_gen_be_error_t llvm_const_from_float(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const) {
+    llvm::Constant** out_const) noexcept {
   if (!con || !out_const) {
     return llvm_gen_be_error_t::invalid_argument;
  
@@ -67,10 +67,10 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_string(
+llvm_gen_be_error_t llvm_const_from_string(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const) {
+    llvm::Constant** out_const) noexcept {
   if (!con || !out_const) {
     return llvm_gen_be_error_t::invalid_argument;
  
@@ -113,10 +113,10 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_address(
+llvm_gen_be_error_t llvm_const_from_address(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const) {
+    llvm::Constant** out_const) noexcept {
   if (!con || !out_const) {
     return llvm_gen_be_error_t::invalid_argument;
  
@@ -143,10 +143,10 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_const_from_aggregate(
+llvm_gen_be_error_t llvm_const_from_aggregate(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const) {
+    llvm::Constant** out_const) noexcept {
   if (!con || !out_const) {
     return llvm_gen_be_error_t::invalid_argument;
  
@@ -192,10 +192,10 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t evaluate_constant(
+llvm_gen_be_error_t evaluate_constant(
     a_constant_ptr con,
     llvm::Type* expected_ty,
-    llvm::Constant** out_const) {
+    llvm::Constant** out_const) noexcept {
   if (!out_const) {
     return llvm_gen_be_error_t::invalid_argument;
  
@@ -218,7 +218,7 @@ BEGIN_EDG_NAMESPACE
       return llvm_const_from_aggregate(con, expected_ty, out_const);
     default:
       *out_const = llvm::Constant::getNullValue(expected_ty);
-      return llvm_gen_be_error_t::ok;
+      return llvm_gen_be_error_t::unsupported_expr;
   }
 }
 

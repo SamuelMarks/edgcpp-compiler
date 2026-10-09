@@ -17,7 +17,7 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-[[nodiscard]] llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, win64_arg_info_t* out_info) {
+llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, win64_arg_info_t* out_info) noexcept {
   if (ty == nullptr || out_info == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -84,7 +84,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t compute_win64_return_info(a_type_ptr ret_ty, win64_arg_info_t* out_info, bool* out_sret) {
+llvm_gen_be_error_t compute_win64_return_info(a_type_ptr ret_ty, win64_arg_info_t* out_info, bool* out_sret) noexcept {
   if (ret_ty == nullptr || out_info == nullptr || out_sret == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -103,7 +103,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::FunctionType** out_fn_ty, llvm::AttributeList* out_attrs) {
+llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::FunctionType** out_fn_ty, llvm::AttributeList* out_attrs) noexcept {
   if (routine_ty == nullptr || out_fn_ty == nullptr || out_attrs == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
@@ -181,7 +181,7 @@ BEGIN_EDG_NAMESPACE
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t lower_win64_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val) {
+llvm_gen_be_error_t lower_win64_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
   if (va_list_ptr == nullptr || out_val == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }

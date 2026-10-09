@@ -5,6 +5,7 @@
  */
 
 #include "llvm_gen_be_codegen.h"
+#include "llvm_gen_be_internal.h"
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Target/TargetOptions.h>
@@ -16,32 +17,31 @@
 
 BEGIN_EDG_NAMESPACE
 
-void initialize_llvm_targets() {
+llvm_gen_be_error_t initialize_llvm_targets(void) noexcept {
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
     llvm::InitializeAllTargetMCs();
     llvm::InitializeAllAsmPrinters();
     llvm::InitializeAllAsmParsers();
+    return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t create_target_machine(
+llvm_gen_be_error_t create_target_machine(
     const char* triple_str,
     const char* cpu,
     const char* features,
     llvm::CodeGenOptLevel opt_level,
-    llvm::TargetMachine** out_tm)
+    llvm::TargetMachine** out_tm) noexcept
 {
     if (!triple_str || !out_tm) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Null pointer provided for triple_str or out_tm");
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Null pointer provided for triple_str or out_tm");
     }
 
     std::string error_str;
     llvm::Triple theTriple(triple_str);
     const llvm::Target* target = llvm::TargetRegistry::lookupTarget(theTriple, error_str);
     if (!target) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Failed to lookup target: %s", error_str.c_str());
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Failed to lookup target: %s", error_str.c_str());
     }
 
     llvm::TargetOptions opt;
@@ -56,23 +56,21 @@ void initialize_llvm_targets() {
         opt_level);
 
     if (!tm) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::out_of_memory, __FILE__, __LINE__, 0, "Failed to allocate TargetMachine");
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::out_of_memory, __FILE__, __LINE__, 0, "Failed to allocate TargetMachine");
     }
 
     *out_tm = tm;
     return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t emit_machine_code_to_file(
+llvm_gen_be_error_t emit_machine_code_to_file(
     llvm::Module* module,
     llvm::TargetMachine* tm,
     codegen_file_type_t file_type,
-    const char* output_file_path)
+    const char* output_file_path) noexcept
 {
     if (!module || !output_file_path) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Null pointer provided for module or output_file_path");
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Null pointer provided for module or output_file_path");
     }
 
     std::error_code ec;
@@ -83,15 +81,13 @@ void initialize_llvm_targets() {
 
     llvm::raw_fd_ostream dest(output_file_path, ec, open_flags);
     if (ec) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Could not open output file: %s", ec.message().c_str());
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Could not open output file: %s", ec.message().c_str());
     }
 
     if (file_type == codegen_file_type_t::llvm_ir_text) {
         module->print(dest, nullptr);
         if (dest.has_error()) {
-            llvm_gen_be_error_context_t ctx = {};
-            return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write LLVM IR text to file");
+            return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write LLVM IR text to file");
         }
         return llvm_gen_be_error_t::ok;
     }
@@ -99,15 +95,13 @@ void initialize_llvm_targets() {
     if (file_type == codegen_file_type_t::bitcode_file) {
         llvm::WriteBitcodeToFile(*module, dest);
         if (dest.has_error()) {
-            llvm_gen_be_error_context_t ctx = {};
-            return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write bitcode to file");
+            return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write bitcode to file");
         }
         return llvm_gen_be_error_t::ok;
     }
 
     if (!tm) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "TargetMachine is required for object and assembly emission");
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "TargetMachine is required for object and assembly emission");
     }
 
     llvm::CodeGenFileType cg_file_type;
@@ -120,22 +114,19 @@ void initialize_llvm_targets() {
             cg_file_type = llvm::CodeGenFileType::ObjectFile;
             break;
         default:
-            llvm_gen_be_error_context_t ctx = {};
-            return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Unknown codegen_file_type_t");
+            return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Unknown codegen_file_type_t");
     }
 
     llvm::legacy::PassManager pass;
     if (tm->addPassesToEmitFile(pass, dest, nullptr, cg_file_type)) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::code_gen_failure, __FILE__, __LINE__, 0, "Target machine can't emit a file of this type");
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::code_gen_failure, __FILE__, __LINE__, 0, "Target machine can't emit a file of this type");
     }
 
     pass.run(*module);
 
     dest.flush();
     if (dest.has_error()) {
-        llvm_gen_be_error_context_t ctx = {};
-        return llvm_gen_be_set_error(&ctx, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write or flush machine code to file");
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write or flush machine code to file");
     }
 
     return llvm_gen_be_error_t::ok;

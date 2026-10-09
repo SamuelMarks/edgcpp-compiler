@@ -63,10 +63,10 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_info The classification result information structure.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t classify_sysv_argument(
+llvm_gen_be_error_t classify_sysv_argument(
     a_type_ptr ty,
     uint64_t offset,
-    x86_64_abi_arg_info_t* out_info);
+    x86_64_abi_arg_info_t* out_info) noexcept;
 
 /**
  * @brief Computes System V AMD64 return value passing information.
@@ -78,10 +78,10 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_sret Pointer to a boolean set to true if the return is via sret.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t compute_sysv_return_info(
+llvm_gen_be_error_t compute_sysv_return_info(
     a_type_ptr ret_ty,
     x86_64_abi_arg_info_t* out_info,
-    bool* out_sret);
+    bool* out_sret) noexcept;
 
 /**
  * @brief Constructs an LLVM FunctionType and AttributeList matching System V AMD64 ABI.
@@ -93,10 +93,10 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t build_sysv_function_type(
+llvm_gen_be_error_t build_sysv_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
-    llvm::AttributeList* out_attrs);
+    llvm::AttributeList* out_attrs) noexcept;
 
 /**
  * @brief Lowers a va_start intrinsic for the System V AMD64 ABI.
@@ -105,9 +105,9 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_start(
+llvm_gen_be_error_t lower_sysv_va_start(
     llvm::Value* va_list_ptr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 /**
  * @brief Lowers a va_arg macro expansion for the System V AMD64 ABI.
@@ -118,10 +118,10 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_val The resulting loaded value.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_arg(
+llvm_gen_be_error_t lower_sysv_va_arg(
     llvm::Value* va_list_ptr,
     a_type_ptr ty,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 
 
@@ -132,9 +132,9 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_end(
+llvm_gen_be_error_t lower_sysv_va_end(
     llvm::Value* va_list_ptr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 /**
  * @brief Lowers a va_copy intrinsic for the System V AMD64 ABI.
@@ -144,10 +144,10 @@ struct x86_64_abi_arg_info_t {
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-[[nodiscard]] llvm_gen_be_error_t lower_sysv_va_copy(
+llvm_gen_be_error_t lower_sysv_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,
-    llvm::Value** out_val);
+    llvm::Value** out_val) noexcept;
 
 END_EDG_NAMESPACE
 

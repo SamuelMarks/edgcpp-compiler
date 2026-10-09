@@ -19,6 +19,7 @@
 #include "llvm_gen_be_abi_aapcs64.h"
 #include "llvm_gen_be_abi_win64.h"
 #include "il_read.h"
+#include "llvm_gen_be_debug.h"
 
 #include <llvm/IR/Verifier.h>
 #include "target.h"
@@ -26,7 +27,14 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr attributes) {
+/**
+ * @brief Applies EDG attributes to an LLVM GlobalObject.
+ * @param[in] global The LLVM GlobalObject to apply attributes to.
+ * @param[in] attributes The EDG attributes list.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+static llvm_gen_be_error_t apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr attributes) noexcept {
+    if (!global) return llvm_gen_be_error_t::invalid_argument;
     for (an_attribute_ptr attr = attributes; attr != nullptr; attr = attr->next) {
         if (attr->kind == ak_section) {
             if (attr->arguments && attr->arguments->kind == aak_constant) {
@@ -68,12 +76,20 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
             }
         }
     }
+    return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_global_variable(a_variable_ptr var) {
+/**
+ * @brief Lowers a single EDG global variable into an LLVM GlobalVariable.
+ * @param[in] var The EDG variable.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_global_variable(a_variable_ptr var) noexcept {
     if (!var || !var->source_corresp.name) return llvm_gen_be_error_t::ok; // Skip unnamed
     
-    llvm::Type* llvm_ty = get_llvm_type(var->type);
+    llvm::Type* llvm_ty = nullptr;
+    llvm_gen_be_error_t err = get_llvm_type(var->type, &llvm_ty);
+    if (err != llvm_gen_be_error_t::ok) return err;
     
     llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
     if (var->storage_class == sc_static) {
@@ -116,7 +132,8 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
     llvm::GlobalVariable* gvar = be_state->module->getNamedGlobal(var->source_corresp.name);
     if (gvar) {
       gvar->setLinkage(linkage);
-      apply_llvm_attributes(gvar, var->source_corresp.attributes);
+      err = apply_llvm_attributes(gvar, var->source_corresp.attributes);
+      if (err != llvm_gen_be_error_t::ok) return err;
       if (var->is_thread_local) {
         gvar->setThreadLocalMode(llvm::GlobalValue::GeneralDynamicTLSModel);
       }
@@ -133,7 +150,16 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
     return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_global_variables() {
+/**
+ * @brief Lowers a single EDG global variable into an LLVM GlobalVariable.
+ * @param[in] var The EDG variable.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+/**
+ * @brief Lowers all EDG global variables in the translation unit.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_global_variables(void) noexcept {
   if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
   for (a_variable_ptr var = il_header.primary_scope->variables; var != nullptr; var = var->next) {
      llvm_gen_be_error_t err = llvm_lower_global_variable(var);
@@ -142,7 +168,12 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) {
+/**
+ * @brief Lowers a single EDG routine prototype into an LLVM Function.
+ * @param[in] routine The EDG routine.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) noexcept {
     if (!routine || !routine->source_corresp.name) return llvm_gen_be_error_t::ok;
     
     llvm::FunctionType* func_ty = nullptr;
@@ -170,7 +201,8 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
     llvm::Function* func = llvm::Function::Create(
         func_ty, linkage, routine->source_corresp.name, be_state->module.get());
     func->setAttributes(attrs);
-    apply_llvm_attributes(func, routine->source_corresp.attributes);
+    err = apply_llvm_attributes(func, routine->source_corresp.attributes);
+    if (err != llvm_gen_be_error_t::ok) return err;
         
 #if GNU_EXTENSIONS_ALLOWED || MICROSOFT_EXTENSIONS_ALLOWED
     if (routine->always_inline) {
@@ -197,7 +229,11 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
     return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_declarations() {
+/**
+ * @brief Lowers all EDG routine declarations in the translation unit.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_function_declarations(void) noexcept {
   if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
   for (a_routine_ptr routine = il_header.primary_scope->routines; routine != nullptr; routine = routine->next) {
     llvm_gen_be_error_t err = llvm_lower_function_prototype(routine);
@@ -206,7 +242,14 @@ static void apply_llvm_attributes(llvm::GlobalObject* global, an_attribute_ptr a
   return llvm_gen_be_error_t::ok;
 }
 
-static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
+/**
+ * @brief Gets the lexical scope for a routine definition.
+ * @param[in] rout The EDG routine.
+ * @param[out] out_scope Pointer to store the resulting scope.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+static llvm_gen_be_error_t get_scope_for_routine_definition(a_routine_ptr rout, a_scope_ptr* out_scope) noexcept {
+  if (!rout || !out_scope) return llvm_gen_be_error_t::invalid_argument;
   a_memory_region_number region_number = mem_region_for_routine(rout);
 #if IL_SHOULD_BE_WRITTEN_TO_FILE
   if (!skip_il_read && mem_region_table[region_number] == NULL) {
@@ -218,10 +261,16 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
      a_function_def_descr def_descr = il_header.function_def_table[rout->function_def_number];
      res = def_descr.scope;
   }
-  return res;
+  *out_scope = res;
+  return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) {
+/**
+ * @brief Lowers a single EDG routine body into LLVM IR.
+ * @param[in] routine The EDG routine.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) noexcept {
     if (!routine || !routine->source_corresp.name) return llvm_gen_be_error_t::ok;
     if (!routine->function_def_number) return llvm_gen_be_error_t::ok; // No body
 
@@ -232,8 +281,17 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
     be_state->builder->SetInsertPoint(entry_bb);
 
     // Look up the function definition
-    a_scope_ptr func_scope = get_scope_for_routine_definition(routine);
+    a_scope_ptr func_scope = nullptr;
+    llvm_gen_be_error_t err = get_scope_for_routine_definition(routine, &func_scope);
+    if (err != llvm_gen_be_error_t::ok) return err;
     if (!func_scope) return llvm_gen_be_error_t::ok;
+
+    llvm::DISubprogram* di_subprogram = nullptr;
+    if (be_state->dbg_state) {
+        err = create_di_subprogram(be_state->dbg_state, routine, func, &di_subprogram);
+        if (err != llvm_gen_be_error_t::ok) return err;
+        be_state->dbg_state->scope_stack.push_back(di_subprogram);
+    }
 
     // Clear local variables and labels for the new function scope
     be_state->local_vars.clear();
@@ -245,7 +303,7 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
 
     // Check if we have sret
     bool sret = false;
-    llvm_gen_be_error_t err = llvm_gen_be_error_t::ok;
+    err = llvm_gen_be_error_t::ok;
     llvm::Triple triple(be_state->module->getTargetTriple());
 
     if (triple.isAArch64()) {
@@ -270,7 +328,9 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
           arg->setName(param->source_corresp.name);
         }
 
-        llvm::Type* param_ty = get_llvm_type(param->type);
+        llvm::Type* param_ty = nullptr;
+        err = get_llvm_type(param->type, &param_ty);
+        if (err != llvm_gen_be_error_t::ok) return err;
         llvm::AllocaInst* alloca = be_state->builder->CreateAlloca(param_ty, nullptr, param->source_corresp.name ? std::string(param->source_corresp.name) + ".addr" : "");
         
         // Unpacking logic for 1.3.4
@@ -295,14 +355,26 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
         }
         
         be_state->local_vars[param] = alloca;
+        
+        if (be_state->dbg_state) {
+            err = emit_dbg_declare_for_variable(be_state->dbg_state, param, alloca);
+            if (err != llvm_gen_be_error_t::ok) return err;
+        }
       }
     }
 
     // Allocate local variables
     for (a_variable_ptr lvar = func_scope->nonstatic_variables; lvar != nullptr; lvar = lvar->next) {
-      llvm::Type* lvar_ty = get_llvm_type(lvar->type);
+      llvm::Type* lvar_ty = nullptr;
+      err = get_llvm_type(lvar->type, &lvar_ty);
+      if (err != llvm_gen_be_error_t::ok) return err;
       llvm::AllocaInst* alloca = be_state->builder->CreateAlloca(lvar_ty, nullptr, lvar->source_corresp.name ? lvar->source_corresp.name : "");
       be_state->local_vars[lvar] = alloca;
+      
+      if (be_state->dbg_state) {
+          err = emit_dbg_declare_for_variable(be_state->dbg_state, lvar, alloca);
+          if (err != llvm_gen_be_error_t::ok) return err;
+      }
     }
 
     if (func_scope->assoc_block) {
@@ -325,12 +397,24 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
     std::string err_str;
     llvm::raw_string_ostream os(err_str);
     if (llvm::verifyFunction(*func, &os)) {
+      if (be_state->dbg_state) {
+        llvm_gen_be_error_t err = pop_lexical_block(be_state->dbg_state);
+        if (err != llvm_gen_be_error_t::ok) return err;
+      }
       return llvm_gen_be_error_t::verification_failure;
+    }
+    if (be_state->dbg_state) {
+      llvm_gen_be_error_t err = pop_lexical_block(be_state->dbg_state);
+      if (err != llvm_gen_be_error_t::ok) return err;
     }
     return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_function_definitions() {
+/**
+ * @brief Lowers all EDG routine definitions in the translation unit.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_function_definitions(void) noexcept {
   if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
 
   for (a_routine_ptr routine = il_header.primary_scope->routines; routine != nullptr; routine = routine->next) {
@@ -340,7 +424,11 @@ static a_scope_ptr get_scope_for_routine_definition(a_routine_ptr rout) {
   return llvm_gen_be_error_t::ok;
 }
 
-[[nodiscard]] llvm_gen_be_error_t llvm_lower_global_ctors_and_dtors() {
+/**
+ * @brief Lowers global constructors and destructors into llvm.global_ctors/dtors.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
+llvm_gen_be_error_t llvm_lower_global_ctors_and_dtors(void) noexcept {
   std::vector<llvm::Constant*> ctors;
   std::vector<llvm::Constant*> dtors;
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);

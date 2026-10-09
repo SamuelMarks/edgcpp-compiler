@@ -53,7 +53,7 @@ struct llvm_opt_options_t {
  * @param[out] out_opts Pointer to the optimization options structure to populate.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if the string is invalid or out_opts is null.
  */
-[[nodiscard]] llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options_t* out_opts);
+llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options_t* out_opts) noexcept;
 
 /**
  * @brief Executes the LLVM optimization pipeline on the given module.
@@ -62,7 +62,7 @@ struct llvm_opt_options_t {
  * @param[in] opts The optimization options to configure the pipeline.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::pass_pipeline_failure if execution fails.
  */
-[[nodiscard]] llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_opt_options_t* opts);
+llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_opt_options_t* opts) noexcept;
 
 END_EDG_NAMESPACE
 
