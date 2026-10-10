@@ -18,11 +18,9 @@
 #include "fe_common.h"
 #include "types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+struct gcc_jit_type;
 
-typedef struct gcc_jit_type gcc_jit_type;
+BEGIN_EDG_NAMESPACE
 
 /**
  * @brief Lowers an EDG frontend type into a libgccjit type.
@@ -31,10 +29,8 @@ typedef struct gcc_jit_type gcc_jit_type;
  * @param out_type A pointer to a gcc_jit_type pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_type` populated.
  */
-extern gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, struct gcc_jit_type **out_type) GCC_GEN_BE_NOEXCEPT;
 
-#ifdef __cplusplus
-}
-#endif
+END_EDG_NAMESPACE
 
 #endif /* GCC_GEN_BE_TYPE_H */

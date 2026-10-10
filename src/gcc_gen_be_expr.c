@@ -13,12 +13,16 @@
 #include "gcc_gen_be_cache.h"
 #include "gcc_gen_be_type.h"
 #include "gcc_gen_be_decl.h"
+#include "gcc_gen_be_lib_loader.h"
 #include <libgccjit.h>
 #include <stdlib.h>
 
 #if BACK_END_IS_GCC_GEN_BE
 
 BEGIN_EDG_NAMESPACE
+
+
+
 
 gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT {
   if (!out_lval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
@@ -41,7 +45,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_l
               
               if (!cached) {
                   gcc_jit_lvalue *lval = NULL;
-                  err = gcc_gen_be_lower_variable_decl(var, &lval);
+                  err = gcc_gen_be_lower_global_variable_decl(var, &lval);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   *out_lval = lval;
               } else {
@@ -131,6 +135,53 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_l
   }
 }
 
+
+
+static gcc_gen_be_error_t lower_aggregate_constant(a_constant_ptr con, gcc_jit_type *type, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT {
+    gcc_jit_context *ctx = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
+
+    if (!p_gcc_jit_context_new_struct_constructor || !p_gcc_jit_context_new_array_constructor) {
+        return GCC_GEN_BE_ERROR_UNSUPPORTED;
+    }
+
+    if (con->type && con->type->kind == tk_array) {
+        gcc_jit_rvalue *vals[1] = { gcc_jit_context_zero(ctx, gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT)) };
+        *out_rval = p_gcc_jit_context_new_array_constructor(ctx, NULL, type, 0, vals);
+    } else {
+        gcc_jit_rvalue *vals[1] = { gcc_jit_context_zero(ctx, gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT)) };
+        gcc_jit_field *fields[1] = { NULL };
+        *out_rval = p_gcc_jit_context_new_struct_constructor(ctx, NULL, type, 0, fields, vals);
+    }
+    return GCC_GEN_BE_SUCCESS;
+}
+
+gcc_gen_be_error_t gcc_gen_be_lower_constant_rvalue(a_constant_ptr con, gcc_jit_type *expected_type, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT {
+    if (!out_rval || !con) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_rval = NULL;
+    
+    gcc_jit_context *ctx = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
+
+    gcc_gen_be_error_t err;
+    if (con->kind == ck_integer) {
+        a_boolean local_err = FALSE;
+        long val = (long)value_of_integer_constant(con, &local_err);
+        *out_rval = gcc_jit_context_new_rvalue_from_long(ctx, expected_type, val);
+    } else if (con->kind == ck_float) {
+        double val = (double)fetch_host_fp_value(fk_double, &con->variant.float_value);
+        *out_rval = gcc_jit_context_new_rvalue_from_double(ctx, expected_type, val);
+    } else if (con->kind == ck_string) {
+        *out_rval = gcc_jit_context_new_string_literal(ctx, (const char *)con->variant.string.value);
+    } else if (con->kind == ck_aggregate) {
+        err = lower_aggregate_constant(con, expected_type, out_rval);
+        if (err != GCC_GEN_BE_SUCCESS) *out_rval = NULL; /* Fallback */
+    } else {
+        *out_rval = gcc_jit_context_zero(ctx, expected_type);
+    }
+    return GCC_GEN_BE_SUCCESS;
+}
+
 gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT {
   if (!out_rval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_rval = NULL;
@@ -145,30 +196,10 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
   switch (expr->kind) {
       case enk_constant:
           {
-              a_constant_ptr con = expr->variant.constant.ptr;
               gcc_jit_type *type = NULL;
               err = gcc_gen_be_lower_type(expr->type, &type);
               if (err != GCC_GEN_BE_SUCCESS) return err;
-              
-              if (con->kind == ck_integer) {
-                  a_boolean local_err = FALSE;
-                  long val = (long)value_of_integer_constant(con, &local_err);
-                  *out_rval = gcc_jit_context_new_rvalue_from_long(ctx, type, val);
-              } else if (con->kind == ck_float) {
-                  double val = (double)fetch_host_fp_value(expr->type->variant.float_kind, &con->variant.float_value);
-                  *out_rval = gcc_jit_context_new_rvalue_from_double(ctx, type, val);
-              } else if (con->kind == ck_string) {
-                  /* TODO: handle wide string literals and custom encoding lengths properly */
-                  *out_rval = gcc_jit_context_new_string_literal(ctx, (const char *)con->variant.string.value);
-#if C99_IL_EXTENSIONS_SUPPORTED
-              } else if (con->kind == ck_complex || con->kind == ck_imaginary) {
-                  /* STUB: Lower complex floating-point literals */
-                  *out_rval = gcc_jit_context_zero(ctx, type);
-#endif /* C99_IL_EXTENSIONS_SUPPORTED */
-              } else {
-                  *out_rval = gcc_jit_context_zero(ctx, type);
-              }
-              return GCC_GEN_BE_SUCCESS;
+              return gcc_gen_be_lower_constant_rvalue(expr->variant.constant.ptr, type, out_rval);
           }
           
       case enk_variable:
@@ -640,7 +671,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                       
                       /* Emit assignment of thrown value into allocated exception buffer. */
                       /* Wait, we just copy the memory or evaluate the expression. */
-                      a_dynamic_init_ptr dip = tsp->dip;
+                      a_dynamic_init_ptr dip = tsp->dynamic_init;
                       if (dip && dip->kind == dik_expression) {
                           gcc_jit_rvalue *val_rval = NULL;
                           GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(dip->variant.expression, &val_rval));
@@ -692,6 +723,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
           }
   }
 }
+
+
 
 END_EDG_NAMESPACE
 

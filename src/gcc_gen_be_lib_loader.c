@@ -16,6 +16,9 @@
 
 BEGIN_EDG_NAMESPACE
 
+
+
+
 #if defined(_WIN32)
 #include <windows.h>
 static HMODULE libgccjit_handle = NULL;
@@ -79,6 +82,18 @@ void *p_gcc_jit_context_new_location = NULL;
 void *p_gcc_jit_context_compile_to_file = NULL;
 void *p_gcc_jit_context_get_first_error = NULL;
 
+pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor = NULL;
+pfn_gcc_jit_context_new_array_constructor p_gcc_jit_context_new_array_constructor = NULL;
+
+pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_extended_asm_goto = NULL;
+pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model = NULL;
+pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute = NULL;
+pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute = NULL;
+pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment = NULL;
+pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name = NULL;
+pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type = NULL;
+pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector = NULL;
+
 gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
   const char* candidates[] = {
@@ -97,6 +112,9 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   #define LOAD_SYM(name) \
     p_##name = (void *)GetProcAddress(libgccjit_handle, #name); \
     if (!p_##name) return GCC_GEN_BE_ERROR_LIBGCCJIT_SYMBOL_MISSING;
+
+  #define LOAD_OPTIONAL_SYM(type, name) \
+    p_##name = (type)GetProcAddress(libgccjit_handle, #name);
 
   LOAD_SYM(gcc_jit_context_acquire)
   LOAD_SYM(gcc_jit_context_release)
@@ -158,7 +176,19 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_context_compile_to_file)
   LOAD_SYM(gcc_jit_context_get_first_error)
   
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_struct_constructor, gcc_jit_context_new_struct_constructor)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_array_constructor, gcc_jit_context_new_array_constructor)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_extended_asm_goto, gcc_jit_block_end_with_extended_asm_goto)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_tls_model, gcc_jit_lvalue_set_tls_model)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_attribute, gcc_jit_function_add_attribute)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_alignment, gcc_jit_lvalue_set_alignment)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_int_type, gcc_jit_context_get_int_type)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_type_get_vector, gcc_jit_type_get_vector)
+
   #undef LOAD_SYM
+  #undef LOAD_OPTIONAL_SYM
 
   return GCC_GEN_BE_SUCCESS;
 }
@@ -167,6 +197,18 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
 
 #include <dlfcn.h>
 static void *libgccjit_handle = NULL;
+
+pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor = NULL;
+pfn_gcc_jit_context_new_array_constructor p_gcc_jit_context_new_array_constructor = NULL;
+
+pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_extended_asm_goto = NULL;
+pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model = NULL;
+pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute = NULL;
+pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute = NULL;
+pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment = NULL;
+pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name = NULL;
+pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type = NULL;
+pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector = NULL;
 
 gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
@@ -182,10 +224,29 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
         /* Plan states: Ensure all dynamic loading failures return explicit gcc_gen_be_error_t codes without unhandled paths. */
         return GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED;
     }
+
+    #define LOAD_OPTIONAL_SYM(type, name) \
+      p_##name = (type)dlsym(libgccjit_handle, #name);
+
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_struct_constructor, gcc_jit_context_new_struct_constructor)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_array_constructor, gcc_jit_context_new_array_constructor)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_extended_asm_goto, gcc_jit_block_end_with_extended_asm_goto)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_tls_model, gcc_jit_lvalue_set_tls_model)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_attribute, gcc_jit_function_add_attribute)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_alignment, gcc_jit_lvalue_set_alignment)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_int_type, gcc_jit_context_get_int_type)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_type_get_vector, gcc_jit_type_get_vector)
+
+    #undef LOAD_OPTIONAL_SYM
+
     return GCC_GEN_BE_SUCCESS;
 }
 
 #endif
+
+
 
 END_EDG_NAMESPACE
 

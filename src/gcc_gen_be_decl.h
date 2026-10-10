@@ -18,12 +18,11 @@
 #include "fe_common.h"
 #include "il.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+struct gcc_jit_lvalue;
+struct gcc_jit_function;
+struct gcc_jit_block;
 
-typedef struct gcc_jit_lvalue gcc_jit_lvalue;
-typedef struct gcc_jit_function gcc_jit_function;
+BEGIN_EDG_NAMESPACE
 
 /**
  * @brief Retrieves or creates the global dynamic initialization block.
@@ -31,16 +30,26 @@ typedef struct gcc_jit_function gcc_jit_function;
  * @param out_block A pointer to receive the gcc_jit_block.
  * @return GCC_GEN_BE_SUCCESS on success.
  */
-extern gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(struct gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
 
 /**
- * @brief Lowers an EDG variable declaration into a libgccjit lvalue.
+ * @brief Lowers an EDG variable declaration into a libgccjit global lvalue.
  *
  * @param var The frontend variable node.
  * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
  */
-extern gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_lower_global_variable_decl(a_variable_ptr var, struct gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Lowers an EDG variable declaration into a libgccjit local lvalue.
+ *
+ * @param func The libgccjit function the local belongs to.
+ * @param var The frontend variable node.
+ * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
+ * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_lower_local_variable_decl(struct gcc_jit_function *func, a_variable_ptr var, struct gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Lowers an EDG function/routine declaration into a libgccjit function.
@@ -49,10 +58,8 @@ extern gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc
  * @param out_func A pointer to a gcc_jit_function pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_func` populated.
  */
-extern gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, struct gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT;
 
-#ifdef __cplusplus
-}
-#endif
+END_EDG_NAMESPACE
 
 #endif /* GCC_GEN_BE_DECL_H */

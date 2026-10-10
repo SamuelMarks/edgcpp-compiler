@@ -90,6 +90,24 @@ typedef enum GCC_GEN_BE_NODISCARD {
     /** @brief Indicates a failure in exception handling setup or generation. */
     GCC_GEN_BE_ERROR_EH_FAILURE,
 
+    /** @brief Indicates that exception handling is not supported for the target. */
+    GCC_GEN_BE_ERROR_EH_UNSUPPORTED,
+
+    /** @brief Indicates that a symbol could not be resolved. */
+    GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL,
+
+    /** @brief Indicates that generating a vtable failed. */
+    GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED,
+
+    /** @brief Indicates that generating RTTI information failed. */
+    GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED,
+
+    /** @brief Indicates that an inline assembly constraint is invalid. */
+    GCC_GEN_BE_ERROR_ASM_CONSTRAINT_INVALID,
+
+    /** @brief Indicates that DWARF debug information emission failed. */
+    GCC_GEN_BE_ERROR_DWARF_EMISSION_FAILED,
+
     /** @brief Indicates that a JIT compilation failed. */
     GCC_GEN_BE_ERROR_COMPILATION_FAILED
 } gcc_gen_be_error_t;
@@ -119,6 +137,18 @@ typedef enum GCC_GEN_BE_NODISCARD {
  * @return A gcc_gen_be_error_t indicating success or invalid argument.
  */
 extern gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char **out_str) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Reports a backend error using EDG diagnostic facilities.
+ *
+ * This function logs the error string to f_error, optionally increments
+ * diagnostic error counters, and prints an additional context message.
+ *
+ * @param error The backend error code that occurred.
+ * @param context_msg Additional context message to display (can be NULL).
+ * @return The passed-in error code for convenience in return statements.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_report_diagnostic(gcc_gen_be_error_t error, const char *context_msg) GCC_GEN_BE_NOEXCEPT;
 
 #ifdef __cplusplus
 }

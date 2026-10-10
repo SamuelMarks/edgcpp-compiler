@@ -24,6 +24,9 @@
 
 BEGIN_EDG_NAMESPACE
 
+
+
+
 gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
   a_scope_ptr scope;
   a_routine_ptr rout;
@@ -149,6 +152,8 @@ gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
 gcc_gen_be_error_t back_end(void) GCC_GEN_BE_NOEXCEPT {
   return gcc_gen_be();
 }
+
+
 
 END_EDG_NAMESPACE
 

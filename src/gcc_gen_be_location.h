@@ -18,11 +18,9 @@
 #include "fe_common.h"
 #include "il.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+struct gcc_jit_location;
 
-typedef struct gcc_jit_location gcc_jit_location;
+BEGIN_EDG_NAMESPACE
 
 /**
  * @brief Converts an EDG source position into a libgccjit location.
@@ -31,7 +29,7 @@ typedef struct gcc_jit_location gcc_jit_location;
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated (can be NULL if pos is invalid).
  */
-extern gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Attempts to extract a source location from an EDG expression node.
@@ -40,7 +38,7 @@ extern gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_ji
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
  */
-extern gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Attempts to extract a source location from an EDG statement node.
@@ -49,10 +47,8 @@ extern gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr exp
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
  */
-extern gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
 
-#ifdef __cplusplus
-}
-#endif
+END_EDG_NAMESPACE
 
 #endif /* GCC_GEN_BE_LOCATION_H */

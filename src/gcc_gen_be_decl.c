@@ -21,6 +21,9 @@
 
 BEGIN_EDG_NAMESPACE
 
+
+
+
 /**
  * @brief Retrieves or creates the global dynamic initialization block.
  *
@@ -30,7 +33,7 @@ BEGIN_EDG_NAMESPACE
  * @param out_block A pointer to receive the gcc_jit_block.
  * @return GCC_GEN_BE_SUCCESS on success.
  */
-gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(struct gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
     if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_block = NULL;
     
@@ -51,7 +54,7 @@ gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(gcc_jit_block **out_block) G
 }
 
 /**
- * @brief Lowers an EDG variable declaration into a libgccjit lvalue.
+ * @brief Lowers an EDG variable declaration into a libgccjit global lvalue.
  *
  * This handles creating the global variable, applying linkage, TLS attributes,
  * and processing static or dynamic initializers.
@@ -60,7 +63,7 @@ gcc_gen_be_error_t gcc_gen_be_get_global_ctor_block(gcc_jit_block **out_block) G
  * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_lower_global_variable_decl(a_variable_ptr var, struct gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT {
   if (!out_lval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_lval = NULL;
   if (!var) return GCC_GEN_BE_SUCCESS;
@@ -100,37 +103,38 @@ gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lv
   gcc_jit_lvalue *global = gcc_jit_context_new_global(ctx, loc, linkage, var_type, name);
   
 #if defined(GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC)
-  if (var->is_thread_local) {
-      gcc_jit_lvalue_set_tls_model(global, GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC);
+  if (var->is_thread_local && p_gcc_jit_lvalue_set_tls_model) {
+      p_gcc_jit_lvalue_set_tls_model(global, GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC);
   }
 #endif
+
+  if (var_type && var->type->kind == tk_typeref && (var->type->variant.typeref.qualifiers & TQ_CONST)) {
+#if defined(LIBGCCJIT_HAVE_gcc_jit_global_set_readonly)
+      gcc_jit_global_set_readonly(global);
+#endif
+  }
   
   if (var->init_kind == initk_zero) {
       gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
   } else if (var->init_kind == initk_static) {
       a_constant_ptr init_con = var->initializer.constant;
-      if (init_con && init_con->expr) {
+      if (init_con) {
           gcc_jit_rvalue *init_rval = NULL;
           /* External function defined in gcc_gen_be_expr.h */
-          extern gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
-          GCC_GEN_BE_CHECK(gcc_gen_be_lower_expr_rvalue(init_con->expr, &init_rval));
+          extern gcc_gen_be_error_t gcc_gen_be_lower_constant_rvalue(a_constant_ptr con, gcc_jit_type *expected_type, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
+          GCC_GEN_BE_CHECK(gcc_gen_be_lower_constant_rvalue(init_con, var_type, &init_rval));
           if (init_rval) {
               gcc_jit_global_set_initializer_rvalue(global, init_rval);
           } else {
+              /* If constant couldn't be lowered as an rvalue (e.g. older libgccjit missing struct constructors), 
+                 fallback to dynamic init in constructor. */
+              gcc_jit_block *cblock = NULL;
+              GCC_GEN_BE_CHECK(gcc_gen_be_get_global_ctor_block(&cblock));
+              /* We need to evaluate the constant dynamically. 
+                 This implies gcc_gen_be_lower_constant_rvalue MUST return an rvalue or emit dynamic assignments. 
+                 Wait, if it can't, it returns error. So init_rval is guaranteed if SUCCESS. */
               gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
           }
-      } else if (init_con && init_con->kind == ck_integer) {
-         a_boolean local_err = FALSE;
-         long val = (long)value_of_integer_constant(init_con, &local_err);
-         gcc_jit_rvalue *rval = gcc_jit_context_new_rvalue_from_long(ctx, var_type, val);
-         gcc_jit_global_set_initializer_rvalue(global, rval);
-      } else if (init_con && init_con->kind == ck_float) {
-         double val = (double)fetch_host_fp_value(var_type->kind == tk_float ? var->type->variant.float_kind : fk_double, &init_con->variant.float_value);
-         gcc_jit_rvalue *rval = gcc_jit_context_new_rvalue_from_double(ctx, var_type, val);
-         gcc_jit_global_set_initializer_rvalue(global, rval);
-      } else if (init_con && init_con->kind == ck_string) {
-         gcc_jit_rvalue *rval = gcc_jit_context_new_string_literal(ctx, (const char *)init_con->variant.string.value);
-         gcc_jit_global_set_initializer_rvalue(global, rval);
       } else {
          gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
       }
@@ -153,6 +157,53 @@ gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lv
 }
 
 /**
+ * @brief Lowers an EDG variable declaration into a libgccjit local lvalue.
+ *
+ * @param func The libgccjit function the local belongs to.
+ * @param var The frontend variable node.
+ * @param out_lval A pointer to a gcc_jit_lvalue pointer that will receive the result.
+ * @return GCC_GEN_BE_SUCCESS on success, with `*out_lval` populated.
+ */
+gcc_gen_be_error_t gcc_gen_be_lower_local_variable_decl(struct gcc_jit_function *func, a_variable_ptr var, struct gcc_jit_lvalue **out_lval) GCC_GEN_BE_NOEXCEPT {
+  if (!out_lval || !func) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+  *out_lval = NULL;
+  if (!var) return GCC_GEN_BE_SUCCESS;
+
+  if (var->storage_class == sc_static) {
+      /* Static locals are implemented as global variables */
+      return gcc_gen_be_lower_global_variable_decl(var, out_lval);
+  }
+  
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
+
+  void *cached = NULL;
+  gcc_gen_be_error_t err = cache_lookup(GCC_GEN_BE_CACHE_VAR, var, &cached);
+  if (err != GCC_GEN_BE_SUCCESS) return err;
+  if (cached) {
+      *out_lval = (gcc_jit_lvalue *)cached;
+      return GCC_GEN_BE_SUCCESS;
+  }
+  
+  gcc_jit_type *var_type = NULL;
+  err = gcc_gen_be_lower_type(var->type, &var_type);
+  if (err != GCC_GEN_BE_SUCCESS) return err;
+
+  const char *name = var->source_corresp.name;
+  if (!name) name = "unnamed_local";
+
+  gcc_jit_location *loc = NULL;
+  err = gcc_gen_be_get_location(&var->source_corresp.decl_position, &loc);
+  if (err != GCC_GEN_BE_SUCCESS) return err;
+
+  gcc_jit_lvalue *local = gcc_jit_function_new_local(func, loc, var_type, name);
+  
+  GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, var, local));
+  *out_lval = local;
+  return GCC_GEN_BE_SUCCESS;
+}
+
+/**
  * @brief Lowers an EDG function/routine declaration into a libgccjit function.
  *
  * Handles creation of the function signature, params, and caches the result.
@@ -161,7 +212,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_variable_decl(a_variable_ptr var, gcc_jit_lv
  * @param out_func A pointer to a gcc_jit_function pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_func` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, struct gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT {
   if (!out_func) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
   *out_func = NULL;
   if (!rout) return GCC_GEN_BE_SUCCESS;
@@ -251,6 +302,15 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_fu
   gcc_jit_function *func = gcc_jit_context_new_function(
       ctx, loc, linkage, ret_type, name, num_params, params, is_variadic);
       
+#if defined(LIBGCCJIT_HAVE_ATTRIBUTES)
+  if (rout->is_weak) {
+      gcc_jit_function_add_attribute(func, GCC_JIT_FN_ATTRIBUTE_WEAK);
+  }
+  if (rout->is_inline) {
+      gcc_jit_function_add_attribute(func, GCC_JIT_FN_ATTRIBUTE_ALWAYS_INLINE);
+  }
+#endif
+      
   if (num_params > 0) {
       int i = 0;
       a_variable_ptr var_param = NULL;
@@ -272,6 +332,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, gcc_jit_fu
   *out_func = func;
   return GCC_GEN_BE_SUCCESS;
 }
+
+
 
 END_EDG_NAMESPACE
 

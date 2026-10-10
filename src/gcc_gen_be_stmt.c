@@ -21,7 +21,10 @@
 
 BEGIN_EDG_NAMESPACE
 
-gcc_gen_be_error_t gcc_gen_be_get_label_block(gcc_jit_function *func, a_label_ptr label, gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
+
+
+
+gcc_gen_be_error_t gcc_gen_be_get_label_block(struct gcc_jit_function *func, a_label_ptr label, struct gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
     if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_block = NULL;
     if (!label) return GCC_GEN_BE_SUCCESS;
@@ -48,7 +51,7 @@ gcc_gen_be_error_t gcc_gen_be_get_label_block(gcc_jit_function *func, a_label_pt
     return GCC_GEN_BE_SUCCESS;
 }
 
-gcc_gen_be_error_t gcc_gen_be_get_switch_case_block(gcc_jit_function *func, a_switch_case_entry_ptr scep, gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_get_switch_case_block(struct gcc_jit_function *func, a_switch_case_entry_ptr scep, struct gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
     if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_block = NULL;
     if (!scep) return GCC_GEN_BE_SUCCESS;
@@ -67,7 +70,7 @@ gcc_gen_be_error_t gcc_gen_be_get_switch_case_block(gcc_jit_function *func, a_sw
     return GCC_GEN_BE_SUCCESS;
 }
 
-gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_function *func) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, struct gcc_jit_function *func) GCC_GEN_BE_NOEXCEPT {
   gcc_jit_context *ctx = NULL;
   GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
@@ -199,7 +202,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                           GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(then_block)); 
                           err = gcc_gen_be_lower_statement(stmt->variant.constexpr_if->then_statement, func);
                           if (err != GCC_GEN_BE_SUCCESS) return err;
-                          after_then = gcc_gen_be_get_current_block();
+                          GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_then));
                       }
                       else
                           after_then = then_block;
@@ -208,7 +211,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                           GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(else_block)); 
                           err = gcc_gen_be_lower_statement(stmt->variant.constexpr_if->else_statement, func);
                           if (err != GCC_GEN_BE_SUCCESS) return err;
-                          after_else = gcc_gen_be_get_current_block();
+                          GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_else));
                       }
                       else
                           after_else = else_block;
@@ -217,7 +220,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                           GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(then_block)); 
                           err = gcc_gen_be_lower_statement(stmt->variant.if_stmt.then_statement, func);
                           if (err != GCC_GEN_BE_SUCCESS) return err;
-                          after_then = gcc_gen_be_get_current_block();
+                          GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_then));
                       }
                       else
                           after_then = then_block;
@@ -226,7 +229,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                           GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(else_block)); 
                           err = gcc_gen_be_lower_statement(stmt->variant.if_stmt.else_statement, func);
                           if (err != GCC_GEN_BE_SUCCESS) return err;
-                          after_else = gcc_gen_be_get_current_block();
+                          GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_else));
                       }
                       else
                           after_else = else_block;
@@ -299,7 +302,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                   err = gcc_gen_be_lower_statement(stmt->variant.switch_stmt.body_statement, func);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   
-                  gcc_jit_block *after_switch = gcc_gen_be_get_current_block();
+                  gcc_jit_block *after_switch = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_switch));
                   gcc_jit_block *exit_block = gcc_jit_function_new_block(func, "switch_exit");
 
                   if (!ssdp->default_case) {
@@ -339,7 +343,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                   err = gcc_gen_be_lower_statement(stmt->variant.loop_statement, func);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   
-                  gcc_jit_block *after_body = gcc_gen_be_get_current_block();
+                  gcc_jit_block *after_body = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_body));
                   if (after_body) gcc_jit_block_end_with_jump(after_body, NULL, cond_block);
 
                   GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(exit_block));
@@ -358,7 +363,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                   gcc_jit_block *step_block = gcc_jit_function_new_block(func, "for_step");
                   gcc_jit_block *exit_block = gcc_jit_function_new_block(func, "for_exit");
 
-                  current_block = gcc_gen_be_get_current_block(); /* refresh */
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&current_block)); /* refresh */
                   gcc_jit_block_end_with_jump(current_block, NULL, cond_block);
 
                   gcc_jit_rvalue *cond = NULL;
@@ -374,7 +379,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                   err = gcc_gen_be_lower_statement(stmt->variant.for_loop.statement, func);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   
-                  gcc_jit_block *after_body = gcc_gen_be_get_current_block();
+                  gcc_jit_block *after_body = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_body));
                   if (after_body) gcc_jit_block_end_with_jump(after_body, NULL, step_block);
 
                   if (loop_info && loop_info->increment) {
@@ -406,7 +412,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                       if (err != GCC_GEN_BE_SUCCESS) return err;
                   }
                   
-                  gcc_jit_block *after_try = gcc_gen_be_get_current_block();
+                  gcc_jit_block *after_try = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_try));
                   if (after_try) gcc_jit_block_end_with_jump(after_try, NULL, merge_block);
                   
                   /* Lower catch blocks (unreachable without explicit landing pad hook) */
@@ -422,7 +429,11 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                       
                       while (handler) {
                           gcc_jit_block *catch_block = gcc_jit_function_new_block(func, "catch_body");
-                          gcc_jit_block_end_with_jump(gcc_gen_be_get_current_block(), NULL, catch_block);
+                          {
+                              gcc_jit_block *temp_block = NULL;
+                              GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&temp_block));
+                              gcc_jit_block_end_with_jump(temp_block, NULL, catch_block);
+                          }
                           GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(catch_block));
                           
                           gcc_jit_rvalue *exc_ptr = gcc_jit_context_null(ctx, void_ptr_type);
@@ -433,7 +444,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
                               if (err != GCC_GEN_BE_SUCCESS) return err;
                           }
                           
-                          gcc_jit_block *after_catch = gcc_gen_be_get_current_block();
+                          gcc_jit_block *after_catch = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&after_catch));
                           if (after_catch) {
                               gcc_jit_block_add_eval(after_catch, NULL, gcc_jit_context_new_call(ctx, NULL, end_catch_fn, 0, NULL));
                               gcc_jit_block_end_with_jump(after_catch, NULL, merge_block);
@@ -592,6 +604,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, gcc_jit_func
   
   return GCC_GEN_BE_SUCCESS;
 }
+
+
 
 END_EDG_NAMESPACE
 

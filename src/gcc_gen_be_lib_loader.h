@@ -16,6 +16,21 @@
 #define GCC_GEN_BE_LIB_LOADER_H
 
 #include "gcc_gen_be_error.h"
+#include "fe_common.h"
+
+struct gcc_jit_context;
+struct gcc_jit_type;
+struct gcc_jit_struct;
+struct gcc_jit_field;
+struct gcc_jit_lvalue;
+struct gcc_jit_rvalue;
+struct gcc_jit_param;
+struct gcc_jit_function;
+struct gcc_jit_block;
+struct gcc_jit_location;
+struct gcc_jit_extended_asm;
+
+BEGIN_EDG_NAMESPACE
 
 #if defined(_WIN32)
 extern void *p_gcc_jit_context_acquire;
@@ -138,9 +153,115 @@ extern void *p_gcc_jit_context_get_first_error;
 #define gcc_jit_context_get_first_error (...) ((__typeof__(gcc_jit_context_get_first_error) *)p_gcc_jit_context_get_first_error)(__VA_ARGS__)
 #endif
 
-#ifdef __cplusplus
-extern "C" {
+/* Forward declarations for optional modern libgccjit API features in case they
+   are missing from the system libgccjit.h */
+#ifndef LIBGCCJIT_HAVE_gcc_jit_lvalue_set_tls_model
+enum gcc_jit_tls_model {
+  GCC_JIT_TLS_MODEL_NONE,
+  GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC,
+  GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC,
+  GCC_JIT_TLS_MODEL_INITIAL_EXEC,
+  GCC_JIT_TLS_MODEL_LOCAL_EXEC
+};
 #endif
+
+#ifndef LIBGCCJIT_HAVE_ATTRIBUTES
+enum gcc_jit_fn_attribute {
+  GCC_JIT_FN_ATTRIBUTE_ALIAS,
+  GCC_JIT_FN_ATTRIBUTE_ALWAYS_INLINE,
+  GCC_JIT_FN_ATTRIBUTE_INLINE,
+  GCC_JIT_FN_ATTRIBUTE_NOINLINE,
+  GCC_JIT_FN_ATTRIBUTE_TARGET,
+  GCC_JIT_FN_ATTRIBUTE_USED,
+  GCC_JIT_FN_ATTRIBUTE_VISIBILITY,
+  GCC_JIT_FN_ATTRIBUTE_COLD,
+  GCC_JIT_FN_ATTRIBUTE_RETURNS_TWICE,
+  GCC_JIT_FN_ATTRIBUTE_PURE,
+  GCC_JIT_FN_ATTRIBUTE_CONST,
+  GCC_JIT_FN_ATTRIBUTE_WEAK,
+  GCC_JIT_FN_ATTRIBUTE_NONNULL,
+  GCC_JIT_FN_ATTRIBUTE_FALLTHROUGH,
+  GCC_JIT_FN_ATTRIBUTE_MALLOC,
+  GCC_JIT_FN_ATTRIBUTE_SECTION,
+  GCC_JIT_FN_ATTRIBUTE_MAX
+};
+enum gcc_jit_variable_attribute {
+  GCC_JIT_VARIABLE_ATTRIBUTE_ALIAS,
+  GCC_JIT_VARIABLE_ATTRIBUTE_WEAK,
+  GCC_JIT_VARIABLE_ATTRIBUTE_VISIBILITY,
+  GCC_JIT_VARIABLE_ATTRIBUTE_SECTION,
+  GCC_JIT_VARIABLE_ATTRIBUTE_MAX
+};
+#endif
+
+/* Function pointer types for modern APIs */
+typedef void (*pfn_gcc_jit_block_end_with_extended_asm_goto)(
+    struct gcc_jit_block *block,
+    struct gcc_jit_location *loc,
+    const char *asm_template,
+    int num_outputs, struct gcc_jit_extended_asm **outputs,
+    int num_inputs, struct gcc_jit_extended_asm **inputs,
+    int num_clobbers, const char **clobbers,
+    int num_goto_blocks, struct gcc_jit_block **goto_blocks,
+    struct gcc_jit_block *fallthrough_block);
+
+typedef void (*pfn_gcc_jit_lvalue_set_tls_model)(
+    struct gcc_jit_lvalue *lvalue,
+    enum gcc_jit_tls_model model);
+
+typedef void (*pfn_gcc_jit_function_add_attribute)(
+    struct gcc_jit_function *func,
+    enum gcc_jit_fn_attribute attribute);
+
+typedef void (*pfn_gcc_jit_lvalue_add_string_attribute)(
+    struct gcc_jit_lvalue *variable,
+    enum gcc_jit_variable_attribute attribute,
+    const char* value);
+
+typedef void (*pfn_gcc_jit_lvalue_set_alignment)(
+    struct gcc_jit_lvalue *lvalue,
+    unsigned bytes);
+
+typedef void (*pfn_gcc_jit_lvalue_set_register_name)(
+    struct gcc_jit_lvalue *lvalue,
+    const char *reg_name);
+
+typedef struct gcc_jit_type * (*pfn_gcc_jit_context_get_int_type)(
+    struct gcc_jit_context *ctxt,
+    int num_bytes,
+    int is_signed);
+
+typedef struct gcc_jit_type * (*pfn_gcc_jit_type_get_vector)(
+    struct gcc_jit_type *type,
+    size_t num_units);
+
+/* Optional modern libgccjit API features (loaded dynamically on all platforms) */
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_struct_constructor)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_type *type,
+    size_t num_values,
+    struct gcc_jit_field **fields,
+    struct gcc_jit_rvalue **values);
+
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_array_constructor)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_type *type,
+    size_t num_values,
+    struct gcc_jit_rvalue **values);
+
+extern pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor;
+extern pfn_gcc_jit_context_new_array_constructor p_gcc_jit_context_new_array_constructor;
+
+extern pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_extended_asm_goto;
+extern pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model;
+extern pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute;
+extern pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute;
+extern pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment;
+extern pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name;
+extern pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type;
+extern pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector;
 
 /**
  * @brief Loads the libgccjit dynamic library on Windows.
@@ -156,8 +277,6 @@ extern gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT;
  */
 extern gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT;
 
-#ifdef __cplusplus
-}
-#endif
+END_EDG_NAMESPACE
 
 #endif /* GCC_GEN_BE_LIB_LOADER_H */

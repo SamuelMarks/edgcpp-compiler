@@ -16,6 +16,9 @@
 
 BEGIN_EDG_NAMESPACE
 
+
+
+
 /**
  * @brief Converts an EDG source position into a libgccjit location.
  *
@@ -23,7 +26,7 @@ BEGIN_EDG_NAMESPACE
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated (can be NULL if pos is invalid).
  */
-gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
 
@@ -52,7 +55,7 @@ gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, gcc_jit_locat
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
 
@@ -74,7 +77,7 @@ gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, gcc_
  * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
  */
-gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
 
@@ -86,6 +89,8 @@ gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, gcc_j
 
     return GCC_GEN_BE_SUCCESS;
 }
+
+
 
 END_EDG_NAMESPACE
 

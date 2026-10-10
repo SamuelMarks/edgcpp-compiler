@@ -20,6 +20,9 @@
 
 BEGIN_EDG_NAMESPACE
 
+
+
+
 /**
  * @brief Lowers an EDG frontend type into a libgccjit type.
  *
@@ -101,6 +104,19 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
         case fk_float: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT); break;
         case fk_double: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_DOUBLE); break;
         case fk_long_double: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG_DOUBLE); break;
+#if defined(GCC_JIT_TYPE_FLOAT16)
+        case fk_float16: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT16); break;
+#endif
+#if defined(GCC_JIT_TYPE_FLOAT32)
+        case fk_float32x: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT32); break;
+#endif
+#if defined(GCC_JIT_TYPE_FLOAT64)
+        case fk_float64x: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT64); break;
+#endif
+#if defined(GCC_JIT_TYPE_FLOAT128)
+        case fk_float128: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT128); break;
+        case fk_float80:  res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT128); break; /* Fallback for 80-bit */
+#endif
         default: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_DOUBLE); break;
       }
       break;
@@ -119,19 +135,26 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
           if (tp->kind == tk_imaginary) {
               res = elem;
           } else {
+#if defined(GCC_JIT_TYPE_COMPLEX_FLOAT)
+              switch (tp->variant.float_kind) {
+                  case fk_float: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_COMPLEX_FLOAT); break;
+                  case fk_double: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_COMPLEX_DOUBLE); break;
+                  case fk_long_double: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_COMPLEX_LONG_DOUBLE); break;
+                  default: res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_COMPLEX_DOUBLE); break;
+              }
+#else
               gcc_jit_field *real_f = gcc_jit_context_new_field(ctx, NULL, elem, "real");
               gcc_jit_field *imag_f = gcc_jit_context_new_field(ctx, NULL, elem, "imag");
               gcc_jit_field *fields[] = {real_f, imag_f};
               gcc_jit_struct *s = gcc_jit_context_new_struct_type(ctx, NULL, "complex", 2, fields);
               res = gcc_jit_struct_as_type(s);
+#endif
           }
       }
       break;
 #endif
 
     case tk_pointer:
-    case tk_reference:
-    case tk_rvalue_reference:
       {
           gcc_jit_type *elem = NULL;
           GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.pointer.type, &elem));
@@ -144,7 +167,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
       break;
       
     case tk_array:
-      if (!tp->variant.array.is_variable_size_array && !tp->variant.array.is_template_dependent_size_array) {
+      if (!tp->variant.array.is_variable_size_array && !tp->variant.array.is_template_dependent_size_array && tp->variant.array.variant.number_of_elements != 0) {
          int size = (int)tp->variant.array.variant.number_of_elements;
          gcc_jit_type *elem = NULL;
          GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.array.element_type, &elem));
@@ -288,6 +311,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
   *out_type = res;
   return GCC_GEN_BE_SUCCESS;
 }
+
+
 
 END_EDG_NAMESPACE
 

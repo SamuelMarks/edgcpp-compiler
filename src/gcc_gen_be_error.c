@@ -11,7 +11,9 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
+#include "basic_hdrs.h"
 #include "gcc_gen_be_error.h"
+#include "error.h"
 
 /**
  * @brief Converts a GCC backend error code to a human-readable string.
@@ -68,6 +70,24 @@ gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char 
         case GCC_GEN_BE_ERROR_EH_FAILURE:
             *out_str = "GCC_GEN_BE_ERROR_EH_FAILURE";
             break;
+        case GCC_GEN_BE_ERROR_EH_UNSUPPORTED:
+            *out_str = "GCC_GEN_BE_ERROR_EH_UNSUPPORTED";
+            break;
+        case GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL:
+            *out_str = "GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL";
+            break;
+        case GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED:
+            *out_str = "GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED";
+            break;
+        case GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED:
+            *out_str = "GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED";
+            break;
+        case GCC_GEN_BE_ERROR_ASM_CONSTRAINT_INVALID:
+            *out_str = "GCC_GEN_BE_ERROR_ASM_CONSTRAINT_INVALID";
+            break;
+        case GCC_GEN_BE_ERROR_DWARF_EMISSION_FAILED:
+            *out_str = "GCC_GEN_BE_ERROR_DWARF_EMISSION_FAILED";
+            break;
         case GCC_GEN_BE_ERROR_COMPILATION_FAILED:
             *out_str = "GCC_GEN_BE_ERROR_COMPILATION_FAILED";
             break;
@@ -77,4 +97,36 @@ gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char 
     }
     
     return GCC_GEN_BE_SUCCESS;
+}
+/**
+ * @brief Reports a backend error using EDG diagnostic facilities.
+ *
+ * @param error The backend error code that occurred.
+ * @param context_msg Additional context message to display (can be NULL).
+ * @return The passed-in error code for convenience in return statements.
+ */
+gcc_gen_be_error_t gcc_gen_be_report_diagnostic(gcc_gen_be_error_t error, const char *context_msg) GCC_GEN_BE_NOEXCEPT {
+    const char *err_msg = NULL;
+    gcc_gen_be_error_string(error, &err_msg);
+    if (!err_msg) {
+        err_msg = "Unknown";
+    }
+
+    if (f_error) {
+        if (context_msg) {
+            fprintf(f_error, "GCC Backend Error: %s - %s\n", err_msg, context_msg);
+        } else {
+            fprintf(f_error, "GCC Backend Error: %s\n", err_msg);
+        }
+    }
+
+    if (error == GCC_GEN_BE_ERROR_OOM || 
+        error == GCC_GEN_BE_ERROR_INTERNAL || 
+        error == GCC_GEN_BE_ERROR_COMPILATION_FAILED) {
+        diagnostic_counters.total.catastrophes++;
+    } else {
+        diagnostic_counters.total.errors++;
+    }
+
+    return error;
 }
