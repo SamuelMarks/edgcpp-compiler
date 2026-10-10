@@ -43,7 +43,14 @@ struct llvm_opt_options_t {
   bool vectorize_loops;       ///< True to enable loop vectorization.
   bool vectorize_slp;         ///< True to enable SLP vectorization.
   unsigned inlining_threshold;///< Threshold for function inlining.
-  bool use_lto;               ///< True if Link Time Optimization (LTO) is enabled.
+  bool use_lto;
+  bool use_asan;
+
+  bool use_tsan;
+  bool use_ubsan;
+  bool pgo_generate;          ///< True if generating PGO profiles.
+  const char* pgo_use_path;   ///< Path to PGO profile data, or null.
+               ///< True if Link Time Optimization (LTO) is enabled.
 };
 
 /**

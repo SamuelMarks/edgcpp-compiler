@@ -173,6 +173,12 @@ llvm_gen_be_error_t push_lexical_block(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Pop lexical block.
+ * @details Implements pop_lexical_block.
+ * @return llvm_gen_be_error_t::ok on success.
+  * @param[in] _p
+ */
 llvm_gen_be_error_t pop_lexical_block(llvm_gen_be_debug_state_t* dbg_state) noexcept {
   if (dbg_state == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;

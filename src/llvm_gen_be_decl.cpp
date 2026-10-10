@@ -52,7 +52,9 @@ static llvm_gen_be_error_t apply_llvm_attributes(llvm::GlobalObject* global, an_
                      global->setSection(sec_name);
                 }
             }
-        } else if (attr->kind == ak_visibility) {
+        }
+#if GNU_VISIBILITY_ATTRIBUTE_ALLOWED
+        else if (attr->kind == ak_visibility) {
             std::string vis_str;
             if (attr->arguments && attr->arguments->kind == aak_constant) {
                 a_constant_ptr const_ptr = attr->arguments->variant.constant;
@@ -75,6 +77,7 @@ static llvm_gen_be_error_t apply_llvm_attributes(llvm::GlobalObject* global, an_
                 global->setVisibility(llvm::GlobalValue::DefaultVisibility);
             }
         }
+#endif
     }
     return llvm_gen_be_error_t::ok;
 }
@@ -158,6 +161,7 @@ llvm_gen_be_error_t llvm_lower_global_variable(a_variable_ptr var) noexcept {
 /**
  * @brief Lowers all EDG global variables in the translation unit.
  * @return llvm_gen_be_error_t::ok on success, or an error code.
+  * @param[in] _p
  */
 llvm_gen_be_error_t llvm_lower_global_variables(void) noexcept {
   if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
@@ -171,7 +175,12 @@ llvm_gen_be_error_t llvm_lower_global_variables(void) noexcept {
 /**
  * @brief Lowers a single EDG routine prototype into an LLVM Function.
  * @param[in] routine The EDG routine.
- * @return llvm_gen_be_error_t::ok on success, or an error code.
+ * @return llvm_gen_be_error_t::ok on success, or a/**
+ * @brief llvm_lower_function_prototype
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+n error code.
  */
 llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) noexcept {
     if (!routine || !routine->source_corresp.name) return llvm_gen_be_error_t::ok;
@@ -212,6 +221,20 @@ llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) noexcep
        func->addFnAttr(llvm::Attribute::NoInline);
     }
 #endif
+    
+    // Basic calling convention mapping
+    if (routine->type && routine->type->kind == tk_routine) {
+        a_routine_type_supplement_ptr supp = routine->type->variant.routine.extra_info;
+        if (supp) {
+#if MICROSOFT_EXTENSIONS_ALLOWED
+            if (supp->calling_convention == cc_stdcall) func->setCallingConv(llvm::CallingConv::X86_StdCall);
+            else if (supp->calling_convention == cc_fastcall) func->setCallingConv(llvm::CallingConv::X86_FastCall);
+            else if (supp->calling_convention == cc_thiscall) func->setCallingConv(llvm::CallingConv::X86_ThisCall);
+            else if (supp->calling_convention == cc_vectorcall) func->setCallingConv(llvm::CallingConv::X86_VectorCall);
+#endif
+        }
+    }
+
     if (routine->type && routine->type->kind == tk_routine && routine->type->variant.routine.extra_info && 
         routine->type->variant.routine.extra_info->does_not_return) {
        func->addFnAttr(llvm::Attribute::NoReturn);
@@ -230,7 +253,12 @@ llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) noexcep
 }
 
 /**
- * @brief Lowers all EDG routine declarations in the translation unit.
+ * @brief Lowers/**
+ * @brief llvm_lower_function_declarations
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+ all EDG routine declarations in the translation unit.
  * @return llvm_gen_be_error_t::ok on success, or an error code.
  */
 llvm_gen_be_error_t llvm_lower_function_declarations(void) noexcept {
@@ -240,7 +268,12 @@ llvm_gen_be_error_t llvm_lower_function_declarations(void) noexcept {
     if (err != llvm_gen_be_error_t::ok) return err;
   }
   return llvm_gen_be_error_t::ok;
-}
+}/**
+ * @brief get_scope_for_routine_definition
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+
 
 /**
  * @brief Gets the lexical scope for a routine definition.
@@ -258,7 +291,12 @@ static llvm_gen_be_error_t get_scope_for_routine_definition(a_routine_ptr rout, 
 #endif
   a_scope_ptr res = scope_for_routine(rout);
   if (!res) {
-     a_function_def_descr def_descr = il_header.function_def_table[rout->function_def_number];
+     a_func/**
+ * @brief llvm_lower_function_body
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+tion_def_descr def_descr = il_header.function_def_table[rout->function_def_number];
      res = def_descr.scope;
   }
   *out_scope = res;
@@ -399,7 +437,12 @@ llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) noexcept {
     if (llvm::verifyFunction(*func, &os)) {
       if (be_state->dbg_state) {
         llvm_gen_be_error_t err = pop_lexical_block(be_state->dbg_state);
-        if (err != llvm_gen_be_error_t::ok) return err;
+        if (err != llvm_gen_/**
+ * @brief llvm_lower_function_definitions
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+be_error_t::ok) return err;
       }
       return llvm_gen_be_error_t::verification_failure;
     }
@@ -413,6 +456,7 @@ llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) noexcept {
 /**
  * @brief Lowers all EDG routine definitions in the translation unit.
  * @return llvm_gen_be_error_t::ok on success, or an error code.
+  * @param[in] _p
  */
 llvm_gen_be_error_t llvm_lower_function_definitions(void) noexcept {
   if (!il_header.primary_scope) return llvm_gen_be_error_t::ok;
@@ -433,7 +477,7 @@ llvm_gen_be_error_t llvm_lower_global_ctors_and_dtors(void) noexcept {
   std::vector<llvm::Constant*> dtors;
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
   llvm::Type* void_fn_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
-  llvm::Type* ptr_ty = void_fn_ty->getPointerTo();
+  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::StructType* ctor_struct_ty = llvm::StructType::get(
       int32_ty, ptr_ty, ptr_ty); // { i32, void ()*, i8* }
 

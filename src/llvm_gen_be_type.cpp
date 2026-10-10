@@ -13,6 +13,11 @@
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
 #include "target.h"
+#include "cmd_line.h"
+#include "llvm_gen_be_abi_sysv_x86_64.h"
+#include "llvm_gen_be_abi_win64.h"
+#include "llvm_gen_be_abi_aapcs64.h"
+#include <llvm/TargetParser/Triple.h>
 #include <vector>
 
 #if BACK_END_IS_LLVM_GEN_BE
@@ -66,6 +71,21 @@ llvm_gen_be_error_t llvm_type_from_integer(
       *out_type = llvm::IntegerType::get(*be_state->context, (targ_sizeof_long_long * targ_char_bit));
       break;
 #endif /* LONG_LONG_ALLOWED */
+#if INT128_EXTENSIONS_ALLOWED
+    case ik_int128:
+    case ik_unsigned_int128:
+      *out_type = llvm::IntegerType::get(*be_state->context, 128);
+      break;
+#endif /* INT128_EXTENSIONS_ALLOWED */
+    case ik_bit_precise:
+    case ik_unsigned_bit_precise: {
+      an_integer_type_supplement_ptr extra_info = edg_type->variant.integer.extra_info;
+      if (extra_info == nullptr) {
+        return llvm_gen_be_error_t::internal_inconsistency;
+      }
+      *out_type = llvm::IntegerType::get(*be_state->context, extra_info->bit_width);
+      break;
+    }
     default:
       *out_type = llvm::IntegerType::get(*be_state->context, edg_type->size * targ_char_bit);
       break;
@@ -114,18 +134,30 @@ llvm_gen_be_error_t llvm_type_from_float(
       *out_type = llvm::Type::getX86_FP80Ty(*be_state->context);
       break;
     case fk_float128:
-    case fk_std_float128:
-      *out_type = llvm::Type::getFP128Ty(*be_state->context);
+    case fk_std_float128: {
+      llvm::Triple triple(be_state->module->getTargetTriple());
+      if (triple.isPPC()) {
+        *out_type = llvm::Type::getPPC_FP128Ty(*be_state->context);
+      } else {
+        *out_type = llvm::Type::getFP128Ty(*be_state->context);
+      }
       break;
-    case fk_long_double:
+    }
+    case fk_long_double: {
+      llvm::Triple triple(be_state->module->getTargetTriple());
       if (edg_type->size * targ_char_bit == 80) {
         *out_type = llvm::Type::getX86_FP80Ty(*be_state->context);
       } else if (edg_type->size * targ_char_bit == 128) {
-        *out_type = llvm::Type::getFP128Ty(*be_state->context);
+        if (triple.isPPC()) {
+          *out_type = llvm::Type::getPPC_FP128Ty(*be_state->context);
+        } else {
+          *out_type = llvm::Type::getFP128Ty(*be_state->context);
+        }
       } else {
         *out_type = llvm::Type::getDoubleTy(*be_state->context);
       }
       break;
+    }
     default:
       *out_type = llvm::Type::getDoubleTy(*be_state->context);
       return llvm_gen_be_error_t::unsupported_type;
@@ -136,17 +168,28 @@ llvm_gen_be_error_t llvm_type_from_float(
 /**
  * @brief Lowers an EDG pointer or reference type into an LLVM opaque PointerType.
  * @details Constructs an opaque pointer using LLVM's unadorned pointer representation.
+ * Supports non-default address spaces (e.g. __attribute__((address_space(N)))).
  * @param[in] edg_type Pointer to the EDG pointer type structure.
  * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t llvm_type_from_pointer(
-    [[maybe_unused]] a_type_ptr edg_type,
+    a_type_ptr edg_type,
     llvm::Type** out_type) noexcept {
   if (out_type == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
-  *out_type = llvm::PointerType::getUnqual(*be_state->context);
+  unsigned addr_space = 0;
+#if NAMED_ADDRESS_SPACES_ALLOWED
+  if (edg_type != nullptr && named_address_spaces_enabled) {
+    a_type_ptr pointee = edg_type->variant.pointer.type;
+    if (pointee != nullptr) {
+      a_type_qualifier_set tqs = f_get_type_qualifiers(pointee, FALSE);
+      addr_space = named_address_space_from_qualifier_set(tqs);
+    }
+  }
+#endif
+  *out_type = llvm::PointerType::get(*be_state->context, addr_space);
   return llvm_gen_be_error_t::ok;
 }
 
@@ -171,14 +214,15 @@ llvm_gen_be_error_t llvm_type_from_array(
 
   if (!edg_type->variant.array.is_vla && !edg_type->variant.array.bound_is_zero &&
       !edg_type->variant.array.is_variable_size_array &&
-      !edg_type->variant.array.is_template_dependent_size_array) {
+      !edg_type->variant.array.is_template_dependent_size_array &&
+      !edg_type->incomplete) {
     llvm::Type* elem_ty = nullptr;
     llvm_gen_be_error_t err = llvm_type_from_edg_type(edg_type->variant.array.element_type, &elem_ty);
     if (err != llvm_gen_be_error_t::ok) {
       return err;
     }
     *out_type = llvm::ArrayType::get(elem_ty, edg_type->variant.array.variant.number_of_elements);
-  } else if (edg_type->variant.array.bound_is_zero) {
+  } else if (edg_type->variant.array.bound_is_zero || edg_type->incomplete) {
     llvm::Type* elem_ty = nullptr;
     llvm_gen_be_error_t err = llvm_type_from_edg_type(edg_type->variant.array.element_type, &elem_ty);
     if (err != llvm_gen_be_error_t::ok) {
@@ -189,6 +233,39 @@ llvm_gen_be_error_t llvm_type_from_array(
     *out_type = llvm::PointerType::getUnqual(*be_state->context);
   }
   return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers an EDG vector type into an LLVM VectorType.
+ * @details Translates GNU/Clang vector types into llvm::FixedVectorType.
+ * @param[in] edg_type Pointer to the EDG vector type structure.
+ * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_type_from_vector(
+    a_type_ptr edg_type,
+    llvm::Type** out_type) noexcept {
+  if (out_type == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+#if GNU_EXTENSIONS_ALLOWED && GNU_VECTOR_TYPES_ALLOWED
+  if (edg_type == nullptr || edg_type->kind != tk_vector) {
+    *out_type = llvm::PointerType::getUnqual(*be_state->context);
+    return llvm_gen_be_error_t::ok;
+  }
+  llvm::Type* elem_ty = nullptr;
+  llvm_gen_be_error_t err = llvm_type_from_edg_type(edg_type->variant.vector.element_type, &elem_ty);
+  if (err != llvm_gen_be_error_t::ok) {
+    return err;
+  }
+  a_targ_size_t elem_size = edg_type->variant.vector.element_type->size;
+  unsigned num_elements = (elem_size > 0) ? (edg_type->size / elem_size) : 0;
+  *out_type = llvm::FixedVectorType::get(elem_ty, num_elements);
+  return llvm_gen_be_error_t::ok;
+#else
+  *out_type = llvm::PointerType::getUnqual(*be_state->context);
+  return llvm_gen_be_error_t::ok;
+#endif
 }
 
 /**
@@ -261,7 +338,26 @@ llvm_gen_be_error_t llvm_type_from_struct(
       continue;
     }
 
-    if (field->is_bit_field && field->bit_size == 0) {
+    if (field->is_bit_field) {
+      if (field->bit_size == 0) continue;
+
+      uint64_t run_byte_end = (field->offset * 8 + field->offset_bit_remainder + field->bit_size + 7) / 8;
+      
+      a_field_ptr next_bf = field->next;
+      while (next_bf != nullptr && next_bf->is_bit_field && next_bf->bit_size > 0 && next_bf->offset < run_byte_end) {
+        uint64_t next_bit_end = next_bf->offset * 8 + next_bf->offset_bit_remainder + next_bf->bit_size;
+        uint64_t next_byte_end = (next_bit_end + 7) / 8;
+        if (next_byte_end > run_byte_end) {
+          run_byte_end = next_byte_end;
+        }
+        next_bf = next_bf->next;
+      }
+      
+      uint64_t span_bytes = run_byte_end - current_offset;
+      if (span_bytes > 0) {
+        elem_tys.push_back(llvm::IntegerType::get(*be_state->context, span_bytes * 8));
+        current_offset = run_byte_end;
+      }
       continue;
     }
 
@@ -280,12 +376,6 @@ llvm_gen_be_error_t llvm_type_from_struct(
         edg_type->size - current_offset));
   }
 
-  if (elem_tys.empty() && edg_type->size > 0) {
-    elem_tys.push_back(llvm::ArrayType::get(
-        llvm::Type::getInt8Ty(*be_state->context),
-        edg_type->size));
-  }
-
   struct_ty->setBody(elem_tys, /*isPacked=*/true);
   *out_type = struct_ty;
   return llvm_gen_be_error_t::ok;
@@ -294,6 +384,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
 /**
  * @brief Lowers an EDG routine (function) type into an LLVM FunctionType.
  * @details Gathers return type, parameter types, and variadic ellipsis flag.
+ * Dispatches to target-specific ABI handlers to perform sret and pass-by-value adjustments.
  * @param[in] edg_type Pointer to the EDG routine type structure.
  * @param[out] out_fn_type Pointer to the variable where the resulting FunctionType* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
@@ -309,32 +400,46 @@ llvm_gen_be_error_t llvm_type_from_routine(
     return llvm_gen_be_error_t::ok;
   }
 
-  a_type_ptr ret_ty = edg_type->variant.routine.return_type;
-  llvm::Type* llvm_ret_ty = nullptr;
-  llvm_gen_be_error_t err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
-  if (err != llvm_gen_be_error_t::ok) {
-    return err;
-  }
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  llvm::AttributeList dummy_attrs;
+  llvm_gen_be_error_t err = llvm_gen_be_error_t::ok;
 
-  std::vector<llvm::Type*> param_tys;
-  if (edg_type->variant.routine.extra_info != nullptr) {
-    for (a_param_type_ptr param = edg_type->variant.routine.extra_info->param_type_list;
-         param != nullptr; param = param->next) {
-      llvm::Type* pty = nullptr;
-      err = llvm_type_from_edg_type(param->type, &pty);
-      if (err != llvm_gen_be_error_t::ok) {
-        return err;
-      }
-      param_tys.push_back(pty);
+  if (triple.isOSWindows() && triple.getArch() == llvm::Triple::x86_64) {
+    err = build_win64_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::aarch64) {
+    err = build_aapcs64_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::x86_64) {
+    err = build_sysv_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else {
+    // Fallback: simple parameter lowering
+    a_type_ptr ret_ty = edg_type->variant.routine.return_type;
+    llvm::Type* llvm_ret_ty = nullptr;
+    err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
+    if (err != llvm_gen_be_error_t::ok) {
+      return err;
     }
+
+    std::vector<llvm::Type*> param_tys;
+    if (edg_type->variant.routine.extra_info != nullptr) {
+      for (a_param_type_ptr param = edg_type->variant.routine.extra_info->param_type_list;
+           param != nullptr; param = param->next) {
+        llvm::Type* pty = nullptr;
+        err = llvm_type_from_edg_type(param->type, &pty);
+        if (err != llvm_gen_be_error_t::ok) {
+          return err;
+        }
+        param_tys.push_back(pty);
+      }
+    }
+
+    bool is_vararg = (edg_type->variant.routine.extra_info != nullptr)
+                         ? edg_type->variant.routine.extra_info->has_ellipsis
+                         : false;
+
+    *out_fn_type = llvm::FunctionType::get(llvm_ret_ty, param_tys, is_vararg);
   }
-
-  bool is_vararg = (edg_type->variant.routine.extra_info != nullptr)
-                       ? edg_type->variant.routine.extra_info->has_ellipsis
-                       : false;
-
-  *out_fn_type = llvm::FunctionType::get(llvm_ret_ty, param_tys, is_vararg);
-  return llvm_gen_be_error_t::ok;
+  
+  return err;
 }
 
 /**
@@ -392,13 +497,19 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
     case tk_array:
       err = llvm_type_from_array(edg_type, &llvm_ty);
       break;
+#if GNU_EXTENSIONS_ALLOWED && GNU_VECTOR_TYPES_ALLOWED
+    case tk_vector:
+      err = llvm_type_from_vector(edg_type, &llvm_ty);
+      break;
+#endif
     case tk_ptr_to_member: {
       a_type_ptr mem_ty = edg_type->variant.ptr_to_member.type;
       if (mem_ty != nullptr && mem_ty->kind == tk_routine) {
-        llvm::Type* int_ty = llvm::IntegerType::get(*be_state->context, targ_sizeof_pointer * targ_char_bit);
-        llvm_ty = llvm::StructType::get(*be_state->context, {int_ty, int_ty});
+        llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+        llvm::Type* int_ty = llvm::IntegerType::get(*be_state->context, 8 * targ_char_bit);
+        llvm_ty = llvm::StructType::get(*be_state->context, {ptr_ty, int_ty});
       } else {
-        llvm_ty = llvm::IntegerType::get(*be_state->context, targ_sizeof_pointer * targ_char_bit);
+        llvm_ty = llvm::IntegerType::get(*be_state->context, 8 * targ_char_bit);
       }
       break;
     }
@@ -435,6 +546,7 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
  * @brief Legacy compatibility helper redirecting to llvm_type_from_edg_type.
  * @details Convenience wrapper returning llvm::Type* while inspecting error codes internally.
  * @param[in] edg_type Pointer to the EDG type structure.
+ * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t get_llvm_type(a_type_ptr edg_type, llvm::Type** out_type) noexcept {

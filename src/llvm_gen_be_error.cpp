@@ -16,6 +16,12 @@
 
 BEGIN_EDG_NAMESPACE
 
+extern a_source_file_ptr conv_seq_to_file_and_line(a_seq_number  seq_number,
+                                            a_const_char  **file_name,
+                                            a_const_char  **full_name,
+                                            a_line_number *line_number,
+                                            a_boolean     *at_end_of_source);
+
 /**
  * @brief Sets and records error details within an error context.
  * @details Formats a diagnostic message into the error context structure and
@@ -43,6 +49,51 @@ llvm_gen_be_error_t llvm_gen_be_set_error(
     ctx->file_name = file_name;
     ctx->line_number = line;
     ctx->column_number = col;
+    if (format != nullptr) {
+      va_list args;
+      va_start(args, format);
+      vsnprintf(ctx->message, sizeof(ctx->message), format, args);
+      va_end(args);
+    } else {
+      ctx->message[0] = '\0';
+    }
+  }
+  return err;
+}
+
+/**
+ * @brief Formats a diagnostic message capturing EDG source coordinates.
+ * @details Extracts file, line, and column from an EDG a_source_position
+ * and populates the error context.
+ * @param[in,out] ctx Pointer to the error context to populate. If null, the function
+ *                    still returns the error code without recording message details.
+ * @param[in] err The error code representing the failure.
+ * @param[in] pos The EDG source position.
+ * @param[in] format Printf-style format string for the error message.
+ * @param[in] ... Variadic arguments matching the format string.
+ * @return The error code passed in @p err.
+ */
+llvm_gen_be_error_t llvm_gen_be_format_diagnostic(
+    llvm_gen_be_error_context_t* ctx,
+    llvm_gen_be_error_t err,
+    const a_source_position& pos,
+    const char* format,
+    ...) noexcept {
+  if (ctx != nullptr) {
+    a_const_char* file_name = nullptr;
+    a_const_char* full_name = nullptr;
+    a_line_number line = 0;
+    a_boolean at_end_of_source = FALSE;
+
+    if (pos.seq != 0) {
+      conv_seq_to_file_and_line(pos.seq, &file_name, &full_name, &line, &at_end_of_source);
+    }
+
+    ctx->error_code = err;
+    ctx->file_name = file_name;
+    ctx->line_number = line;
+    ctx->column_number = pos.column;
+
     if (format != nullptr) {
       va_list args;
       va_start(args, format);
@@ -106,6 +157,27 @@ llvm_gen_be_error_t llvm_gen_be_error_to_string(
       break;
     case llvm_gen_be_error_t::io_error:
       *out_str = "io_error";
+      break;
+    case llvm_gen_be_error_t::constant_eval_failure:
+      *out_str = "constant_eval_failure";
+      break;
+    case llvm_gen_be_error_t::symbol_lookup_failure:
+      *out_str = "symbol_lookup_failure";
+      break;
+    case llvm_gen_be_error_t::eh_lowering_failure:
+      *out_str = "eh_lowering_failure";
+      break;
+    case llvm_gen_be_error_t::vtable_generation_failure:
+      *out_str = "vtable_generation_failure";
+      break;
+    case llvm_gen_be_error_t::coroutine_lowering_failure:
+      *out_str = "coroutine_lowering_failure";
+      break;
+    case llvm_gen_be_error_t::inline_asm_failure:
+      *out_str = "inline_asm_failure";
+      break;
+    case llvm_gen_be_error_t::internal_inconsistency:
+      *out_str = "internal_inconsistency";
       break;
     default:
       *out_str = "unknown_error";

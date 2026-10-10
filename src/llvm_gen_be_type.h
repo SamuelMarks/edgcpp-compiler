@@ -84,6 +84,17 @@ llvm_gen_be_error_t llvm_type_from_array(
     llvm::Type** out_type) noexcept;
 
 /**
+ * @brief Lowers an EDG vector type into an LLVM VectorType.
+ * @details Translates GNU/Clang vector types into llvm::FixedVectorType.
+ * @param[in] edg_type Pointer to the EDG vector type structure.
+ * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_type_from_vector(
+    a_type_ptr edg_type,
+    llvm::Type** out_type) noexcept;
+
+/**
  * @brief Lowers an EDG struct, union, or class type into an LLVM StructType.
  * @details Generates packed structures matching EDG field byte offsets and tail padding.
  * Cyclic struct references are resolved using forward-declared opaque StructTypes.
@@ -110,6 +121,7 @@ llvm_gen_be_error_t llvm_type_from_routine(
  * @brief Legacy compatibility helper redirecting to llvm_type_from_edg_type.
  * @details Convenience wrapper returning llvm::Type* while inspecting error codes internally.
  * @param[in] edg_type Pointer to the EDG type structure.
+ * @param[out] out_type Pointer to the variable where the resulting llvm::Type* is stored.
  * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t get_llvm_type(

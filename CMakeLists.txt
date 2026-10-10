@@ -37,6 +37,11 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
   add_compile_options("$<$<CONFIG:Debug>:-g3>")
 endif()
 
+if (EDG_LLVM_BE_COVERAGE)
+  add_compile_options("-fprofile-instr-generate" "-fcoverage-mapping")
+  add_link_options("-fprofile-instr-generate" "-fcoverage-mapping")
+endif()
+
 # Attempt to determine the best linker
 if(NOT DEFINED EDG_PREFERRED_LINKER)
   if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
@@ -150,3 +155,11 @@ if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
 enable_testing()
+
+# 100% Doc Coverage Check for LLVM Backend
+add_custom_target(
+    check_doc_coverage ALL
+    COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/dev_tools/check_doc_coverage.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Verifying 100% LLVM backend Doxygen coverage..."
+)

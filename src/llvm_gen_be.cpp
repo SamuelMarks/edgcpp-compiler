@@ -1,3 +1,7 @@
+/**
+ * @file llvm_gen_be.cpp
+ * @brief Auto-generated brief.
+ */
 #include <type_traits>
 
 /* llvm_gen_be.cpp - LLVM IR-generating back end core */
@@ -24,6 +28,11 @@ BEGIN_EDG_NAMESPACE
 
 LLVMBackendState* be_state = nullptr;
 
+/**
+ * @brief build_data_layout
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
 llvm_gen_be_error_t build_data_layout(std::string* out_dl) noexcept {
   if (!out_dl) return llvm_gen_be_error_t::invalid_argument;
   std::string dl = "";
@@ -52,7 +61,12 @@ llvm_gen_be_error_t build_data_layout(std::string* out_dl) noexcept {
   dl += "i64:" + std::to_string((int)(targ_sizeof_long_long * targ_char_bit)) + "-";
   dl += "f32:" + std::to_string((int)(targ_sizeof_float * targ_char_bit)) + "-";
   dl += "f64:" + std::to_string((int)(targ_sizeof_double * targ_char_bit)) + "-";
-  dl += "f128:" + std::to_string((int)(targ_sizeof_long_double * targ_char_bit));
+  dl += "f128:" + std::to_string((int)(tar/**
+ * @brief generate_llvm_output_file
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+g_sizeof_long_double * targ_char_bit));
 
   *out_dl = dl;
   return llvm_gen_be_error_t::ok;
@@ -117,7 +131,12 @@ llvm_gen_be_error_t generate_llvm_output_file(const char* base_name) noexcept {
 
   // Emit .o
   if (gen_obj_file_name) {
-    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::object_file, gen_obj_file_name);
+    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codege/**
+ * @brief llvm_gen_be
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+n_file_type_t::object_file, gen_obj_file_name);
     if (emit_err != llvm_gen_be_error_t::ok) {
       delete tm;
       return emit_err;

@@ -128,7 +128,8 @@ llvm_gen_be_error_t llvm_const_from_address(
     if (be_state->label_blocks.count(label)) {
       label_bb = be_state->label_blocks[label];
     } else {
-      label_bb = llvm::BasicBlock::Create(*be_state->context, "label");
+      llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
+      label_bb = llvm::BasicBlock::Create(*be_state->context, "label", func);
       be_state->label_blocks[label] = label_bb;
     }
     llvm::Function* func = label_bb->getParent();

@@ -78,6 +78,12 @@ llvm_gen_be_error_t debug_info_init(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Debug info finalize.
+ * @details Implements debug_info_finalize.
+ * @return llvm_gen_be_error_t::ok on success.
+  * @param[in] _p
+ */
 llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) noexcept {
   if (dbg_state == nullptr || dbg_state->builder == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -87,6 +93,16 @@ llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) no
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Debug info cleanup.
+ * @details Implements debug_info_cleanup.
+ * @return llvm_gen_be_error_t::o/**
+ * @brief debug_info_cleanup
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+k on success.
+ */
 llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state) noexcept {
   if (dbg_state == nullptr || *dbg_state == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;

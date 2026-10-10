@@ -1,3 +1,7 @@
+/**
+ * @file llvm_gen_be_internal.h
+ * @brief Internal headers.
+ */
 #ifndef LLVM_GEN_BE_INTERNAL_H
 #define LLVM_GEN_BE_INTERNAL_H
 

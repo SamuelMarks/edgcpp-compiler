@@ -20,8 +20,18 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/Support/Error.h>
 
+#include <llvm/Transforms/Instrumentation/AddressSanitizer.h>
+#include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
+#include <llvm/Transforms/Instrumentation/BoundsChecking.h>
+
+
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief parse_opt_level_string
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
 llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options_t* out_opts) noexcept {
   if (!opt_str || !out_opts) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -32,6 +42,10 @@ llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options
   out_opts->vectorize_slp = false;
   out_opts->inlining_threshold = 0;
   out_opts->use_lto = false;
+  out_opts->use_asan = false;
+  out_opts->use_tsan = false;
+  out_opts->use_ubsan = false;
+
 
   if (strcmp(opt_str, "O0") == 0) {
     out_opts->opt_level = llvm_opt_level_t::O0;
@@ -52,7 +66,12 @@ llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options
     out_opts->vectorize_slp = true;
   } else if (strcmp(opt_str, "Oz") == 0) {
     out_opts->opt_level = llvm_opt_level_t::Oz;
-  } else {
+  } /**
+ * @brief run_optimization_pipeline
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+else {
     return llvm_gen_be_error_t::invalid_argument;
   }
 
@@ -95,6 +114,32 @@ llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_o
   pb.registerFunctionAnalyses(fam);
   pb.registerLoopAnalyses(lam);
   pb.crossRegisterProxies(lam, fam, cgam, mam);
+
+  
+  pb.registerPipelineStartEPCallback([&](llvm::ModulePassManager &mpm, llvm::OptimizationLevel Level) {
+    
+  // PGO Generation and Use Support
+  if (opts->pgo_generate) {
+      pb.registerPipelineStartEPCallback([&](llvm::ModulePassManager& mpm, llvm::OptimizationLevel Level) {
+          mpm.addPass(llvm::PGOInstrumentationGen());
+      });
+  } else if (opts->pgo_use_path && opts->pgo_use_path[0] != '\0') {
+      pb.registerPipelineStartEPCallback([&](llvm::ModulePassManager& mpm, llvm::OptimizationLevel Level) {
+          mpm.addPass(llvm::PGOInstrumentationUse(opts->pgo_use_path));
+      });
+  }
+if (opts->use_asan) {
+      mpm.addPass(llvm::AddressSanitizerPass(llvm::AddressSanitizerOptions{}));
+    }
+    if (opts->use_tsan) {
+      mpm.addPass(llvm::ModuleThreadSanitizerPass());
+      mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::ThreadSanitizerPass()));
+    }
+    if (opts->use_ubsan) {
+      // Stub UBSan with BoundsChecking for compilation
+      mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass(llvm::BoundsCheckingPass::Options{})));
+    }
+  });
 
   llvm::ModulePassManager mpm;
   if (opts->opt_level == llvm_opt_level_t::O0) {

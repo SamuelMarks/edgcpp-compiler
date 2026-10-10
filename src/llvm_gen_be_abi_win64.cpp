@@ -17,6 +17,11 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief classify_win64_argument
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
 llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, win64_arg_info_t* out_info) noexcept {
   if (ty == nullptr || out_info == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -79,7 +84,12 @@ llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, win64_arg_info_t* out
     return llvm_gen_be_error_t::ok;
   }
 
-  out_info->abi_class = win64_abi_class_t::indirect_by_pointer;
+  out_info->abi_class = win64_abi/**
+ * @brief compute_win64_return_info
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+_class_t::indirect_by_pointer;
   out_info->is_indirect = true;
   return llvm_gen_be_error_t::ok;
 }
@@ -91,7 +101,12 @@ llvm_gen_be_error_t compute_win64_return_info(a_type_ptr ret_ty, win64_arg_info_
 
   *out_sret = false;
 
-  llvm_gen_be_error_t err = classify_win64_argument(ret_ty, out_info);
+  llvm_gen_be_error_t err/**
+ * @brief build_win64_function_type
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+ = classify_win64_argument(ret_ty, out_info);
   if (err != llvm_gen_be_error_t::ok) {
     return err;
   }
@@ -173,7 +188,12 @@ llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::Funct
   bool is_var_arg = routine_ty->variant.routine.extra_info 
                        ? routine_ty->variant.routine.extra_info->has_ellipsis 
                        : false;
-  *out_fn_ty = llvm::FunctionType::get(llvm_ret_ty, llvm_param_types, is_var_arg);
+  *out_fn_ty = llvm/**
+ * @brief lower_win64_va_start
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
+::FunctionType::get(llvm_ret_ty, llvm_param_types, is_var_arg);
 
   llvm::AttributeSet ret_attr_set = llvm::AttributeSet::get(*be_state->context, ret_attr);
   *out_attrs = llvm::AttributeList::get(*be_state->context, llvm::AttributeSet(), ret_attr_set, param_attrs);

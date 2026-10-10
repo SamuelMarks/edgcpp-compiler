@@ -39,7 +39,14 @@ typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   pass_pipeline_failure = 8,     ///< LLVM PassBuilder pipeline assembly or execution failure.
   code_gen_failure = 9,          ///< TargetMachine code generation or emission failure.
   verification_failure = 10,     ///< LLVM Module or Function verifier identified invalid IR.
-  io_error = 11                  ///< File stream opening, writing, or flushing failure.
+  io_error = 11,                 ///< File stream opening, writing, or flushing failure.
+  constant_eval_failure = 12,    ///< Constant evaluation failure.
+  symbol_lookup_failure = 13,    ///< Symbol resolution or lookup failure.
+  eh_lowering_failure = 14,      ///< Exception handling lowering failure.
+  vtable_generation_failure = 15,///< Virtual table generation or layout failure.
+  coroutine_lowering_failure = 16,///< Coroutine lowering or transformation failure.
+  inline_asm_failure = 17,       ///< Inline assembly translation failure.
+  internal_inconsistency = 18    ///< Internal compiler inconsistency or invariant violation.
 } llvm_gen_be_error_t;
 
 /**
@@ -76,6 +83,25 @@ llvm_gen_be_error_t llvm_gen_be_set_error(
     const char* file_name,
     uint32_t line,
     uint32_t col,
+    const char* format,
+    ...) noexcept;
+
+/**
+ * @brief Formats a diagnostic message capturing EDG source coordinates.
+ * @details Extracts file, line, and column from an EDG a_source_position
+ * and populates the error context.
+ * @param[in,out] ctx Pointer to the error context to populate. If null, the function
+ *                    still returns the error code without recording message details.
+ * @param[in] err The error code representing the failure.
+ * @param[in] pos The EDG source position.
+ * @param[in] format Printf-style format string for the error message.
+ * @param[in] ... Variadic arguments matching the format string.
+ * @return The error code passed in @p err.
+ */
+llvm_gen_be_error_t llvm_gen_be_format_diagnostic(
+    llvm_gen_be_error_context_t* ctx,
+    llvm_gen_be_error_t err,
+    const a_source_position& pos,
     const char* format,
     ...) noexcept;
 

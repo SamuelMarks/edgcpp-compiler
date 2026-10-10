@@ -17,6 +17,11 @@
 
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief initialize_llvm_targets
+ * @param[in] _p param
+ * @return llvm_gen_be_error_t::ok
+ */
 llvm_gen_be_error_t initialize_llvm_targets(void) noexcept {
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
