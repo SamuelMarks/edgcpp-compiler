@@ -43,6 +43,8 @@ void* mock_dlsym(void* handle, const char* symbol) {
     return NULL;
 }
 
+using namespace edg;
+
 int main() {
     gcc_gen_be_error_t err;
 

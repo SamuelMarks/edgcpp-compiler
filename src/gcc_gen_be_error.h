@@ -93,11 +93,29 @@ typedef enum GCC_GEN_BE_NODISCARD {
     /** @brief Indicates that exception handling is not supported for the target. */
     GCC_GEN_BE_ERROR_EH_UNSUPPORTED,
 
+    /** @brief Indicates that creating a landing pad for a try block failed. */
+    GCC_GEN_BE_ERROR_EH_LANDING_PAD_FAILED,
+
     /** @brief Indicates that a symbol could not be resolved. */
     GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL,
 
+    /** @brief Indicates that a builtin is unknown or unsupported. */
+    GCC_GEN_BE_ERROR_BUILTIN_UNKNOWN,
+
+    /** @brief Indicates that a builtin signature did not match expectations. */
+    GCC_GEN_BE_ERROR_BUILTIN_SIGNATURE_MISMATCH,
+
+    /** @brief Indicates an ABI, calling convention, or structural layout mismatch. */
+    GCC_GEN_BE_ERROR_ABI_MISMATCH,
+
+    /** @brief Indicates an unsupported attribute was encountered. */
+    GCC_GEN_BE_ERROR_UNSUPPORTED_ATTRIBUTE,
+
     /** @brief Indicates that generating a vtable failed. */
     GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED,
+
+    /** @brief Indicates that an RTTI descriptor is invalid. */
+    GCC_GEN_BE_ERROR_RTTI_INVALID,
 
     /** @brief Indicates that generating RTTI information failed. */
     GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED,

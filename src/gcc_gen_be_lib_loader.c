@@ -21,6 +21,7 @@ BEGIN_EDG_NAMESPACE
 
 #if defined(_WIN32)
 #include <windows.h>
+/** @brief Handle to the loaded libgccjit library. */
 static HMODULE libgccjit_handle = NULL;
 void *p_gcc_jit_context_acquire = NULL;
 void *p_gcc_jit_context_release = NULL;
@@ -82,16 +83,36 @@ void *p_gcc_jit_context_new_location = NULL;
 void *p_gcc_jit_context_compile_to_file = NULL;
 void *p_gcc_jit_context_get_first_error = NULL;
 
+/** @brief Function pointer. */
 pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_get_builtin_function p_gcc_jit_context_get_builtin_function = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_new_rvalue_from_vector p_gcc_jit_context_new_rvalue_from_vector = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_new_bitcast p_gcc_jit_context_new_bitcast = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_new_union_constructor p_gcc_jit_context_new_union_constructor = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_context_new_array_constructor p_gcc_jit_context_new_array_constructor = NULL;
 
+/** @brief Function pointer. */
 pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_extended_asm_goto = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_lvalue_set_link_section p_gcc_jit_lvalue_set_link_section = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector = NULL;
 
 gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
@@ -177,10 +198,15 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_context_get_first_error)
   
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_struct_constructor, gcc_jit_context_new_struct_constructor)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_builtin_function, gcc_jit_context_get_builtin_function)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_rvalue_from_vector, gcc_jit_context_new_rvalue_from_vector)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_bitcast, gcc_jit_context_new_bitcast)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_union_constructor, gcc_jit_context_new_union_constructor)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_array_constructor, gcc_jit_context_new_array_constructor)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_extended_asm_goto, gcc_jit_block_end_with_extended_asm_goto)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_tls_model, gcc_jit_lvalue_set_tls_model)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_attribute, gcc_jit_function_add_attribute)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_link_section, gcc_jit_lvalue_set_link_section)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_alignment, gcc_jit_lvalue_set_alignment)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
@@ -196,18 +222,39 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
 #else
 
 #include <dlfcn.h>
+/** @brief Handle to the loaded libgccjit library. */
 static void *libgccjit_handle = NULL;
 
+/** @brief Function pointer. */
 pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_get_builtin_function p_gcc_jit_context_get_builtin_function = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_new_rvalue_from_vector p_gcc_jit_context_new_rvalue_from_vector = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_new_bitcast p_gcc_jit_context_new_bitcast = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_context_new_union_constructor p_gcc_jit_context_new_union_constructor = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_context_new_array_constructor p_gcc_jit_context_new_array_constructor = NULL;
 
+/** @brief Function pointer. */
 pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_extended_asm_goto = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute = NULL;
+/** @brief Function pointer. */
+pfn_gcc_jit_lvalue_set_link_section p_gcc_jit_lvalue_set_link_section = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type = NULL;
+/** @brief Function pointer. */
 pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector = NULL;
 
 gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
@@ -229,11 +276,16 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
       p_##name = (type)dlsym(libgccjit_handle, #name);
 
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_struct_constructor, gcc_jit_context_new_struct_constructor)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_builtin_function, gcc_jit_context_get_builtin_function)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_rvalue_from_vector, gcc_jit_context_new_rvalue_from_vector)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_bitcast, gcc_jit_context_new_bitcast)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_union_constructor, gcc_jit_context_new_union_constructor)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_array_constructor, gcc_jit_context_new_array_constructor)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_extended_asm_goto, gcc_jit_block_end_with_extended_asm_goto)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_tls_model, gcc_jit_lvalue_set_tls_model)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_attribute, gcc_jit_function_add_attribute)
-    LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_link_section, gcc_jit_lvalue_set_link_section)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_alignment, gcc_jit_lvalue_set_alignment)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_int_type, gcc_jit_context_get_int_type)

@@ -47,6 +47,8 @@ static a_type* make_float_type(a_float_kind kind) {
     return tp;
 }
 
+using namespace edg;
+
 int main() {
     gcc_jit_context *ctx = gcc_jit_context_acquire();
     if (!ctx) return __LINE__;

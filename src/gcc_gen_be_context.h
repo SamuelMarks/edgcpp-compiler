@@ -114,6 +114,15 @@ typedef struct {
     /** @brief Capacity of the nested block stack. */
     size_t block_stack_capacity;
 
+    /** @brief Stack for lexical scopes containing local variables. */
+    struct gcc_gen_be_scope **scope_stack;
+    
+    /** @brief Number of entries in the scope stack. */
+    size_t scope_stack_size;
+    
+    /** @brief Capacity of the scope stack. */
+    size_t scope_stack_capacity;
+
     /** @brief Stack for RAII cleanups and destructor invocations. */
     void **cleanup_stack;
     
@@ -266,6 +275,20 @@ extern gcc_gen_be_error_t gcc_gen_be_push_block(gcc_jit_block *block) GCC_GEN_BE
  * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
 extern gcc_gen_be_error_t gcc_gen_be_pop_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Pushes a new lexical scope for variable shadowing onto the scope stack.
+ *
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_push_scope(void) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Pops the current lexical scope from the scope stack.
+ *
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_pop_scope(void) GCC_GEN_BE_NOEXCEPT;
 
 END_EDG_NAMESPACE
 

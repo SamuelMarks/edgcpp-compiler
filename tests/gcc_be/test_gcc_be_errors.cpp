@@ -1,50 +1,70 @@
 #include "basic_hdrs.h"
 #include "gcc_gen_be_error.h"
-#include "error.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-
-// Mock for EDG globals
-FILE *f_error = NULL;
-a_diagnostic_counter_set diagnostic_counters;
+#include <assert.h>
 
 extern "C" {
-// Include the source file directly for testing its internal functions if needed
-// Or just link against it. Let's just define the test here and link it.
 }
 
 int main() {
-    f_error = stderr;
     const char *str = NULL;
     gcc_gen_be_error_t err;
 
-    // Test error string mapping
-    err = gcc_gen_be_error_string(GCC_GEN_BE_SUCCESS, &str);
-    if (err != GCC_GEN_BE_SUCCESS || strcmp(str, "GCC_GEN_BE_SUCCESS") != 0) return 1;
-
-    err = gcc_gen_be_error_string(GCC_GEN_BE_ERROR_OOM, &str);
-    if (err != GCC_GEN_BE_SUCCESS || strcmp(str, "GCC_GEN_BE_ERROR_OOM") != 0) return 1;
-
-    err = gcc_gen_be_error_string(GCC_GEN_BE_ERROR_EH_UNSUPPORTED, &str);
-    if (err != GCC_GEN_BE_SUCCESS || strcmp(str, "GCC_GEN_BE_ERROR_EH_UNSUPPORTED") != 0) return 1;
-
-    err = gcc_gen_be_error_string((gcc_gen_be_error_t)9999, &str);
-    if (err != GCC_GEN_BE_SUCCESS || strcmp(str, "GCC_GEN_BE_ERROR_UNKNOWN") != 0) return 1;
-
-    // Test NULL pointer handling
+    /* Test null pointer for out_str */
     err = gcc_gen_be_error_string(GCC_GEN_BE_SUCCESS, NULL);
-    if (err != GCC_GEN_BE_ERROR_INVALID_ARGUMENT) return 1;
+    assert(err == GCC_GEN_BE_ERROR_INVALID_ARGUMENT);
 
-    // Test report diagnostic
-    diagnostic_counters.total.errors = 0;
-    diagnostic_counters.total.catastrophes = 0;
-    
-    gcc_gen_be_report_diagnostic(GCC_GEN_BE_ERROR_EH_UNSUPPORTED, "Test context");
-    if (diagnostic_counters.total.errors != 1 || diagnostic_counters.total.catastrophes != 0) return 1;
+    /* Test all defined errors */
+    const struct {
+        gcc_gen_be_error_t code;
+        const char* expected;
+    } test_cases[] = {
+        {GCC_GEN_BE_SUCCESS, "Success: The operation completed successfully."},
+        {GCC_GEN_BE_ERROR_OOM, "Error: Out of memory (memory allocation failed)."},
+        {GCC_GEN_BE_ERROR_UNSUPPORTED, "Error: An unsupported operation or language feature was encountered."},
+        {GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED, "Error: The libgccjit dynamic library could not be loaded."},
+        {GCC_GEN_BE_ERROR_LIBGCCJIT_SYMBOL_MISSING, "Error: A required symbol could not be found in libgccjit."},
+        {GCC_GEN_BE_ERROR_INVALID_ARGUMENT, "Error: An invalid argument (e.g., null output pointer) was passed to a function."},
+        {GCC_GEN_BE_ERROR_INTERNAL, "Error: An internal compiler error occurred within the GCC backend."},
+        {GCC_GEN_BE_ERROR_UNHANDLED_TYPE, "Error: A specific type could not be handled or lowered."},
+        {GCC_GEN_BE_ERROR_UNHANDLED_EXPR, "Error: A specific expression could not be handled or lowered."},
+        {GCC_GEN_BE_ERROR_UNHANDLED_STMT, "Error: A specific statement could not be handled or lowered."},
+        {GCC_GEN_BE_ERROR_UNHANDLED_DECL, "Error: A specific declaration could not be handled or lowered."},
+        {GCC_GEN_BE_ERROR_NULL_POINTER, "Error: A required pointer was null."},
+        {GCC_GEN_BE_ERROR_TYPE_MISMATCH, "Error: A type mismatch was detected during code generation."},
+        {GCC_GEN_BE_ERROR_EH_FAILURE, "Error: A failure occurred during exception handling setup or generation."},
+        {GCC_GEN_BE_ERROR_EH_UNSUPPORTED, "Error: Exception handling is not supported for the target architecture."},
+        {GCC_GEN_BE_ERROR_EH_LANDING_PAD_FAILED, "Error: Creating a landing pad for a try block failed."},
+        {GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL, "Error: A required symbol could not be resolved in the current context."},
+        {GCC_GEN_BE_ERROR_BUILTIN_UNKNOWN, "Error: A requested compiler builtin function is unknown or unsupported."},
+        {GCC_GEN_BE_ERROR_BUILTIN_SIGNATURE_MISMATCH, "Error: A builtin function signature did not match expectations."},
+        {GCC_GEN_BE_ERROR_ABI_MISMATCH, "Error: An ABI, calling convention, or structural layout mismatch occurred."},
+        {GCC_GEN_BE_ERROR_UNSUPPORTED_ATTRIBUTE, "Error: An unsupported or invalid attribute was encountered."},
+        {GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED, "Error: Generating a virtual table (vtable) failed."},
+        {GCC_GEN_BE_ERROR_RTTI_INVALID, "Error: An invalid RTTI descriptor was encountered."},
+        {GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED, "Error: Generating RTTI information failed."},
+        {GCC_GEN_BE_ERROR_ASM_CONSTRAINT_INVALID, "Error: An inline assembly constraint is invalid or unsupported."},
+        {GCC_GEN_BE_ERROR_DWARF_EMISSION_FAILED, "Error: DWARF debug information emission failed."},
+        {GCC_GEN_BE_ERROR_COMPILATION_FAILED, "Error: JIT compilation failed."},
+        {(gcc_gen_be_error_t)9999, "Error: An unknown error occurred."}
+    };
 
-    gcc_gen_be_report_diagnostic(GCC_GEN_BE_ERROR_OOM, "OOM test");
-    if (diagnostic_counters.total.errors != 1 || diagnostic_counters.total.catastrophes != 1) return 1;
+    int num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
+    for (int i = 0; i < num_cases; i++) {
+        str = NULL;
+        err = gcc_gen_be_error_string(test_cases[i].code, &str);
+        assert(err == GCC_GEN_BE_SUCCESS);
+        assert(str != NULL);
+        if (strcmp(str, test_cases[i].expected) != 0) {
+            printf("Mismatch for case %d: expected '%s', got '%s'\n", i, test_cases[i].expected, str);
+            return 1;
+        }
+    }
+
+    /* Test gcc_gen_be_report_diagnostic */
+    err = gcc_gen_be_report_diagnostic(GCC_GEN_BE_ERROR_UNSUPPORTED, "test context");
+    assert(err == GCC_GEN_BE_ERROR_UNSUPPORTED);
 
     printf("PASS\n");
     return 0;

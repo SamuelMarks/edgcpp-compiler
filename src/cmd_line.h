@@ -387,6 +387,8 @@ enum an_option_kind {
   optk_output_mode,
   optk_incognito,
   #if BACK_END_IS_GCC_GEN_BE
+  optk_gcc_gen_be,
+  optk_gcc_be_c,
   optk_gcc_be_O0,
   optk_gcc_be_O1,
   optk_gcc_be_O2,

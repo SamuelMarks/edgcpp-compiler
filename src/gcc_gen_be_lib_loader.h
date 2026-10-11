@@ -18,6 +18,14 @@
 #include "gcc_gen_be_error.h"
 #include "fe_common.h"
 
+#if !defined(_WIN32)
+#if defined(__has_include)
+#  if __has_include(<libgccjit.h>)
+#    include <libgccjit.h>
+#  endif
+#endif
+#endif
+
 struct gcc_jit_context;
 struct gcc_jit_type;
 struct gcc_jit_struct;
@@ -251,16 +259,46 @@ typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_array_constructor)(
     size_t num_values,
     struct gcc_jit_rvalue **values);
 
+/** @brief Function pointer. */
 extern pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor;
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_union_constructor)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_type *type, struct gcc_jit_field *field, struct gcc_jit_rvalue *value);
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_bitcast)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_rvalue *rvalue, struct gcc_jit_type *type);
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_rvalue_from_vector)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_type *vec_type, size_t num_elements, struct gcc_jit_rvalue **elements);
+typedef struct gcc_jit_function * (*pfn_gcc_jit_context_get_builtin_function)(struct gcc_jit_context *ctxt, const char *name);
+/** @brief Function pointer. */
+extern pfn_gcc_jit_context_get_builtin_function p_gcc_jit_context_get_builtin_function;
+
+/** @brief Function pointer. */
+extern pfn_gcc_jit_context_new_rvalue_from_vector p_gcc_jit_context_new_rvalue_from_vector;
+
+/** @brief Function pointer. */
+extern pfn_gcc_jit_context_new_bitcast p_gcc_jit_context_new_bitcast;
+
+/** @brief Function pointer. */
+extern pfn_gcc_jit_context_new_union_constructor p_gcc_jit_context_new_union_constructor;
+
+/** @brief Function pointer. */
 extern pfn_gcc_jit_context_new_array_constructor p_gcc_jit_context_new_array_constructor;
 
+/** @brief Function pointer. */
 extern pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_extended_asm_goto;
+/** @brief Function pointer. */
 extern pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model;
+/** @brief Function pointer. */
 extern pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute;
+typedef void (*pfn_gcc_jit_lvalue_set_link_section)(struct gcc_jit_lvalue *lvalue, const char *section_name);
+/** @brief Function pointer. */
+extern pfn_gcc_jit_lvalue_set_link_section p_gcc_jit_lvalue_set_link_section;
+
+/** @brief Function pointer. */
 extern pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute;
+/** @brief Function pointer. */
 extern pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment;
+/** @brief Function pointer. */
 extern pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name;
+/** @brief Function pointer. */
 extern pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type;
+/** @brief Function pointer. */
 extern pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector;
 
 /**

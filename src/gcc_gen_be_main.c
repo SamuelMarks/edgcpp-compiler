@@ -16,7 +16,12 @@
 #include "gcc_gen_be_stmt.h"
 #include "host_envir.h"
 #include "fe_common.h"
-#include "il.h"
+#include "error.h"
+#if IL_SHOULD_BE_WRITTEN_TO_FILE
+#include "il_file.h"
+#include "il_write.h"
+#include "il_read.h"
+#endif /* IL_SHOULD_BE_WRITTEN_TO_FILE */
 #include <libgccjit.h>
 #include <string.h>
 
@@ -35,7 +40,7 @@ gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
   gcc_gen_be_error_t err = gcc_gen_be_init();
   if (err != GCC_GEN_BE_SUCCESS) {
       const char *err_msg = NULL;
-      gcc_gen_be_error_string(err, &err_msg);
+      (void)gcc_gen_be_error_string(err, &err_msg);
       fprintf(f_error, "gcc_gen_be init error: %s\n", err_msg ? err_msg : "Unknown");
       diagnostic_counters.total.catastrophes++;
       return err;
@@ -53,11 +58,12 @@ gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
   
   if (scope) {
     for (var = scope->variables; var != NULL; var = var->next) {
+        if (ignore_variable_in_back_end(var)) continue;
         gcc_jit_lvalue *lval = NULL;
-        err = gcc_gen_be_lower_variable_decl(var, &lval);
+        err = gcc_gen_be_lower_global_variable_decl(var, &lval);
         if (err != GCC_GEN_BE_SUCCESS) {
             const char *err_msg = NULL;
-            gcc_gen_be_error_string(err, &err_msg);
+            (void)gcc_gen_be_error_string(err, &err_msg);
             fprintf(f_error, "gcc_gen_be variable lowering error: %s\n", err_msg ? err_msg : "Unknown");
             diagnostic_counters.total.errors++;
         }
@@ -66,11 +72,20 @@ gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
     for (rout = scope->routines; rout != NULL; rout = rout->next) {
       if (ignore_routine_in_back_end(rout)) continue;
 
+#if IL_SHOULD_BE_WRITTEN_TO_FILE
+      if (rout->function_def_number != NULL_function_def_number) {
+        a_memory_region_number scope_region_number = mem_region_for_routine(rout);
+        if (mem_region_table[scope_region_number] == NULL) {
+          read_memory_region(scope_region_number);
+        }
+      }
+#endif
+
       gcc_jit_function *func = NULL;
       err = gcc_gen_be_lower_function_decl(rout, &func);
       if (err != GCC_GEN_BE_SUCCESS || !func) {
           const char *err_msg = NULL;
-          gcc_gen_be_error_string(err, &err_msg);
+          (void)gcc_gen_be_error_string(err, &err_msg);
           fprintf(f_error, "gcc_gen_be function lowering error: %s\n", err_msg ? err_msg : "Unknown");
           diagnostic_counters.total.errors++;
           continue;
@@ -79,31 +94,35 @@ gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
       if (rout->function_def_number != NULL_function_def_number) {
         a_scope_ptr def_scope = scope_for_routine(rout);
         if (def_scope && def_scope->assoc_block) {
-          /* First, iterate and lower all block-local variables in the function */
-          for (var = def_scope->variables; var != NULL; var = var->next) {
-             /* Parameters are already handled in lower_function_decl */
-             if (!var->is_parameter) {
-                 const char *lname = var->source_corresp.name ? var->source_corresp.name : "unnamed_local";
-                 gcc_jit_type *vtype = NULL;
-                 err = gcc_gen_be_lower_type(var->type, &vtype);
-                 if (err == GCC_GEN_BE_SUCCESS && vtype) {
-                     gcc_jit_lvalue *local = gcc_jit_function_new_local(func, NULL, vtype, lname);
-                     GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, var, local));
-                 } else {
-                     const char *err_msg = NULL;
-                     gcc_gen_be_error_string(err, &err_msg);
-                     fprintf(f_error, "gcc_gen_be local variable lowering error: %s\n", err_msg ? err_msg : "Unknown");
-                     diagnostic_counters.total.errors++;
-                 }
-             }
-          }
-
           gcc_jit_block *block = gcc_jit_function_new_block(func, "entry");
           GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(block)); 
+
+          /* Push the function-level scope */
+          GCC_GEN_BE_CHECK(gcc_gen_be_push_scope());
+
           err = gcc_gen_be_lower_statement(def_scope->assoc_block, func);
+
+          GCC_GEN_BE_CHECK(gcc_gen_be_pop_scope());
+
+          gcc_jit_block *last_block = NULL;
+          (void)gcc_gen_be_get_current_block(&last_block);
+          if (last_block) {
+              a_type_ptr ret_t = rout->type ? rout->type->variant.routine.return_type : NULL;
+              while (ret_t && ret_t->kind == tk_typeref) ret_t = ret_t->variant.typeref.type;
+              if (!ret_t || ret_t->kind == tk_void) {
+                  gcc_jit_block_end_with_void_return(last_block, NULL);
+              } else {
+                  gcc_jit_rvalue *zero_ret = NULL;
+                  (void)gcc_gen_be_get_zero_rvalue(ret_t, NULL, &zero_ret);
+                  if (!zero_ret) zero_ret = gcc_jit_context_zero(ctx, gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT));
+                  gcc_jit_block_end_with_return(last_block, NULL, zero_ret);
+              }
+              (void)gcc_gen_be_set_current_block(NULL);
+          }
+
           if (err != GCC_GEN_BE_SUCCESS) {
               const char *err_msg = NULL;
-              gcc_gen_be_error_string(err, &err_msg);
+              (void)gcc_gen_be_error_string(err, &err_msg);
               fprintf(f_error, "gcc_gen_be statement lowering error: %s\n", err_msg ? err_msg : "Unknown");
               diagnostic_counters.total.errors++;
           }
@@ -150,6 +169,14 @@ gcc_gen_be_error_t gcc_gen_be(void) GCC_GEN_BE_NOEXCEPT {
 }
 
 gcc_gen_be_error_t back_end(void) GCC_GEN_BE_NOEXCEPT {
+#if IL_SHOULD_BE_WRITTEN_TO_FILE
+  /* If the intermediate language was written to a file, read it back in. */
+  primary_source_file_name = NULL;
+  if (!skip_il_read) {
+    il_read(f_il_output);
+  }
+  primary_source_file_name = il_header.primary_source_file->file_name;
+#endif /* IL_SHOULD_BE_WRITTEN_TO_FILE */
   return gcc_gen_be();
 }
 

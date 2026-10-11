@@ -9,6 +9,8 @@ extern "C" {
     }
 }
 
+using namespace edg;
+
 int main() {
     gcc_gen_be_error_t err;
 

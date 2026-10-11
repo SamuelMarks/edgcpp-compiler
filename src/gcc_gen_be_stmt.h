@@ -54,4 +54,30 @@ extern gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, struc
 
 END_EDG_NAMESPACE
 
-#endif /* GCC_GEN_BE_STMT_H */
+/**
+ * @brief Emits a __builtin_stack_save call and saves the result in a local variable.
+ */
+/**
+ * @brief Emits a stack save operation.
+ * @details Emits a call to __builtin_stack_save.
+ * @param[in] func The current function.
+ * @param[in] block The current block.
+ * @param[out] out_save Pointer to receive the saved stack variable.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_emit_stack_save(struct gcc_jit_function *func, struct gcc_jit_block *block, struct gcc_jit_lvalue **out_save) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Emits a __builtin_stack_restore call using the previously saved stack pointer.
+ */
+/**
+ * @brief Emits a stack restore operation.
+ * @details Emits a call to __builtin_stack_restore.
+ * @param[in] func The current function.
+ * @param[in] block The current block.
+ * @param[in] save_var The saved stack variable.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_emit_stack_restore(struct gcc_jit_function *func, struct gcc_jit_block *block, struct gcc_jit_lvalue *save_var) GCC_GEN_BE_NOEXCEPT;
+
+#endif

@@ -21,8 +21,13 @@ BEGIN_EDG_NAMESPACE
 
 static unsigned long get_current_thread_id(void);
 
+/** @brief Global libgccjit context pointer. */
 static gcc_jit_context *gcc_jit_ctx = NULL;
+
+/** @brief The currently active libgccjit block. */
 static gcc_jit_block *current_block = NULL;
+
+/** @brief Global tracking state for the GCC backend context. */
 static gcc_gen_be_context_t backend_state = {0};
 
 /**
@@ -208,6 +213,17 @@ gcc_gen_be_error_t gcc_gen_be_cleanup(void) GCC_GEN_BE_NOEXCEPT {
         backend_state.cleanup_stack_capacity = 0;
     }
     
+    if (backend_state.scope_stack) {
+        /* Any remaining scopes are leaked memory if not popped */
+        for (size_t i = 0; i < backend_state.scope_stack_size; ++i) {
+            free(backend_state.scope_stack[i]);
+        }
+        free(backend_state.scope_stack);
+        backend_state.scope_stack = NULL;
+        backend_state.scope_stack_size = 0;
+        backend_state.scope_stack_capacity = 0;
+    }
+    
     return GCC_GEN_BE_SUCCESS;
 }
 
@@ -241,6 +257,14 @@ static unsigned long get_current_thread_id(void) {
 
 /**
  * @brief Helper to push to a generic block stack.
+ *
+ * @details Resizes the given stack if necessary and appends the specified block.
+ *
+ * @param[in,out] stack Double pointer to the dynamically allocated array of block pointers.
+ * @param[in,out] size Pointer to the current number of elements in the stack.
+ * @param[in,out] capacity Pointer to the current capacity of the stack.
+ * @param[in] block The gcc_jit_block to push onto the stack.
+ * @return GCC_GEN_BE_SUCCESS on success, GCC_GEN_BE_ERROR_INVALID_ARGUMENT if block is null, or GCC_GEN_BE_ERROR_OOM.
  */
 static gcc_gen_be_error_t push_to_block_stack(gcc_jit_block ***stack, size_t *size, size_t *capacity, gcc_jit_block *block) {
     if (!block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
@@ -257,6 +281,13 @@ static gcc_gen_be_error_t push_to_block_stack(gcc_jit_block ***stack, size_t *si
 
 /**
  * @brief Helper to pop from a generic block stack.
+ *
+ * @details Removes the top element from the stack and returns it.
+ *
+ * @param[in,out] stack Double pointer to the dynamically allocated array of block pointers.
+ * @param[in,out] size Pointer to the current number of elements in the stack.
+ * @param[out] out_block Pointer to receive the popped gcc_jit_block.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT on underflow or null pointers.
  */
 static gcc_gen_be_error_t pop_from_block_stack(gcc_jit_block ***stack, size_t *size, gcc_jit_block **out_block) {
     if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
@@ -306,8 +337,11 @@ gcc_gen_be_error_t gcc_gen_be_check_thread_safety(void) GCC_GEN_BE_NOEXCEPT {
 
 typedef void (*gcc_gen_be_cleanup_func_t)(void *);
 
+/** @brief A cleanup entry */
 typedef struct {
+    /** @brief function */
     gcc_gen_be_cleanup_func_t func;
+    /** @brief data */
     void *data;
 } gcc_gen_be_cleanup_entry_t;
 
@@ -344,6 +378,44 @@ gcc_gen_be_error_t gcc_gen_be_execute_cleanups(void) GCC_GEN_BE_NOEXCEPT {
             entries[backend_state.cleanup_stack_size].func(entries[backend_state.cleanup_stack_size].data);
         }
     }
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/** @brief A scope entry */
+typedef struct gcc_gen_be_scope {
+    /* Currently just a placeholder to represent a scope level.
+       Actual variables are cached in GCC_GEN_BE_CACHE_VAR which suffices
+       since front-end variables have unique pointers. */
+    /** @brief dummy */
+    int dummy;
+} gcc_gen_be_scope_t;
+
+gcc_gen_be_error_t gcc_gen_be_push_scope(void) GCC_GEN_BE_NOEXCEPT {
+    if (backend_state.scope_stack_size >= backend_state.scope_stack_capacity) {
+        size_t new_cap = (backend_state.scope_stack_capacity == 0) ? 16 : (backend_state.scope_stack_capacity * 2);
+        void *new_stack = realloc(backend_state.scope_stack, new_cap * sizeof(gcc_gen_be_scope_t *));
+        if (!new_stack) return GCC_GEN_BE_ERROR_OOM;
+        backend_state.scope_stack = (struct gcc_gen_be_scope **)new_stack;
+        backend_state.scope_stack_capacity = new_cap;
+    }
+    
+    gcc_gen_be_scope_t *new_scope = (gcc_gen_be_scope_t *)malloc(sizeof(gcc_gen_be_scope_t));
+    if (!new_scope) return GCC_GEN_BE_ERROR_OOM;
+    new_scope->dummy = 0;
+    
+    backend_state.scope_stack[backend_state.scope_stack_size++] = (struct gcc_gen_be_scope *)new_scope;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+gcc_gen_be_error_t gcc_gen_be_pop_scope(void) GCC_GEN_BE_NOEXCEPT {
+    if (backend_state.scope_stack_size == 0) {
+        return GCC_GEN_BE_ERROR_INVALID_ARGUMENT; /* Underflow */
+    }
+    
+    backend_state.scope_stack_size--;
+    gcc_gen_be_scope_t *top_scope = (gcc_gen_be_scope_t *)backend_state.scope_stack[backend_state.scope_stack_size];
+    free(top_scope);
+    
     return GCC_GEN_BE_SUCCESS;
 }
 

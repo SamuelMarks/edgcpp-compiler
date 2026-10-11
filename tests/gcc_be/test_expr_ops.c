@@ -1,1 +1,16 @@
-int main() { int x = 0; return x; }
+int main() {
+    int a = 1, b = 2;
+    a += b;
+    if (a != 3) return 1;
+    a <<= 1;
+    if (a != 6) return 1;
+    a >>= 1;
+    if (a != 3) return 1;
+    a &= 1;
+    if (a != 1) return 1;
+    a ^= 3;
+    if (a != 2) return 1;
+    a |= 4;
+    if (a != 6) return 1;
+    return 0;
+}

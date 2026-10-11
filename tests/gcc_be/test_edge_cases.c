@@ -1,1 +1,4 @@
-int main() { int x = 0; return x; }
+int main() {
+    int arr[0]; /* empty array edge case */
+    return 0;
+}

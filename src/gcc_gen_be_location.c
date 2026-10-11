@@ -61,11 +61,8 @@ gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, stru
 
     if (!expr) return GCC_GEN_BE_SUCCESS;
     
-    /* Source positions for expressions are typically stored in the source_corresp or similar fields, but EDG's AST doesn't always have one simple position. 
-       Let's stick to NULL for now or try to extract it if available. */
-    if (expr->source_corresp.pos.seq != 0) {
-        GCC_GEN_BE_CHECK(gcc_gen_be_get_location(&expr->source_corresp.pos, out_loc));
-    }
+    /* Source positions for expressions are typically stored in the position field for some nodes,
+       but EDG's AST doesn't always have one simple position. Let's stick to NULL for now or try to extract it if available. */
     
     return GCC_GEN_BE_SUCCESS;
 }
@@ -83,8 +80,8 @@ gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, struc
 
     if (!stmt) return GCC_GEN_BE_SUCCESS;
 
-    if (stmt->source_corresp.pos.seq != 0) {
-        GCC_GEN_BE_CHECK(gcc_gen_be_get_location(&stmt->source_corresp.pos, out_loc));
+    if (stmt->position.seq != 0) {
+        GCC_GEN_BE_CHECK(gcc_gen_be_get_location(&stmt->position, out_loc));
     }
 
     return GCC_GEN_BE_SUCCESS;

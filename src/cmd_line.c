@@ -1808,6 +1808,8 @@ Initialize the option information table.
                          /*arg_required=*/FALSE, pchek_command_line);
 
 #if BACK_END_IS_GCC_GEN_BE
+  add_option_description(optk_gcc_gen_be, "gcc_gen_be", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_c, "compile_only", 'c', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_O0, "O0", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_O1, "O1", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_O2, "O2", '\0', TRUE, FALSE, pchek_command_line);
@@ -12267,6 +12269,8 @@ enable_microsoft_mode:
         break;
 
 #if BACK_END_IS_GCC_GEN_BE
+      case optk_gcc_gen_be: break;
+      case optk_gcc_be_c: break;
       case optk_gcc_be_O0: gcc_be_opt_level = 0; break;
       case optk_gcc_be_O1: gcc_be_opt_level = 1; break;
       case optk_gcc_be_O2: gcc_be_opt_level = 2; break;

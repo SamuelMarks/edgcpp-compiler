@@ -11,6 +11,7 @@
 #include "gcc_gen_be_type.h"
 #include "gcc_gen_be_context.h"
 #include "gcc_gen_be_cache.h"
+#include "gcc_gen_be_lib_loader.h"
 #include "error.h"
 #include "expr.h" /* for value_of_integer_constant if needed, though vectors might use variant.integer_value */
 #include <libgccjit.h>
@@ -184,11 +185,24 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
     case tk_union:
       {
          a_const_char *name = tp->source_corresp.name;
+         if (name) {
+             void *cached_named = NULL;
+             err = cache_lookup(GCC_GEN_BE_CACHE_STRING, (void *)name, &cached_named);
+             if (err == GCC_GEN_BE_SUCCESS && cached_named) {
+                 res = (gcc_jit_type *)cached_named;
+                 GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res));
+                 *out_type = res;
+                 return GCC_GEN_BE_SUCCESS;
+             }
+         }
          if (!name) name = "unnamed_struct";
          
          gcc_jit_struct *s = gcc_jit_context_new_opaque_struct(ctx, NULL, name);
          res = gcc_jit_struct_as_type(s);
          GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res));
+         if (tp->source_corresp.name) {
+             GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_STRING, (void *)tp->source_corresp.name, res));
+         }
          
          int num_fields = 0;
          a_field_ptr f;
@@ -312,7 +326,56 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
   return GCC_GEN_BE_SUCCESS;
 }
 
+/**
+ * @brief Creates a zero-initialized rvalue for the specified type.
+ *
+ * @details Creates a null pointer for pointers, a zero-initialized constructor
+ * for aggregates, or a scalar zero value for numeric types.
+ *
+ * @param[in] tp The frontend type.
+ * @param[in] jit_type The lowered libgccjit type.
+ * @param[out] out_rval Pointer to receive the zero rvalue.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_zero_rvalue(a_type_ptr tp, struct gcc_jit_type *jit_type, struct gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT {
+  if (!out_rval) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+  *out_rval = NULL;
 
+  gcc_jit_context *ctx = NULL;
+  GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
+  if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+
+  if (!jit_type && tp) {
+    GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp, &jit_type));
+  }
+  if (!jit_type) {
+    jit_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT);
+  }
+
+  a_type_ptr stripped = tp;
+  while (stripped && stripped->kind == tk_typeref) {
+    stripped = stripped->variant.typeref.type;
+  }
+  if (stripped && (stripped->kind == tk_pointer || stripped->kind == tk_ptr_to_member)) {
+    gcc_jit_type *ptr_type = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(stripped, &ptr_type));
+    *out_rval = gcc_jit_context_null(ctx, ptr_type ? ptr_type : jit_type);
+  } else if (stripped && (stripped->kind == tk_class || stripped->kind == tk_struct)) {
+    gcc_jit_type *struct_type = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(stripped, &struct_type));
+    *out_rval = gcc_jit_context_new_struct_constructor(ctx, NULL, struct_type, 0, NULL, NULL);
+  } else if (stripped && stripped->kind == tk_array) {
+    gcc_jit_type *arr_type = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(stripped, &arr_type));
+    *out_rval = gcc_jit_context_new_array_constructor(ctx, NULL, arr_type, 0, NULL);
+  } else if (stripped && stripped->kind == tk_void) {
+    *out_rval = NULL;
+  } else {
+    *out_rval = gcc_jit_context_zero(ctx, jit_type);
+  }
+
+  return GCC_GEN_BE_SUCCESS;
+}
 
 END_EDG_NAMESPACE
 

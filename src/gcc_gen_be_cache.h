@@ -24,23 +24,15 @@ BEGIN_EDG_NAMESPACE
  * @struct be_cache_entry
  * @brief Represents a single entry in a hash map cache.
  */
+/** @brief Cache entry. */
 typedef struct be_cache_entry {
+    /** @brief Key */
     void *key;                      /**< The key, typically an AST node pointer. */
+    /** @brief Value */
     void *value;                    /**< The mapped value, typically a libgccjit object. */
+    /** @brief Next entry */
     struct be_cache_entry *next;    /**< Pointer to the next entry in case of a hash collision. */
 } be_cache_entry;
-
-/**
- * @struct be_cache_map
- * @brief Represents a dynamically resizing hash map cache.
- */
-typedef struct {
-    be_cache_entry **buckets;       /**< Array of bucket pointers. */
-    size_t capacity;                /**< Number of buckets in the map. */
-    size_t size;                    /**< Number of items stored in the map. */
-    size_t hits;                    /**< Metric: Number of successful lookups. */
-    size_t misses;                  /**< Metric: Number of unsuccessful lookups. */
-} be_cache_map;
 
 /**
  * @brief Enum for identifying specific global caches.
@@ -51,8 +43,29 @@ typedef enum {
     GCC_GEN_BE_CACHE_FUNC,          /**< Cache for functions. */
     GCC_GEN_BE_CACHE_LABEL,         /**< Cache for labels. */
     GCC_GEN_BE_CACHE_FIELD,         /**< Cache for fields. */
-    GCC_GEN_BE_CACHE_SWITCH_CASE    /**< Cache for switch cases. */
+    GCC_GEN_BE_CACHE_SWITCH_CASE,   /**< Cache for switch cases. */
+    GCC_GEN_BE_CACHE_GUARD,         /**< Cache for local static guard variables. */
+    GCC_GEN_BE_CACHE_STRING         /**< Cache for string constants and named entities. */
 } gcc_gen_be_cache_type_t;
+
+/**
+ * @struct be_cache_map
+ * @brief Represents a dynamically resizing hash map cache.
+ */
+typedef struct {
+    /** @brief Array of bucket pointers. */
+    be_cache_entry **buckets;
+    /** @brief Capacity */
+    size_t capacity;                /**< Number of buckets in the map. */
+    /** @brief Size */
+    size_t size;                    /**< Number of items stored in the map. */
+    /** @brief Hits */
+    size_t hits;                    /**< Metric: Number of successful lookups. */
+    /** @brief Misses */
+    size_t misses;                  /**< Metric: Number of unsuccessful lookups. */
+    /** @brief Cache type */
+    gcc_gen_be_cache_type_t type;   /**< The domain type for this cache. */
+} be_cache_map;
 
 /**
  * @brief Looks up a value in a specified cache.

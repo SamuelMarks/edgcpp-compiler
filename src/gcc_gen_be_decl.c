@@ -13,6 +13,7 @@
 #include "gcc_gen_be_cache.h"
 #include "gcc_gen_be_type.h"
 #include "gcc_gen_be_location.h"
+#include "gcc_gen_be_lib_loader.h"
 #include "expr.h"
 #include <libgccjit.h>
 #include <stdlib.h>
@@ -84,11 +85,17 @@ gcc_gen_be_error_t gcc_gen_be_lower_global_variable_decl(a_variable_ptr var, str
   err = gcc_gen_be_lower_type(var->type, &var_type);
   if (err != GCC_GEN_BE_SUCCESS) return err;
 
+  char auto_name[64];
   const char *name = var->source_corresp.name;
-  if (!name) name = "unnamed_var";
+  if (!name) {
+      snprintf(auto_name, sizeof(auto_name), "__edg_anon_var_%p", (void *)var);
+      name = auto_name;
+  }
   
   enum gcc_jit_global_kind linkage;
-  if (var->storage_class == sc_extern && var->init_kind == initk_none) {
+  if (!var->source_corresp.name) {
+      linkage = GCC_JIT_GLOBAL_INTERNAL;
+  } else if (var->storage_class == sc_extern && var->init_kind == initk_none) {
       linkage = GCC_JIT_GLOBAL_IMPORTED;
   } else if (var->storage_class == sc_static) {
       linkage = GCC_JIT_GLOBAL_INTERNAL;
@@ -115,28 +122,53 @@ gcc_gen_be_error_t gcc_gen_be_lower_global_variable_decl(a_variable_ptr var, str
   }
   
   if (var->init_kind == initk_zero) {
-      gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
+      gcc_jit_rvalue *zero_val = NULL;
+      GCC_GEN_BE_CHECK(gcc_gen_be_get_zero_rvalue(var->type, var_type, &zero_val));
+      if (zero_val) {
+          gcc_jit_global_set_initializer_rvalue(global, zero_val);
+      }
   } else if (var->init_kind == initk_static) {
       a_constant_ptr init_con = var->initializer.constant;
       if (init_con) {
-          gcc_jit_rvalue *init_rval = NULL;
-          /* External function defined in gcc_gen_be_expr.h */
-          extern gcc_gen_be_error_t gcc_gen_be_lower_constant_rvalue(a_constant_ptr con, gcc_jit_type *expected_type, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
-          GCC_GEN_BE_CHECK(gcc_gen_be_lower_constant_rvalue(init_con, var_type, &init_rval));
-          if (init_rval) {
-              gcc_jit_global_set_initializer_rvalue(global, init_rval);
+          a_type_ptr vtype_stripped = var->type;
+          while (vtype_stripped && vtype_stripped->kind == tk_typeref) {
+              vtype_stripped = vtype_stripped->variant.typeref.type;
+          }
+          if (vtype_stripped && vtype_stripped->kind == tk_array && init_con->kind == ck_string) {
+              size_t total_size = (size_t)vtype_stripped->size;
+              if (total_size == 0 || total_size < (size_t)init_con->variant.string.length) {
+                  total_size = (size_t)init_con->variant.string.length;
+              }
+              char *padded = (char *)calloc(1, total_size);
+              if (padded) {
+                  memcpy(padded, init_con->variant.string.value, (size_t)init_con->variant.string.length);
+                  gcc_jit_global_set_initializer(global, padded, total_size);
+                  free(padded);
+              }
           } else {
-              /* If constant couldn't be lowered as an rvalue (e.g. older libgccjit missing struct constructors), 
-                 fallback to dynamic init in constructor. */
-              gcc_jit_block *cblock = NULL;
-              GCC_GEN_BE_CHECK(gcc_gen_be_get_global_ctor_block(&cblock));
-              /* We need to evaluate the constant dynamically. 
-                 This implies gcc_gen_be_lower_constant_rvalue MUST return an rvalue or emit dynamic assignments. 
-                 Wait, if it can't, it returns error. So init_rval is guaranteed if SUCCESS. */
-              gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
+              gcc_jit_rvalue *init_rval = NULL;
+              extern gcc_gen_be_error_t gcc_gen_be_lower_constant_rvalue(a_constant_ptr con, gcc_jit_type *expected_type, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
+              GCC_GEN_BE_CHECK(gcc_gen_be_lower_constant_rvalue(init_con, var_type, &init_rval));
+              if (init_rval) {
+                  gcc_jit_type *init_type = gcc_jit_rvalue_get_type(init_rval);
+                  if (init_type != var_type) {
+#if defined(LIBGCCJIT_HAVE_gcc_jit_context_new_bitcast)
+                      init_rval = gcc_jit_context_new_bitcast(ctx, NULL, init_rval, var_type);
+#else
+                      init_rval = gcc_jit_context_new_cast(ctx, NULL, init_rval, var_type);
+#endif
+                  }
+                  if (init_rval) {
+                      gcc_jit_global_set_initializer_rvalue(global, init_rval);
+                  }
+              }
           }
       } else {
-         gcc_jit_global_set_initializer_rvalue(global, gcc_jit_context_zero(ctx, var_type));
+          gcc_jit_rvalue *zero_val = NULL;
+          GCC_GEN_BE_CHECK(gcc_gen_be_get_zero_rvalue(var->type, var_type, &zero_val));
+          if (zero_val) {
+              gcc_jit_global_set_initializer_rvalue(global, zero_val);
+          }
       }
   } else if (var->init_kind == initk_dynamic) {
       if (var->initializer.dynamic && var->initializer.dynamic->kind == dik_expression && var->initializer.dynamic->variant.expression) {
@@ -264,17 +296,29 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, struct gcc
       
       int i = 0;
       a_variable_ptr var_param = NULL;
-      a_scope_ptr def_scope = scope_for_routine(rout);
+      a_scope_ptr def_scope = (rout->function_def_number != NULL_function_def_number) ? scope_for_routine_or_null(rout) : NULL;
       if (def_scope) {
           var_param = def_scope->variant.routine.parameters;
       }
       
       for (ptp = rout->type->variant.routine.extra_info->param_type_list; ptp != NULL; ptp = ptp->next) {
           gcc_jit_type *param_type = NULL;
-          err = gcc_gen_be_lower_type(ptp->type, &param_type);
-          if (err != GCC_GEN_BE_SUCCESS) {
-              free(params);
-              return err;
+          a_type_ptr ptype = ptp->type;
+          while (ptype && ptype->kind == tk_typeref) {
+              ptype = ptype->variant.typeref.type;
+          }
+          if (ptype && ptype->kind == tk_array) {
+              gcc_jit_type *elem_type = NULL;
+              err = gcc_gen_be_lower_type(ptype->variant.array.element_type, &elem_type);
+              if (err != GCC_GEN_BE_SUCCESS) { free(params); return err; }
+              param_type = gcc_jit_type_get_pointer(elem_type);
+          } else {
+              err = gcc_gen_be_lower_type(ptype, &param_type);
+              if (err != GCC_GEN_BE_SUCCESS) {
+                  free(params);
+                  return err;
+              }
+              param_type = gcc_jit_type_unqualified(param_type);
           }
           
           const char *param_name = "unnamed_param";
@@ -307,14 +351,14 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, struct gcc
       gcc_jit_function_add_attribute(func, GCC_JIT_FN_ATTRIBUTE_WEAK);
   }
   if (rout->is_inline) {
-      gcc_jit_function_add_attribute(func, GCC_JIT_FN_ATTRIBUTE_ALWAYS_INLINE);
+      gcc_jit_function_add_attribute(func, GCC_JIT_FN_ATTRIBUTE_INLINE);
   }
 #endif
       
   if (num_params > 0) {
       int i = 0;
       a_variable_ptr var_param = NULL;
-      a_scope_ptr def_scope = scope_for_routine(rout);
+      a_scope_ptr def_scope = (rout->function_def_number != NULL_function_def_number) ? scope_for_routine_or_null(rout) : NULL;
       if (def_scope) {
           var_param = def_scope->variant.routine.parameters;
       }

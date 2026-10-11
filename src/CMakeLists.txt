@@ -257,7 +257,8 @@ if(EDG_ENABLE_GCC_BACKEND)
     "${PROJECT_SOURCE_DIR}/gcc_gen_be_type.c"
     "${PROJECT_SOURCE_DIR}/gcc_gen_be_decl.c"
     "${PROJECT_SOURCE_DIR}/gcc_gen_be_expr.c"
-    "${PROJECT_SOURCE_DIR}/gcc_gen_be_stmt.c"
+    "${PROJECT_SOURCE_DIR}/gcc_gen_be_stmt.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_rtti.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_dtor.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_debug.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_abi.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_builtin.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_eh.c"
+    "${PROJECT_SOURCE_DIR}/gcc_gen_be_rtti.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_dtor.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_debug.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_abi.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_builtin.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_eh.c"
     "${PROJECT_SOURCE_DIR}/gcc_gen_be_main.c"
   )
   link_libraries(LibGCCJIT::LibGCCJIT)
@@ -273,7 +274,7 @@ if(EDG_ENABLE_GCC_BACKEND)
   endif()
   
   if(BUILD_TESTING OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set_source_files_properties("${PROJECT_SOURCE_DIR}/gcc_gen_be_error.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_context.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_cache.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_lib_loader.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_location.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_type.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_decl.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_expr.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_stmt.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_main.c" PROPERTIES COMPILE_OPTIONS "-fprofile-arcs;-ftest-coverage")
+    set_source_files_properties("${PROJECT_SOURCE_DIR}/gcc_gen_be_error.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_context.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_cache.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_lib_loader.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_location.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_type.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_decl.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_expr.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_stmt.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_rtti.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_dtor.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_debug.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_abi.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_builtin.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_eh.c" "${PROJECT_SOURCE_DIR}/gcc_gen_be_main.c" PROPERTIES COMPILE_OPTIONS "-fprofile-arcs;-ftest-coverage")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
       add_link_options(-lgcov)
     else()

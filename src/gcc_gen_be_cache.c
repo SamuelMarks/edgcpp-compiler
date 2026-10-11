@@ -23,13 +23,32 @@ BEGIN_EDG_NAMESPACE
 #define INITIAL_CACHE_CAPACITY 64
 #define MAX_LOAD_FACTOR 0.75
 
-static be_cache_map type_cache = {NULL, 0, 0, 0, 0};
-static be_cache_map var_cache = {NULL, 0, 0, 0, 0};
-static be_cache_map func_cache = {NULL, 0, 0, 0, 0};
-static be_cache_map label_cache = {NULL, 0, 0, 0, 0};
-static be_cache_map field_cache = {NULL, 0, 0, 0, 0};
-static be_cache_map switch_case_cache = {NULL, 0, 0, 0, 0};
+/** @brief Cache instance. */
+static be_cache_map type_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_TYPE};
+/** @brief Cache instance. */
+static be_cache_map var_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_VAR};
+/** @brief Cache instance. */
+static be_cache_map func_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_FUNC};
+/** @brief Cache instance. */
+static be_cache_map label_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_LABEL};
+/** @brief Cache instance. */
+static be_cache_map field_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_FIELD};
+/** @brief Cache instance. */
+static be_cache_map switch_case_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_SWITCH_CASE};
+/** @brief Cache instance. */
+static be_cache_map guard_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_GUARD};
+/** @brief Cache instance. */
+static be_cache_map string_cache = {NULL, 0, 0, 0, 0, GCC_GEN_BE_CACHE_STRING};
 
+/**
+ * @brief Retrieves the requested cache map.
+ *
+ * @details Returns a pointer to the specific cache instance requested.
+ *
+ * @param[in] cache_type The type of cache to retrieve.
+ * @param[out] out_cache Pointer to receive the cache map.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
 static gcc_gen_be_error_t get_cache_map(gcc_gen_be_cache_type_t cache_type, be_cache_map **out_cache) GCC_GEN_BE_NOEXCEPT {
     if (!out_cache) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     switch (cache_type) {
@@ -39,10 +58,21 @@ static gcc_gen_be_error_t get_cache_map(gcc_gen_be_cache_type_t cache_type, be_c
         case GCC_GEN_BE_CACHE_LABEL: *out_cache = &label_cache; return GCC_GEN_BE_SUCCESS;
         case GCC_GEN_BE_CACHE_FIELD: *out_cache = &field_cache; return GCC_GEN_BE_SUCCESS;
         case GCC_GEN_BE_CACHE_SWITCH_CASE: *out_cache = &switch_case_cache; return GCC_GEN_BE_SUCCESS;
+        case GCC_GEN_BE_CACHE_GUARD: *out_cache = &guard_cache; return GCC_GEN_BE_SUCCESS;
+        case GCC_GEN_BE_CACHE_STRING: *out_cache = &string_cache; return GCC_GEN_BE_SUCCESS;
         default: return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     }
 }
 
+/**
+ * @brief Computes a hash for a pointer key.
+ *
+ * @details Uses bit shifting to compute a basic hash.
+ *
+ * @param[in] key The pointer to hash.
+ * @param[in] capacity The capacity of the map.
+ * @return The hash index.
+ */
 static size_t hash_key(void *key, size_t capacity) {
     if (capacity == 0) return 0;
     /* Basic pointer hash: shift right by 3 to ignore alignment bits */
@@ -50,6 +80,62 @@ static size_t hash_key(void *key, size_t capacity) {
     return (k >> 3) % capacity;
 }
 
+/**
+ * @brief Computes a hash for a string key.
+ *
+ * @param[in] str The string to hash.
+ * @param[in] capacity The capacity of the map.
+ * @return The hash index.
+ */
+static size_t hash_string(const char *str, size_t capacity) {
+    if (!str || capacity == 0) return 0;
+    size_t hash = 5381;
+    int c;
+    while ((c = (unsigned char)*str++)) {
+        hash = ((hash << 5) + hash) + (size_t)c;
+    }
+    return hash % capacity;
+}
+
+/**
+ * @brief Computes hash for an entry depending on cache map type.
+ *
+ * @param[in] map The cache map.
+ * @param[in] key The key to hash.
+ * @param[in] capacity The capacity of the map.
+ * @return The hash index.
+ */
+static size_t hash_entry(be_cache_map *map, void *key, size_t capacity) {
+    if (map->type == GCC_GEN_BE_CACHE_STRING) {
+        return hash_string((const char *)key, capacity);
+    }
+    return hash_key(key, capacity);
+}
+
+/**
+ * @brief Tests if two keys are equal for a given cache map.
+ *
+ * @param[in] map The cache map.
+ * @param[in] k1 First key.
+ * @param[in] k2 Second key.
+ * @return TRUE if keys match.
+ */
+static a_boolean keys_equal(be_cache_map *map, void *k1, void *k2) {
+    if (map->type == GCC_GEN_BE_CACHE_STRING) {
+        if (!k1 || !k2) return k1 == k2;
+        return strcmp((const char *)k1, (const char *)k2) == 0;
+    }
+    return k1 == k2;
+}
+
+/**
+ * @brief Resizes the cache map.
+ *
+ * @details Expands the map capacity and rehashes elements.
+ *
+ * @param[in,out] map The map to resize.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
 static gcc_gen_be_error_t cache_resize(be_cache_map *map) GCC_GEN_BE_NOEXCEPT {
     size_t new_capacity = map->capacity == 0 ? INITIAL_CACHE_CAPACITY : map->capacity * 2;
     be_cache_entry **new_buckets = (be_cache_entry **)calloc(new_capacity, sizeof(be_cache_entry *));
@@ -61,7 +147,7 @@ static gcc_gen_be_error_t cache_resize(be_cache_map *map) GCC_GEN_BE_NOEXCEPT {
             be_cache_entry *e = map->buckets[i];
             while (e) {
                 be_cache_entry *next = e->next;
-                size_t new_hash = hash_key(e->key, new_capacity);
+                size_t new_hash = hash_entry(map, e->key, new_capacity);
                 e->next = new_buckets[new_hash];
                 new_buckets[new_hash] = e;
                 e = next;
@@ -87,10 +173,10 @@ gcc_gen_be_error_t cache_lookup(gcc_gen_be_cache_type_t cache_type, void *key, v
         return GCC_GEN_BE_SUCCESS;
     }
 
-    size_t hash = hash_key(key, map->capacity);
+    size_t hash = hash_entry(map, key, map->capacity);
     be_cache_entry *e = map->buckets[hash];
     while (e) {
-        if (e->key == key) {
+        if (keys_equal(map, e->key, key)) {
             *out_value = e->value;
             map->hits++;
             return GCC_GEN_BE_SUCCESS;
@@ -111,11 +197,15 @@ gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, v
         GCC_GEN_BE_CHECK(cache_resize(map));
     }
 
-    size_t hash = hash_key(key, map->capacity);
+    size_t hash = hash_entry(map, key, map->capacity);
     be_cache_entry *e = (be_cache_entry *)malloc(sizeof(be_cache_entry));
     if (!e) return GCC_GEN_BE_ERROR_OOM;
     
-    e->key = key;
+    if (map->type == GCC_GEN_BE_CACHE_STRING) {
+        e->key = (void *)strdup((const char *)key);
+    } else {
+        e->key = key;
+    }
     e->value = value;
     e->next = map->buckets[hash];
     map->buckets[hash] = e;
@@ -133,6 +223,9 @@ gcc_gen_be_error_t cache_clear(gcc_gen_be_cache_type_t cache_type) GCC_GEN_BE_NO
             be_cache_entry *e = map->buckets[i];
             while (e) {
                 be_cache_entry *next = e->next;
+                if (map->type == GCC_GEN_BE_CACHE_STRING && e->key) {
+                    free(e->key);
+                }
                 free(e);
                 e = next;
             }

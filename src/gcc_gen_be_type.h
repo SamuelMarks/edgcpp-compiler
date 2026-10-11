@@ -19,6 +19,7 @@
 #include "types.h"
 
 struct gcc_jit_type;
+struct gcc_jit_rvalue;
 
 BEGIN_EDG_NAMESPACE
 
@@ -30,6 +31,19 @@ BEGIN_EDG_NAMESPACE
  * @return GCC_GEN_BE_SUCCESS on success, with `*out_type` populated.
  */
 extern gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, struct gcc_jit_type **out_type) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Creates a zero-initialized rvalue for the specified type.
+ *
+ * @details Creates a null pointer for pointers, a zero-initialized constructor
+ * for aggregates, or a scalar zero value for numeric types.
+ *
+ * @param[in] tp The frontend type.
+ * @param[in] jit_type The lowered libgccjit type.
+ * @param[out] out_rval Pointer to receive the zero rvalue.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_get_zero_rvalue(a_type_ptr tp, struct gcc_jit_type *jit_type, struct gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
 
 END_EDG_NAMESPACE
 

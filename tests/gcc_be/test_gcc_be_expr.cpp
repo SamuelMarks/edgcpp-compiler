@@ -14,6 +14,8 @@ namespace edg {
     a_boolean gcc_be_debug_info = FALSE;
     a_boolean gcc_be_dump_initial_tree = FALSE;
     a_boolean gcc_be_dump_gimple = FALSE;
+    a_const_char *named_register_names[anr_last + 1] = { NULL };
+    gcc_gen_be_error_t gcc_gen_be_lower_builtin_call(a_routine_ptr rout, int num_args, gcc_jit_rvalue **args, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT { *out_rval = NULL; return GCC_GEN_BE_SUCCESS; }
     a_boolean gcc_be_fPIC = FALSE;
     a_boolean gcc_be_fPIE = FALSE;
     a_boolean gcc_mode = FALSE;
@@ -23,6 +25,11 @@ namespace edg {
     // Mocks for globals we don't have
     gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, struct gcc_jit_type **out_type) GCC_GEN_BE_NOEXCEPT {
         *out_type = gcc_jit_context_get_type(g_ctx, GCC_JIT_TYPE_INT);
+        return GCC_GEN_BE_SUCCESS;
+    }
+    
+    gcc_gen_be_error_t gcc_gen_be_get_zero_rvalue(a_type_ptr tp, struct gcc_jit_type *jit_type, struct gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT {
+        *out_rval = gcc_jit_context_new_rvalue_from_int(g_ctx, gcc_jit_context_get_type(g_ctx, GCC_JIT_TYPE_INT), 0);
         return GCC_GEN_BE_SUCCESS;
     }
     
@@ -78,6 +85,8 @@ static an_expr_node* make_bin_op(an_expr_operator_kind op, an_expr_node* op1, an
     op1->next = op2;
     return expr;
 }
+
+using namespace edg;
 
 int main() {
     gcc_jit_context *ctx = gcc_jit_context_acquire();
