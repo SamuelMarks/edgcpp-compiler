@@ -52,6 +52,16 @@ namespace edg {
     *at_end_of_source = FALSE;
     return nullptr;
   }
+
+  a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
+  a_boolean is_class_struct_union_type(a_type_ptr ty) { return ty && (ty->kind == tk_class || ty->kind == tk_struct || ty->kind == tk_union); }
+  char* mangled_typeinfo_name(a_type_ptr type) { return (char*)"_ZTI_mock"; }
+  llvm_gen_be_error_t llvm_lower_expression(an_expr_node_ptr expr, llvm::Value** out_val) noexcept {
+    if (out_val) *out_val = nullptr;
+    return llvm_gen_be_error_t::ok;
+  }
+  a_byte_boolean int_kind_is_signed[ik_last] = {0};
 }
 
 /**
@@ -315,6 +325,37 @@ int main() {
     assert(llvm_type_from_vector(&dummy_vec, &ty) == llvm_gen_be_error_t::ok);
     assert(ty->isVectorTy());
     assert(llvm::cast<llvm::FixedVectorType>(ty)->getNumElements() == 4);
+    
+    
+    // Scalable Vector
+    a_type dummy_svec;
+    memset(&dummy_svec, 0, sizeof(dummy_svec));
+    dummy_svec.kind = tk_scalable_vector;
+    dummy_svec.variant.scalable_vector.element_type = &dummy_int;
+    dummy_svec.variant.scalable_vector.tuple_elements = 1;
+    dummy_int.size = 4;
+    assert(llvm_type_from_edg_type(&dummy_svec, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isScalableTy());
+
+    // RISC-V Vector
+    a_type dummy_rvec;
+    memset(&dummy_rvec, 0, sizeof(dummy_rvec));
+    dummy_rvec.kind = tk_riscv_vector;
+    dummy_rvec.variant.riscv_vector.element_type = &dummy_int;
+    dummy_rvec.variant.riscv_vector.tuple_elements = 1;
+    assert(llvm_type_from_edg_type(&dummy_rvec, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isScalableTy());
+
+    // Scalable Vector Count
+    a_type dummy_svec_count;
+    memset(&dummy_svec_count, 0, sizeof(dummy_svec_count));
+    dummy_svec_count.kind = tk_scalable_vector_count;
+    assert(llvm_type_from_edg_type(&dummy_svec_count, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isScalableTy());
+
+    // Verify data layout computes proper vector alignment (typically >= element alignment)
+    llvm::DataLayout dl(state.module);
+    assert(dl.getABITypeAlign(ty) >= dl.getABITypeAlign(ty->getScalarType()));
 #endif
 
     assert(llvm_type_from_vector(nullptr, nullptr) == llvm_gen_be_error_t::invalid_argument);
@@ -354,21 +395,41 @@ int main() {
     f3.offset = 8;
     f3.offset_bit_remainder = 0;
     f3.bit_size = 5;
-    f3.next = nullptr;
     
     a_field f4;
     memset(&f4, 0, sizeof(f4));
+    f3.next = &f4;
+    
     f4.is_bit_field = TRUE;
     f4.type = &dummy_int;
     f4.offset = 8;
     f4.offset_bit_remainder = 5;
-    f4.bit_size = 4;
-    f4.next = nullptr;
-    f3.next = &f4;
+    f4.bit_size = 3;
+    
+    a_field f5;
+    memset(&f5, 0, sizeof(f5));
+    f4.next = &f5;
+    
+    f5.is_bit_field = TRUE;
+    f5.type = &dummy_int;
+    f5.offset = 12;
+    f5.offset_bit_remainder = 0;
+    f5.bit_size = 0; // zero-length
+    f5.next = nullptr;
     
     dummy_struct.size = 14;
-
     dummy_struct.variant.class_struct_union.field_list = &f1;
+
+    llvm::Type* llvm_ty = nullptr;
+    state.module->setTargetTriple(llvm::Triple("aarch64-unknown-linux-gnu"));
+    be_state->type_cache.clear();
+    assert(get_llvm_type(&dummy_struct, &llvm_ty) == llvm_gen_be_error_t::ok);
+    assert(llvm_ty->isStructTy());
+    
+    state.module->setTargetTriple(llvm::Triple("x86_64-pc-windows-msvc"));
+    be_state->type_cache.clear();
+    assert(get_llvm_type(&dummy_struct, &llvm_ty) == llvm_gen_be_error_t::ok);
+    assert(llvm_ty->isStructTy());
 
     llvm::Type* ty = nullptr;
     assert(llvm_type_from_struct(&dummy_struct, &ty) == llvm_gen_be_error_t::ok);
@@ -408,6 +469,47 @@ int main() {
     dummy_struct.variant.class_struct_union.field_list = nullptr;
     be_state->type_cache.clear();
     assert(llvm_type_from_struct(&dummy_struct, &ty) == llvm_gen_be_error_t::ok);
+
+    // Incomplete Struct -> Opaque Type
+    dummy_struct.kind = tk_struct;
+    dummy_struct.incomplete = TRUE;
+    be_state->type_cache.clear();
+    assert(llvm_type_from_struct(&dummy_struct, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isStructTy());
+    assert(llvm::cast<llvm::StructType>(ty)->isOpaque());
+
+    // Cyclic Struct
+    a_type dummy_cyclic;
+    memset(&dummy_cyclic, 0, sizeof(dummy_cyclic));
+    dummy_cyclic.kind = tk_struct;
+    dummy_cyclic.incomplete = FALSE; // We'll query it as incomplete first
+    dummy_cyclic.size = 8;
+    
+    a_type cyclic_ptr;
+    memset(&cyclic_ptr, 0, sizeof(cyclic_ptr));
+    cyclic_ptr.kind = tk_pointer;
+    cyclic_ptr.variant.pointer.type = &dummy_cyclic;
+    
+    a_field c_f1;
+    memset(&c_f1, 0, sizeof(c_f1));
+    c_f1.type = &cyclic_ptr;
+    c_f1.offset = 0;
+    c_f1.next = nullptr;
+    
+    dummy_cyclic.variant.class_struct_union.field_list = &c_f1;
+    be_state->type_cache.clear();
+    
+    // Step 1: Query as incomplete
+    dummy_cyclic.incomplete = TRUE;
+    assert(llvm_type_from_edg_type(&dummy_cyclic, &ty) == llvm_gen_be_error_t::ok);
+    assert(llvm::cast<llvm::StructType>(ty)->isOpaque());
+    
+    // Step 2: Complete the struct
+    dummy_cyclic.incomplete = FALSE;
+    llvm::Type* completed_ty = nullptr;
+    assert(llvm_type_from_edg_type(&dummy_cyclic, &completed_ty) == llvm_gen_be_error_t::ok);
+    assert(!llvm::cast<llvm::StructType>(completed_ty)->isOpaque());
+    assert(completed_ty == ty); // Should be the same exact instance, just modified
   }
 
   /* Test 8: Routine */
@@ -472,6 +574,41 @@ int main() {
     p1.type = &dummy_err;
     assert(llvm_type_from_routine(&dummy_routine, &fty) == llvm_gen_be_error_t::unsupported_type);
     
+    // Test calling convention extraction
+    unsigned cc = 0;
+    assert(llvm_calling_conv_from_routine(nullptr, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::C);
+
+    assert(llvm_calling_conv_from_routine(nullptr, nullptr) == llvm_gen_be_error_t::invalid_argument);
+
+    assert(llvm_calling_conv_from_routine(&dummy_ret, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::C);
+
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::C);
+
+#if MICROSOFT_EXTENSIONS_ALLOWED || GNU_X86_ATTRIBUTES_ALLOWED
+    r_supp.calling_convention = cc_fastcall;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::X86_FastCall);
+
+    r_supp.calling_convention = cc_stdcall;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::X86_StdCall);
+
+    r_supp.calling_convention = cc_thiscall;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::X86_ThisCall);
+
+    r_supp.calling_convention = cc_vectorcall;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::X86_VectorCall);
+
+    r_supp.calling_convention = cc_clrcall;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::C);
+#endif
+
     state.module->setTargetTriple(llvm::Triple(""));
   }
 
@@ -497,16 +634,19 @@ int main() {
     llvm::Type* ty = nullptr;
     assert(llvm_type_from_edg_type(&dummy_ptrmem, &ty) == llvm_gen_be_error_t::ok);
     assert(ty->isStructTy());
+    assert(llvm::cast<llvm::StructType>(ty)->getNumElements() == 2);
+    assert(llvm::cast<llvm::StructType>(ty)->getElementType(0)->isPointerTy());
+    assert(llvm::cast<llvm::StructType>(ty)->getElementType(1)->isIntegerTy(targ_sizeof_pointer * targ_char_bit));
     
     dummy_ptrmem.variant.ptr_to_member.type = &dummy_ret; // non-routine
     dummy_ptrmem.size = 8;
     // Clear cache because we mutated dummy_ptrmem
     be_state->type_cache.clear();
     assert(llvm_type_from_edg_type(&dummy_ptrmem, &ty) == llvm_gen_be_error_t::ok);
-    if (!ty->isIntegerTy(8 * targ_char_bit)) {
+    if (!ty->isIntegerTy(targ_sizeof_pointer * targ_char_bit)) {
         ty->print(llvm::errs());
         llvm::errs() << "\n";
-        assert(ty->isIntegerTy(8 * targ_char_bit));
+        assert(ty->isIntegerTy(targ_sizeof_pointer * targ_char_bit));
     }
   }
 
@@ -524,6 +664,26 @@ int main() {
     assert(llvm::cast<llvm::StructType>(ty)->getNumElements() == 2);
     assert(llvm::cast<llvm::StructType>(ty)->getElementType(0)->isFloatTy());
     assert(llvm::cast<llvm::StructType>(ty)->getElementType(1)->isFloatTy());
+
+    // _Complex double
+    be_state->type_cache.clear();
+    dummy_complex.variant.float_kind = fk_double;
+    assert(llvm_type_from_edg_type(&dummy_complex, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isStructTy());
+    assert(llvm::cast<llvm::StructType>(ty)->getNumElements() == 2);
+    assert(llvm::cast<llvm::StructType>(ty)->getElementType(0)->isDoubleTy());
+    assert(llvm::cast<llvm::StructType>(ty)->getElementType(1)->isDoubleTy());
+
+    // _Complex long double (assuming x86_fp80 here based on size = 10 or 16)
+    be_state->type_cache.clear();
+    dummy_complex.variant.float_kind = fk_long_double;
+    dummy_complex.size = 16;
+    assert(llvm_type_from_edg_type(&dummy_complex, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isStructTy());
+    assert(llvm::cast<llvm::StructType>(ty)->getNumElements() == 2);
+    // Note: getX86_FP80Ty or getFP128Ty or getDoubleTy based on target, but isFloatingPointTy handles all.
+    assert(llvm::cast<llvm::StructType>(ty)->getElementType(0)->isFloatingPointTy());
+    assert(llvm::cast<llvm::StructType>(ty)->getElementType(1)->isFloatingPointTy());
 #endif
   }
 
@@ -554,6 +714,15 @@ int main() {
     // Pointers always succeed in EDG LLVM type since they are opaque
     assert(llvm_type_from_edg_type(&dummy_err_ptr, &ty) == llvm_gen_be_error_t::ok);
     assert(ty->isPointerTy());
+    assert(ty->getPointerAddressSpace() == 0);
+    
+    // Explicitly test llvm_type_from_pointer with null pointer
+    assert(llvm_type_from_pointer(nullptr, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isPointerTy());
+    
+    // In our mock, f_get_type_qualifiers returns 0, so address space is 0.
+    // If we wanted to test a non-zero address space, we'd need to mock
+    // named_address_space_from_qualifier_set, but for coverage the default path is hit.
   }
 
   /* Test 12: Struct Field Padding */

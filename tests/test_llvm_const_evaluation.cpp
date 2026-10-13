@@ -32,6 +32,15 @@ namespace edg {
   a_targ_size_t targ_sizeof_float128 = 16;
   a_targ_size_t targ_sizeof_pointer = 8;
   a_byte_boolean int_kind_is_signed[ik_last]; // mock
+
+  a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
+  a_boolean is_class_struct_union_type(a_type_ptr ty) { return FALSE; }
+  char* mangled_typeinfo_name(a_type_ptr type) { return (char*)"_ZTI_mock"; }
+  llvm_gen_be_error_t llvm_lower_expression(an_expr_node_ptr expr, llvm::Value** out_val) noexcept {
+    if (out_val) *out_val = nullptr;
+    return llvm_gen_be_error_t::ok;
+  }
   
   a_number_buffer fp_to_string(a_float_kind fk, an_internal_float_value * val, a_boolean* pos_inf, a_boolean* neg_inf, a_boolean* nan) {
     if (val->bytes[0] == 1) *pos_inf = TRUE;
@@ -43,7 +52,7 @@ namespace edg {
 }
 
 int main() {
-  LLVMBackendState state;
+  LLVMBackendState state = {};
   state.context = std::make_unique<llvm::LLVMContext>();
   state.module = std::make_unique<llvm::Module>("test_mod", *state.context);
   state.builder = std::make_unique<llvm::IRBuilder<>>(*state.context);
@@ -151,7 +160,19 @@ int main() {
   llvm::StructType* st_ty = llvm::StructType::get(*state.context, {i32_ty, i32_ty, i32_ty});
   assert(llvm_const_from_aggregate(&dummy_const, st_ty, &out) == llvm_gen_be_error_t::ok);
   assert(out->getType() == st_ty);
-
+  
+  // Test Union Aggregate
+  a_type dummy_union_ty;
+  memset(&dummy_union_ty, 0, sizeof(dummy_union_ty));
+  dummy_union_ty.kind = tk_union;
+  dummy_const.type = &dummy_union_ty;
+  
+  llvm::Type* un_elems[] = {llvm::Type::getDoubleTy(*state.context)};
+  llvm::StructType* un_ty = llvm::StructType::get(*state.context, llvm::ArrayRef<llvm::Type*>(un_elems));
+  assert(llvm_const_from_aggregate(&dummy_const, un_ty, &out) == llvm_gen_be_error_t::ok);
+  out->print(llvm::errs()); llvm::errs() << "\n";
+  // It shouldn't crash.
+  
   fprintf(stderr, "Test aggregate passed\n");
 
   // Test nulls and invalid args

@@ -51,6 +51,7 @@ struct x86_64_abi_arg_info_t {
   uint32_t num_eightbytes;                 ///< The number of valid eightbytes (0, 1, or 2).
   bool pass_in_memory;                     ///< Set to true if the entire argument must be passed in memory.
   bool requires_sret;                      ///< Set to true if the return value requires an sret pointer.
+  bool pass_by_invisible_reference;        ///< Set to true if the argument is a non-trivially copyable C++ class.
 };
 
 /**
@@ -97,6 +98,16 @@ llvm_gen_be_error_t build_sysv_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
     llvm::AttributeList* out_attrs) noexcept;
+
+/**
+ * @brief Constructs the LLVM Type for a va_list under System V AMD64 ABI.
+ * @details The va_list type is a struct [1 x { i32, i32, i8*, i8* }] representing 
+ * gp_offset, fp_offset, overflow_arg_area, and reg_save_area.
+ * @param[out] out_ty Pointer to store the resulting LLVM ArrayType.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t build_sysv_va_list_type(
+    llvm::Type** out_ty) noexcept;
 
 /**
  * @brief Lowers a va_start intrinsic for the System V AMD64 ABI.

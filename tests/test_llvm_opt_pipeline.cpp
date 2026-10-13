@@ -33,7 +33,9 @@ namespace edg {
   char* mangled_typeinfo_name(a_type_ptr type) { return (char*)"_ZTIi"; }
   a_type_qualifier_set f_get_type_qualifiers(a_type_ptr type, a_boolean x) { return 0; }
   a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
   a_byte_boolean int_kind_is_signed[ik_last] = {0};
+  a_const_char* fprofile_generate_path = nullptr;
 }
 
 int main() {

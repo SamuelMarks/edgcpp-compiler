@@ -509,12 +509,28 @@ Initialize the option information table.
   add_option_description(optk_gen_llvm_bc_file_name, "gen_llvm_bc_file_name",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_none);
+  add_option_description(optk_gen_llvm_thinlto_index, "gen_llvm_thinlto_index",
+                         '\0', /*value=*/FALSE, /*arg_required=*/FALSE,
+                         pchek_none);
+  add_option_description(optk_flto, "flto",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
+  add_option_description(optk_fprofile_generate, "fprofile-generate",
+                         '\0', /*value=*/TRUE, /*arg_required=*/FALSE,
+                         pchek_none);
+  add_option_description(optk_fprofile_use, "fprofile-use",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
   add_option_description(optk_gen_obj_file_name, "gen_obj_file_name",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_none);
   add_option_description(optk_gen_asm_file_name, "gen_asm_file_name",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_none);
+  add_option_description(optk_fsanitize, "fsanitize",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
+  if (strcmp("fsanitize", "fsanitize") == 0) {} // placeholder
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   add_option_description(optk_create_pch, "create_pch",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
@@ -11137,6 +11153,20 @@ Process the arguments on the command line that invoked the compiler.
         /* The name to be used for the generated LLVM bitcode file. */
         gen_llvm_bc_file_name = file_name_from_opt_arg(opt_arg);
         break;
+      case optk_gen_llvm_thinlto_index:
+        gen_llvm_thinlto_index = TRUE;
+        break;
+      case optk_flto:
+        if (opt_arg) flto_kind = opt_arg;
+        else flto_kind = "full";
+        break;
+      case optk_fprofile_generate:
+        if (opt_arg) fprofile_generate_path = opt_arg;
+        else fprofile_generate_path = "default.profraw";
+        break;
+      case optk_fprofile_use:
+        fprofile_use_path = file_name_from_opt_arg(opt_arg);
+        break;
       case optk_gen_obj_file_name:
         /* The name to be used for the generated object file. */
         gen_obj_file_name = file_name_from_opt_arg(opt_arg);
@@ -11144,6 +11174,12 @@ Process the arguments on the command line that invoked the compiler.
       case optk_gen_asm_file_name:
         /* The name to be used for the generated assembly file. */
         gen_asm_file_name = file_name_from_opt_arg(opt_arg);
+        break;
+      case optk_fsanitize:
+        if (strcmp(opt_arg, "address") == 0) sanitize_address = TRUE;
+        else if (strcmp(opt_arg, "thread") == 0) sanitize_thread = TRUE;
+        else if (strcmp(opt_arg, "memory") == 0) sanitize_memory = TRUE;
+        else if (strcmp(opt_arg, "undefined") == 0) sanitize_undefined = TRUE;
         break;
 #endif /* BACK_END_IS_LLVM_GEN_BE */
       case optk_create_pch:
@@ -13457,8 +13493,16 @@ variables declared in cmd_line.h.
 #if BACK_END_IS_LLVM_GEN_BE
   gen_llvm_file_name = NULL;
   gen_llvm_bc_file_name = NULL;
+  gen_llvm_thinlto_index = FALSE;
+  flto_kind = NULL;
+  fprofile_generate_path = NULL;
+  fprofile_use_path = NULL;
   gen_obj_file_name = NULL;
   gen_asm_file_name = NULL;
+  sanitize_address = FALSE;
+  sanitize_thread = FALSE;
+  sanitize_memory = FALSE;
+  sanitize_undefined = FALSE;
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   precompiled_header_processing_required = FALSE;
   create_precompiled_header = FALSE;

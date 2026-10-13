@@ -45,7 +45,7 @@ struct llvm_opt_options_t {
   unsigned inlining_threshold;///< Threshold for function inlining.
   bool use_lto;
   bool use_asan;
-
+  bool use_msan;
   bool use_tsan;
   bool use_ubsan;
   bool pgo_generate;          ///< True if generating PGO profiles.

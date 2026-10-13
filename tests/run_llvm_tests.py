@@ -14,6 +14,8 @@ def main():
         sys.exit(1)
         
     test_executables = [
+        "test_llvm_error",
+        "test_llvm_orchestrator",
         "test_llvm_type_lowering",
         "test_llvm_const_evaluation",
         "test_llvm_expressions",

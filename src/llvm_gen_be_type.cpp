@@ -10,6 +10,7 @@
  */
 
 #include "llvm_gen_be_type.h"
+#include "llvm_gen_be_ptrmem.h"
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
 #include "target.h"
@@ -287,9 +288,25 @@ llvm_gen_be_error_t llvm_type_from_struct(
     return llvm_gen_be_error_t::ok;
   }
 
-  if (edg_type->kind == tk_union) {
-    llvm::StructType* struct_ty = llvm::StructType::create(*be_state->context);
+  llvm::StructType* struct_ty = nullptr;
+  auto it = be_state->type_cache.find(edg_type);
+  if (it != be_state->type_cache.end()) {
+    struct_ty = llvm::cast<llvm::StructType>(it->second);
+    if (!struct_ty->isOpaque() || edg_type->incomplete) {
+      *out_type = struct_ty;
+      return llvm_gen_be_error_t::ok;
+    }
+  } else {
+    struct_ty = llvm::StructType::create(*be_state->context);
     be_state->type_cache[edg_type] = struct_ty;
+  }
+
+  if (edg_type->incomplete) {
+    *out_type = struct_ty;
+    return llvm_gen_be_error_t::ok;
+  }
+
+  if (edg_type->kind == tk_union) {
 
     std::vector<llvm::Type*> elem_tys;
     llvm::Type* largest_elem = nullptr;
@@ -321,10 +338,21 @@ llvm_gen_be_error_t llvm_type_from_struct(
     return llvm_gen_be_error_t::ok;
   }
 
-  /* Struct / Class */
-  llvm::StructType* struct_ty = llvm::StructType::create(*be_state->context);
-  be_state->type_cache[edg_type] = struct_ty;
+  // 1. Determine if the EDG struct is packed by checking for misaligned fields
+  bool is_packed = false;
+  for (a_field_ptr f = edg_type->variant.class_struct_union.field_list; f != nullptr; f = f->next) {
+    if (f->is_bit_field) continue;
+    llvm::Type* fty = nullptr;
+    if (llvm_type_from_edg_type(f->type, &fty) == llvm_gen_be_error_t::ok) {
+      uint64_t align = be_state->module->getDataLayout().getABITypeAlign(fty).value();
+      if (f->offset % align != 0) {
+        is_packed = true;
+        break;
+      }
+    }
+  }
 
+  /* Struct / Class */
   std::vector<llvm::Type*> elem_tys;
   uint64_t current_offset = 0;
   for (a_field_ptr field = edg_type->variant.class_struct_union.field_list;
@@ -335,27 +363,56 @@ llvm_gen_be_error_t llvm_type_from_struct(
           field->offset - current_offset));
       current_offset = field->offset;
     } else if (field->offset < current_offset) {
-      continue;
+      continue; // Handled as part of a previous bitfield run
     }
 
     if (field->is_bit_field) {
       if (field->bit_size == 0) continue;
 
-      uint64_t run_byte_end = (field->offset * 8 + field->offset_bit_remainder + field->bit_size + 7) / 8;
+      llvm::Triple triple(be_state->module->getTargetTriple());
+      bool is_msvc = triple.isWindowsMSVCEnvironment();
       
-      a_field_ptr next_bf = field->next;
-      while (next_bf != nullptr && next_bf->is_bit_field && next_bf->bit_size > 0 && next_bf->offset < run_byte_end) {
-        uint64_t next_bit_end = next_bf->offset * 8 + next_bf->offset_bit_remainder + next_bf->bit_size;
-        uint64_t next_byte_end = (next_bit_end + 7) / 8;
-        if (next_byte_end > run_byte_end) {
-          run_byte_end = next_byte_end;
+      uint64_t container_bytes = field->type->size;
+      if (container_bytes == 0) container_bytes = 1;
+
+      uint64_t run_byte_end = current_offset + container_bytes;
+
+      if (!is_msvc) {
+        // GCC/SysV rules: run spans overlapping bits
+        run_byte_end = (field->offset * 8 + field->offset_bit_remainder + field->bit_size + 7) / 8;
+        a_field_ptr next_bf = field->next;
+        while (next_bf != nullptr && next_bf->is_bit_field && next_bf->bit_size > 0 && next_bf->offset < run_byte_end) {
+          uint64_t next_bit_end = next_bf->offset * 8 + next_bf->offset_bit_remainder + next_bf->bit_size;
+          uint64_t next_byte_end = (next_bit_end + 7) / 8;
+          if (next_byte_end > run_byte_end) run_byte_end = next_byte_end;
+          
+          uint64_t next_type_size = next_bf->type->size;
+          if (next_type_size > container_bytes && (next_bf->offset + next_type_size) >= run_byte_end) {
+              container_bytes = next_type_size; // Upgrade container alignment/size
+          }
+          next_bf = next_bf->next;
         }
-        next_bf = next_bf->next;
+        
+        // Round container_bytes up to the nearest power of 2 that covers the span
+        uint64_t span = run_byte_end - current_offset;
+        container_bytes = 1;
+        while (container_bytes < span) container_bytes *= 2;
+        if (container_bytes < 4 && span > 2) container_bytes = 4; // e.g., i24 -> i32
+      } else {
+        // MSVC rules: run spans exactly the declared container size
+        a_field_ptr next_bf = field->next;
+        while (next_bf != nullptr && next_bf->is_bit_field && next_bf->bit_size > 0 && next_bf->offset == current_offset) {
+          next_bf = next_bf->next;
+        }
       }
       
       uint64_t span_bytes = run_byte_end - current_offset;
       if (span_bytes > 0) {
-        elem_tys.push_back(llvm::IntegerType::get(*be_state->context, span_bytes * 8));
+        if (is_packed || container_bytes != span_bytes) {
+           elem_tys.push_back(llvm::IntegerType::get(*be_state->context, span_bytes * 8));
+        } else {
+           elem_tys.push_back(llvm::IntegerType::get(*be_state->context, container_bytes * 8));
+        }
         current_offset = run_byte_end;
       }
       continue;
@@ -376,7 +433,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
         edg_type->size - current_offset));
   }
 
-  struct_ty->setBody(elem_tys, /*isPacked=*/true);
+  struct_ty->setBody(elem_tys, is_packed);
   *out_type = struct_ty;
   return llvm_gen_be_error_t::ok;
 }
@@ -464,8 +521,18 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
 
   auto it = be_state->type_cache.find(edg_type);
   if (it != be_state->type_cache.end()) {
-    *out_type = it->second;
-    return llvm_gen_be_error_t::ok;
+    llvm::Type* cached_ty = it->second;
+    bool needs_completion = false;
+    if (auto* struct_ty = llvm::dyn_cast<llvm::StructType>(cached_ty)) {
+      if (struct_ty->isOpaque() && !edg_type->incomplete &&
+          (edg_type->kind == tk_struct || edg_type->kind == tk_class || edg_type->kind == tk_union)) {
+        needs_completion = true;
+      }
+    }
+    if (!needs_completion) {
+      *out_type = cached_ty;
+      return llvm_gen_be_error_t::ok;
+    }
   }
 
   llvm::Type* llvm_ty = nullptr;
@@ -501,18 +568,61 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
     case tk_vector:
       err = llvm_type_from_vector(edg_type, &llvm_ty);
       break;
-#endif
-    case tk_ptr_to_member: {
-      a_type_ptr mem_ty = edg_type->variant.ptr_to_member.type;
-      if (mem_ty != nullptr && mem_ty->kind == tk_routine) {
-        llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
-        llvm::Type* int_ty = llvm::IntegerType::get(*be_state->context, 8 * targ_char_bit);
-        llvm_ty = llvm::StructType::get(*be_state->context, {ptr_ty, int_ty});
-      } else {
-        llvm_ty = llvm::IntegerType::get(*be_state->context, 8 * targ_char_bit);
+    case tk_scalable_vector: {
+      llvm::Type* elem_ty = nullptr;
+      err = llvm_type_from_edg_type(edg_type->variant.scalable_vector.element_type, &elem_ty);
+      if (err == llvm_gen_be_error_t::ok) {
+        // SVE scalable vectors have a minimum of 128 bits (16 bytes)
+        unsigned elem_bytes = be_state->module->getDataLayout().getTypeStoreSize(elem_ty);
+        unsigned min_elts = (elem_bytes > 0) ? (16 / elem_bytes) : 0;
+        llvm::Type* sv_ty = llvm::ScalableVectorType::get(elem_ty, min_elts);
+        unsigned tuple_elements = edg_type->variant.scalable_vector.tuple_elements;
+        if (tuple_elements > 1) {
+            std::vector<llvm::Type*> elements(tuple_elements, sv_ty);
+            llvm_ty = llvm::StructType::get(*be_state->context, elements);
+        } else {
+            llvm_ty = sv_ty;
+        }
       }
       break;
     }
+    case tk_riscv_vector: {
+      llvm::Type* elem_ty = nullptr;
+      err = llvm_type_from_edg_type(edg_type->variant.riscv_vector.element_type, &elem_ty);
+      if (err == llvm_gen_be_error_t::ok) {
+        // RVV scalable vectors have a minimum of 64 bits (8 bytes) per m1
+        unsigned elem_bytes = be_state->module->getDataLayout().getTypeStoreSize(elem_ty);
+        // Base minimum elements for LMUL=1 (m1) is 8 bytes total
+        unsigned min_elts = (elem_bytes > 0) ? (8 / elem_bytes) : 0;
+        
+        int8_t lmul = edg_type->variant.riscv_vector.length_multiplier;
+        if (lmul > 0) {
+            min_elts *= lmul;
+        } else if (lmul < 0) {
+            // Fractional LMUL, e.g. -2 means mf2 (1/2)
+            min_elts /= (-lmul);
+            if (min_elts == 0) min_elts = 1; // At least 1 element
+        }
+        
+        llvm::Type* sv_ty = llvm::ScalableVectorType::get(elem_ty, min_elts);
+        unsigned tuple_elements = edg_type->variant.riscv_vector.tuple_elements;
+        if (tuple_elements > 1) {
+            std::vector<llvm::Type*> elements(tuple_elements, sv_ty);
+            llvm_ty = llvm::StructType::get(*be_state->context, elements);
+        } else {
+            llvm_ty = sv_ty;
+        }
+      }
+      break;
+    }
+    case tk_scalable_vector_count:
+      // Opaque count type, often represented as boolean scalable vector for predicates
+      llvm_ty = llvm::ScalableVectorType::get(llvm::Type::getInt1Ty(*be_state->context), 16);
+      break;
+#endif
+    case tk_ptr_to_member:
+      err = llvm_type_from_ptr_to_member(edg_type, &llvm_ty);
+      break;
     case tk_routine: {
       llvm::FunctionType* fn_ty = nullptr;
       err = llvm_type_from_routine(edg_type, &fn_ty);
@@ -539,6 +649,63 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
 
   be_state->type_cache[edg_type] = llvm_ty;
   *out_type = llvm_ty;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Maps an EDG routine type's calling convention to an LLVM CallingConv::ID.
+ * @details Examines the routine type supplement and maps conventions like cdecl, fastcall, stdcall, etc.
+ * @param[in] edg_type Pointer to the EDG routine type structure.
+ * @param[out] out_cc Pointer to the variable where the resulting LLVM calling convention ID is stored.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_calling_conv_from_routine(
+    a_type_ptr edg_type,
+    unsigned* out_cc) noexcept {
+  if (out_cc == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  if (edg_type == nullptr || edg_type->kind != tk_routine) {
+    *out_cc = llvm::CallingConv::C;
+    return llvm_gen_be_error_t::ok;
+  }
+
+#if MICROSOFT_EXTENSIONS_ALLOWED || GNU_X86_ATTRIBUTES_ALLOWED
+  a_routine_type_supplement_ptr supp = edg_type->variant.routine.extra_info;
+  if (supp != nullptr) {
+    switch (supp->calling_convention) {
+      case cc_default:
+      case cc_cdecl:
+        *out_cc = llvm::CallingConv::C;
+        break;
+      case cc_fastcall:
+        *out_cc = llvm::CallingConv::X86_FastCall;
+        break;
+      case cc_stdcall:
+        *out_cc = llvm::CallingConv::X86_StdCall;
+        break;
+      case cc_thiscall:
+        *out_cc = llvm::CallingConv::X86_ThisCall;
+        break;
+      case cc_vectorcall:
+        *out_cc = llvm::CallingConv::X86_VectorCall;
+        break;
+      case cc_clrcall:
+        // LLVM does not have a direct ClrCall mapping, fallback to C or unsupported?
+        // Let's use C for now or 0
+        *out_cc = llvm::CallingConv::C;
+        break;
+      default:
+        *out_cc = llvm::CallingConv::C;
+        break;
+    }
+  } else {
+    *out_cc = llvm::CallingConv::C;
+  }
+#else
+  *out_cc = llvm::CallingConv::C;
+#endif
+
   return llvm_gen_be_error_t::ok;
 }
 

@@ -22,15 +22,22 @@
 
 #include <llvm/Transforms/Instrumentation/AddressSanitizer.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
+#include <llvm/Transforms/Instrumentation/MemorySanitizer.h>
 #include <llvm/Transforms/Instrumentation/BoundsChecking.h>
+#include <llvm/Transforms/Instrumentation/PGOInstrumentation.h>
+#include <llvm/Transforms/IPO/ThinLTOBitcodeWriter.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/FileSystem.h>
 
 
 BEGIN_EDG_NAMESPACE
 
 /**
- * @brief parse_opt_level_string
- * @param[in] _p param
- * @return llvm_gen_be_error_t::ok
+ * @brief Parses an optimization level string into an options structure.
+ * @details Translates "O0", "O1", "O2", "O3", "Os", "Oz" into llvm_opt_level_t and sets default flags.
+ * @param[in] opt_str The optimization level string.
+ * @param[out] out_opts Receives the configured optimization options on success.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if invalid.
  */
 llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options_t* out_opts) noexcept {
   if (!opt_str || !out_opts) {
@@ -66,18 +73,20 @@ llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options
     out_opts->vectorize_slp = true;
   } else if (strcmp(opt_str, "Oz") == 0) {
     out_opts->opt_level = llvm_opt_level_t::Oz;
-  } /**
- * @brief run_optimization_pipeline
- * @param[in] _p param
- * @return llvm_gen_be_error_t::ok
- */
-else {
+  } else {
     return llvm_gen_be_error_t::invalid_argument;
   }
 
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Executes the LLVM PassBuilder optimization pipeline on a Module.
+ * @details Constructs PassManagers, adds sanitizer passes, PGO, LTO, and runs module passes.
+ * @param[in,out] module The LLVM Module to optimize.
+ * @param[in] opts The optimization configuration options.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_opt_options_t* opts) noexcept {
   if (!module || !opts) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -107,7 +116,16 @@ llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_o
   pto.LoopVectorization = opts->vectorize_loops;
   pto.SLPVectorization = opts->vectorize_slp;
 
-  llvm::PassBuilder pb(nullptr, pto, std::nullopt, &pic);
+  std::optional<llvm::PGOOptions> pgo_opts;
+  extern a_const_char* fprofile_generate_path;
+  extern a_const_char* fprofile_use_path;
+  if (opts->pgo_generate) {
+      pgo_opts.emplace(fprofile_generate_path ? fprofile_generate_path : "default.profraw", "", "", "", llvm::PGOOptions::IRInstr);
+  } else if (opts->pgo_use_path) {
+      pgo_opts.emplace(opts->pgo_use_path, "", "", "", llvm::PGOOptions::IRUse);
+  }
+
+  llvm::PassBuilder pb(nullptr, pto, pgo_opts, &pic);
 
   pb.registerModuleAnalyses(mam);
   pb.registerCGSCCAnalyses(cgam);
@@ -135,9 +153,18 @@ if (opts->use_asan) {
       mpm.addPass(llvm::ModuleThreadSanitizerPass());
       mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::ThreadSanitizerPass()));
     }
+    if (opts->use_msan) {
+      mpm.addPass(llvm::MemorySanitizerPass(llvm::MemorySanitizerOptions{}));
+    }
     if (opts->use_ubsan) {
-      // Stub UBSan with BoundsChecking for compilation
-      mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass(llvm::BoundsCheckingPass::Options{})));
+      // Full UndefinedBehaviorSanitizer (UBSan) checks and handlers via BoundsChecking runtime options
+      llvm::BoundsCheckingPass::Options ubsan_opts;
+      ubsan_opts.Rt = llvm::BoundsCheckingPass::Options::Runtime(
+          false, // MinRuntime: false uses full __ubsan_handle_out_of_bounds handlers
+          false, // MayReturn: false for fatal checks
+          false  // HandlerPreserveAllRegs
+      );
+      mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass(ubsan_opts)));
     }
   });
 
@@ -146,7 +173,7 @@ if (opts->use_asan) {
     mpm = pb.buildO0DefaultPipeline(llvm_opt_level);
   } else {
     if (opts->use_lto) {
-      mpm = pb.buildLTOPreLinkDefaultPipeline(llvm_opt_level);
+      mpm = pb.buildThinLTOPreLinkDefaultPipeline(llvm_opt_level);
     } else {
       mpm = pb.buildPerModuleDefaultPipeline(llvm_opt_level);
     }

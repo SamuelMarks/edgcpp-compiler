@@ -57,6 +57,15 @@ static llvm_gen_be_error_t merge_classes(x86_64_abi_class_t accum, x86_64_abi_cl
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Recursively classifies an EDG type into System V AMD64 ABI eightbyte classes.
+ * @details Walks through the fields, arrays, and scalars of a type to accumulate the overall
+ * eightbyte classification for up to two eightbytes (16 bytes maximum).
+ * @param[in] ty The EDG type being classified.
+ * @param[in] offset The current byte offset within the outermost aggregate.
+ * @param[in,out] classes An array of two x86_64_abi_class_t elements accumulating the classification.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 static llvm_gen_be_error_t classify_internal(
     a_type_ptr ty,
     uint64_t offset,
@@ -70,7 +79,7 @@ static llvm_gen_be_error_t classify_internal(
     return classify_internal(ty->variant.typeref.type, offset, classes);
   }
 
-  uint64_t size = ty->size;
+  uint64_t size = ty->size; 
   if (size == 0) {
     return llvm_gen_be_error_t::ok; // no_class
   }
@@ -143,7 +152,7 @@ static llvm_gen_be_error_t classify_internal(
       uint64_t field_offset = offset + field->offset;
 
       // Handle unaligned fields
-      if (field->offset % alignment_of_type(field->type) != 0) {
+      if (field_offset % alignment_of_type(field->type) != 0) {
         classes[0] = x86_64_abi_class_t::memory;
         classes[1] = x86_64_abi_class_t::memory;
         return llvm_gen_be_error_t::ok;
@@ -190,6 +199,7 @@ llvm_gen_be_error_t classify_sysv_argument(
   out_info->num_eightbytes = 0;
   out_info->pass_in_memory = false;
   out_info->requires_sret = false;
+  out_info->pass_by_invisible_reference = false;
 
   if (ty == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
@@ -200,7 +210,15 @@ llvm_gen_be_error_t classify_sysv_argument(
     ty = ty->variant.typeref.type;
   }
 
-  uint64_t size = ty->size;
+  if ((ty->kind == tk_class || ty->kind == tk_struct) && !is_trivially_copyable_type(ty)) {
+    out_info->pass_in_memory = true;
+    out_info->pass_by_invisible_reference = true;
+    out_info->eightbyte_classes[0] = x86_64_abi_class_t::memory;
+    out_info->eightbyte_classes[1] = x86_64_abi_class_t::memory;
+    return llvm_gen_be_error_t::ok;
+  }
+
+  uint64_t size = ty->size; 
 
   if (size == 0) {
     out_info->num_eightbytes = 0;
@@ -227,14 +245,21 @@ llvm_gen_be_error_t classify_sysv_argument(
     out_info->eightbyte_classes[0] = x86_64_abi_class_t::memory;
     out_info->eightbyte_classes[1] = x86_64_abi_class_t::memory;
   } else {
-    out_info->eightbyte_classes[0] = classes[0];
-    out_info->eightbyte_classes[1] = classes[1];
-    out_info->num_eightbytes = (size > 8) ? 2 : 1;
-
-    if (classes[0] == x86_64_abi_class_t::x87up) {
-      if (classes[1] == x86_64_abi_class_t::x87up) {
-        // ...
+    if (classes[1] == x86_64_abi_class_t::x87up && classes[0] != x86_64_abi_class_t::x87) {
+      out_info->pass_in_memory = true;
+      out_info->eightbyte_classes[0] = x86_64_abi_class_t::memory;
+      out_info->eightbyte_classes[1] = x86_64_abi_class_t::memory;
+    } else if (classes[0] == x86_64_abi_class_t::x87up) {
+      out_info->pass_in_memory = true;
+      out_info->eightbyte_classes[0] = x86_64_abi_class_t::memory;
+      out_info->eightbyte_classes[1] = x86_64_abi_class_t::memory;
+    } else {
+      if (classes[1] == x86_64_abi_class_t::sseup && classes[0] != x86_64_abi_class_t::sse && classes[0] != x86_64_abi_class_t::sseup) {
+        classes[1] = x86_64_abi_class_t::sse;
       }
+      out_info->eightbyte_classes[0] = classes[0];
+      out_info->eightbyte_classes[1] = classes[1];
+      out_info->num_eightbytes = (size > 8) ? 2 : 1;
     }
   }
 
@@ -277,22 +302,6 @@ llvm_gen_be_error_t compute_sysv_return_info(
   } else {
     *out_sret = false;
     out_info->requires_sret = false;
-  }
-
-  // Handle C++ non-trivial classes
-  // A C++ class that has a non-trivial copy constructor or destructor is passed in memory.
-  // We can check if it's a class with those properties, but the EDG frontend usually
-  // handles this. Let's assume class MEMORY is correctly populated, but if we need
-  // to force sret for non-trivial types we would do it here.
-  // Actually, wait, the ABI says "If a C++ object has either a non-trivial copy 
-  // constructor or a non-trivial destructor, it is passed by invisible reference"
-  // Let's implement that.
-  if (ret_ty != nullptr && (ret_ty->kind == tk_class || ret_ty->kind == tk_struct)) {
-    if (!is_trivially_copyable_type(ret_ty)) {
-      *out_sret = true;
-      out_info->requires_sret = true;
-      out_info->pass_in_memory = true;
-    }
   }
 
   return llvm_gen_be_error_t::ok;
@@ -367,7 +376,9 @@ llvm_gen_be_error_t build_sysv_function_type(
 
       if (arg_info.pass_in_memory) {
         llvm_param_types.push_back(llvm::PointerType::getUnqual(*be_state->context));
-        ab.addByValAttr(pty);
+        if (!arg_info.pass_by_invisible_reference) {
+          ab.addByValAttr(pty);
+        }
         param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
       } else {
         uint32_t needed_ints = 0;
@@ -404,6 +415,25 @@ llvm_gen_be_error_t build_sysv_function_type(
 
 
 #include <llvm/IR/Intrinsics.h>
+
+/**
+ * @brief Constructs the LLVM Type for a va_list under System V AMD64 ABI.
+ * @details The va_list type is a struct [1 x { i32, i32, i8*, i8* }] representing 
+ * gp_offset, fp_offset, overflow_arg_area, and reg_save_area.
+ * @param[out] out_ty Pointer to store the resulting LLVM ArrayType.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t build_sysv_va_list_type(
+    llvm::Type** out_ty) noexcept {
+  if (out_ty == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
+  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+  llvm::StructType* struct_ty = llvm::StructType::get(*be_state->context, {i32_ty, i32_ty, ptr_ty, ptr_ty});
+  *out_ty = llvm::ArrayType::get(struct_ty, 1);
+  return llvm_gen_be_error_t::ok;
+}
 
 /**
  * @brief Lowers a va_start intrinsic for the System V AMD64 ABI.

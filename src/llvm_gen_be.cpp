@@ -15,6 +15,10 @@
 #include "llvm_gen_be_codegen.h"
 #include "llvm_gen_be_debug.h"
 #include "target.h"
+#include "llvm_gen_be_debug.h"
+#include "llvm_gen_be_opt.h"
+#include "cmd_line.h"
+#include <iostream>
 
 // LLVM Includes
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -29,9 +33,10 @@ BEGIN_EDG_NAMESPACE
 LLVMBackendState* be_state = nullptr;
 
 /**
- * @brief build_data_layout
- * @param[in] _p param
- * @return llvm_gen_be_error_t::ok
+ * @brief Constructs the target LLVM data layout string based on EDG configuration.
+ * @details Encodes endianness, pointer size, and primitive alignments into the data layout string.
+ * @param[out] out_dl Receives the generated data layout string on success.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if pointer is null.
  */
 llvm_gen_be_error_t build_data_layout(std::string* out_dl) noexcept {
   if (!out_dl) return llvm_gen_be_error_t::invalid_argument;
@@ -61,22 +66,52 @@ llvm_gen_be_error_t build_data_layout(std::string* out_dl) noexcept {
   dl += "i64:" + std::to_string((int)(targ_sizeof_long_long * targ_char_bit)) + "-";
   dl += "f32:" + std::to_string((int)(targ_sizeof_float * targ_char_bit)) + "-";
   dl += "f64:" + std::to_string((int)(targ_sizeof_double * targ_char_bit)) + "-";
-  dl += "f128:" + std::to_string((int)(tar/**
- * @brief generate_llvm_output_file
- * @param[in] _p param
- * @return llvm_gen_be_error_t::ok
- */
-g_sizeof_long_double * targ_char_bit));
+  dl += "f128:" + std::to_string((int)(targ_sizeof_long_double * targ_char_bit));
 
   *out_dl = dl;
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Emits the configured output files (.ll, .bc, .s, .o) for the compiled module.
+ * @details Runs optimization pipelines, verifies module consistency, and invokes TargetMachine emission.
+ * @param[in] base_name The base filename to use for generated output artifacts.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t generate_llvm_output_file(const char* base_name) noexcept {
   std::string err_str;
   llvm::raw_string_ostream os(err_str);
   if (llvm::verifyModule(*be_state->module, &os)) {
+    std::cerr << "VERIFY FAILED: " << err_str << "\n";
     return llvm_gen_be_error_t::verification_failure;
+  }
+
+  llvm_opt_options_t opts = {};
+  opts.opt_level = llvm_opt_level_t::O0;
+  opts.use_asan = sanitize_address;
+  opts.use_msan = sanitize_memory;
+  opts.use_tsan = sanitize_thread;
+  opts.use_ubsan = sanitize_undefined;
+  opts.use_lto = false;
+  extern a_const_char* fprofile_generate_path;
+  extern a_const_char* fprofile_use_path;
+  opts.pgo_generate = fprofile_generate_path != nullptr;
+  opts.pgo_use_path = fprofile_use_path;
+
+  extern a_const_char* flto_kind;
+  if (flto_kind) {
+      opts.use_lto = true;
+      if (std::string(flto_kind) == "thin") {
+          be_state->module->addModuleFlag(llvm::Module::Error, "ThinLTO", 1);
+          be_state->module->addModuleFlag(llvm::Module::Error, "EnableSplitLTOUnit", 1);
+      } else if (std::string(flto_kind) == "full") {
+          be_state->module->addModuleFlag(llvm::Module::Error, "FullLTO", 1);
+      }
+  }
+
+  if (opts.use_asan || opts.use_msan || opts.use_tsan || opts.use_ubsan || opts.use_lto || opts.pgo_generate || opts.pgo_use_path) {
+      llvm_gen_be_error_t opt_err = run_optimization_pipeline(be_state->module.get(), &opts);
+      if (opt_err != llvm_gen_be_error_t::ok) return opt_err;
   }
 
   // Initialize target registry once
@@ -90,7 +125,7 @@ llvm_gen_be_error_t generate_llvm_output_file(const char* base_name) noexcept {
   llvm::TargetMachine* tm = nullptr;
   std::string triple_str = be_state->module->getTargetTriple().str();
   // Assume default target for now
-  llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, &tm);
+  llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, std::nullopt, std::nullopt, &tm);
   if (tm_err != llvm_gen_be_error_t::ok) {
     return tm_err;
   }
@@ -131,12 +166,7 @@ llvm_gen_be_error_t generate_llvm_output_file(const char* base_name) noexcept {
 
   // Emit .o
   if (gen_obj_file_name) {
-    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codege/**
- * @brief llvm_gen_be
- * @param[in] _p param
- * @return llvm_gen_be_error_t::ok
- */
-n_file_type_t::object_file, gen_obj_file_name);
+    emit_err = emit_machine_code_to_file(be_state->module.get(), tm, codegen_file_type_t::object_file, gen_obj_file_name);
     if (emit_err != llvm_gen_be_error_t::ok) {
       delete tm;
       return emit_err;
@@ -147,6 +177,11 @@ n_file_type_t::object_file, gen_obj_file_name);
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Primary entry point for the EDG LLVM IR generating backend.
+ * @details Translates the EDG IL translation unit into LLVM IR, runs passes, and writes output files.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t llvm_gen_be(void) noexcept
 {
   if (!be_state) {
@@ -203,7 +238,7 @@ std::string triple_str;
 be_state->module->setTargetTriple(llvm::Triple(triple_str));
 
 llvm::TargetMachine* tm = nullptr;
-llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, &tm);
+llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, std::nullopt, std::nullopt, &tm);
 if (tm_err != llvm_gen_be_error_t::ok) {
   return tm_err;
 }
@@ -212,7 +247,10 @@ be_state->module->setDataLayout(tm->createDataLayout());
 delete tm;
 
   
-  llvm_gen_be_error_t err = llvm_lower_global_variables();
+  llvm_gen_be_error_t err = llvm_lower_module_metadata();
+  if (err != llvm_gen_be_error_t::ok) return err;
+
+  err = llvm_lower_global_variables();
   if (err != llvm_gen_be_error_t::ok) return err;
 
   
@@ -232,7 +270,33 @@ delete tm;
     if (err != llvm_gen_be_error_t::ok) return err;
   }
 
+  err = llvm_gen_be_verify_state();
+  if (err != llvm_gen_be_error_t::ok) return err;
+
   return generate_llvm_output_file(primary_source_file_name);
+}
+
+/**
+ * @brief Verifies that all basic blocks in the module possess proper terminators.
+ * @details Traverses all non-declaration functions and inspects each basic block.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_gen_be_verify_state(void) noexcept {
+  if (!be_state || !be_state->module) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  for (llvm::Function& f : *be_state->module) {
+    if (f.isDeclaration()) continue;
+    for (llvm::BasicBlock& bb : f) {
+      if (bb.empty() || !bb.back().isTerminator()) {
+        (void)llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::internal_inconsistency,
+                              __FILE__, __LINE__, 0, "Basic block '%s' in function '%s' is missing a terminator.",
+                              bb.getName().str().c_str(), f.getName().str().c_str());
+        return llvm_gen_be_error_t::internal_inconsistency;
+      }
+    }
+  }
+  return llvm_gen_be_error_t::ok;
 }
 
 #if !STANDALONE_UTILITY_PROGRAM
@@ -255,6 +319,10 @@ subroutine called in the same program as the front end.
   primary_source_file_name = il_header.primary_source_file->file_name;
 #endif /* IL_SHOULD_BE_WRITTEN_TO_FILE */
 
+  /* Lower namespaces, classes, templates, linkage specs */
+  // (In a real implementation, we would traverse the symbol table and EDG types to emit declarations)
+  // For now, these are implicitly handled by the variables/functions/ctors/dtors routines.
+  
   /* Generate LLVM IR. */
   err = llvm_gen_be();
   return err;
@@ -281,6 +349,8 @@ required.
     be_state->context.reset();
     be_state->type_cache.clear();
     be_state->local_vars.clear();
+    be_state->vla_saved_stacks.clear();
+    be_state->array_to_vla_dim.clear();
     be_state->break_blocks.clear();
     be_state->continue_blocks.clear();
     be_state->current_landing_pads.clear();

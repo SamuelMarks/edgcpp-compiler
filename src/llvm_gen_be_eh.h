@@ -42,6 +42,46 @@ llvm_gen_be_error_t llvm_lower_microsoft_try_stmt(a_statement_ptr stmt) noexcept
  */
 llvm_gen_be_error_t llvm_emit_eh_cleanup(a_routine_ptr dtor, llvm::Value* obj_ptr) noexcept;
 
+/**
+ * @brief Emits a call to llvm.eh.exceptioncode intrinsic for MSVC SEH GetExceptionCode().
+ * @param[out] out_val The resulting integer value.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t llvm_lower_eh_exceptioncode(llvm::Value** out_val) noexcept;
+
+/**
+ * @brief Emits a call to llvm.eh.exceptionpointer intrinsic for MSVC SEH GetExceptionInformation().
+ * @param[out] out_val The resulting pointer value.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t llvm_lower_eh_exceptioninfo(llvm::Value** out_val) noexcept;
+
+/**
+ * @brief Emits a call to MSVC _setjmp intrinsic with SEH frame restoration.
+ * @param[in] jmp_buf The jmp_buf pointer.
+ * @param[out] out_val The resulting integer value.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t llvm_lower_seh_setjmp(llvm::Value* jmp_buf, llvm::Value** out_val) noexcept;
+
+/**
+ * @brief Emits a call to MSVC _longjmp with SEH frame restoration.
+ * @param[in] jmp_buf The jmp_buf pointer.
+ * @param[in] val The value to return.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t llvm_lower_seh_longjmp(llvm::Value* jmp_buf, llvm::Value* val) noexcept;
+
+/**
+ * @brief Emits the landingpad and termination/unexpected handlers for a function exception specification.
+ * @param[in] routine The routine defining the exception specification.
+ * @param[in] lpad_bb The landing pad basic block to populate.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t llvm_emit_exception_specification_lpad(
+    a_routine_ptr routine,
+    llvm::BasicBlock* lpad_bb) noexcept;
+
 END_EDG_NAMESPACE
 #endif
 

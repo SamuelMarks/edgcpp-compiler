@@ -1,3 +1,4 @@
+#include "llvm_gen_be_internal.h"
 /**
  * @file llvm_gen_be_debug.cpp
  * @brief LLVM IR Backend Debug Information (DWARF/CodeView) Subsystem.
@@ -14,10 +15,21 @@
 #include <llvm/Support/MD5.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/MemoryBuffer.h>
+#include <llvm/TargetParser/Triple.h>
 
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief Initializes the debug information generation subsystem.
+ * @details Creates the DIBuilder instance, emits compile unit metadata, and sets DWARF/CodeView module flags.
+ * @param[out] out_dbg_state Receives the allocated debug state handle on success.
+ * @param[in] module The LLVM Module being compiled.
+ * @param[in] source_file The primary source file path.
+ * @param[in] comp_dir The compilation working directory.
+ * @param[in] is_optimized True if optimizations are enabled.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t debug_info_init(
     llvm_gen_be_debug_state_t** out_dbg_state,
     llvm::Module* module,
@@ -40,10 +52,19 @@ llvm_gen_be_error_t debug_info_init(
     return llvm_gen_be_error_t::out_of_memory;
   }
 
-  // Setup module flags for DWARF
-  unsigned dwarf_version = 4;
+  // Setup module flags for DWARF or CodeView
   module->addModuleFlag(llvm::Module::Warning, "Debug Info Version", llvm::DEBUG_METADATA_VERSION);
-  module->addModuleFlag(llvm::Module::Warning, "Dwarf Version", dwarf_version);
+  llvm::Triple triple(module->getTargetTriple());
+  if (triple.isWindowsMSVCEnvironment()) {
+    module->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
+    // LLVM CodeViewDebug backend automatically lowers DICompositeType into LF_STRUCTURE, LF_FIELDLIST, etc.
+    dbg_state->is_codeview = true;
+  } else {
+    unsigned dwarf_version = 5;
+    module->addModuleFlag(llvm::Module::Warning, "Dwarf Version", dwarf_version);
+    module->addModuleFlag(llvm::Module::Warning, "EnableSplitDwarf", 1); // Enable .dwo support
+    dbg_state->is_codeview = false;
+  }
 
   llvm::DIFile* di_file = nullptr;
   llvm_gen_be_error_t err = get_or_create_di_file(dbg_state, source_file, &di_file);
@@ -61,9 +82,9 @@ llvm_gen_be_error_t debug_info_init(
       is_optimized,
       "", // Flags
       0,  // Runtime version
-      llvm::StringRef(), // Split name
+      llvm::StringRef("split.dwo"), // Split name
       llvm::DICompileUnit::DebugEmissionKind::FullDebug,
-      0, // DWOId
+      1, // DWOId
       true, // SplitDebugInlining
       false, // DebugInfoForProfiling
       llvm::DICompileUnit::DebugNameTableKind::Default
@@ -79,10 +100,10 @@ llvm_gen_be_error_t debug_info_init(
 }
 
 /**
- * @brief Debug info finalize.
- * @details Implements debug_info_finalize.
- * @return llvm_gen_be_error_t::ok on success.
-  * @param[in] _p
+ * @brief Finalizes the debug information generator.
+ * @details Invokes DIBuilder::finalize to seal all debug info metadata nodes.
+ * @param[in] dbg_state Pointer to the active debug state handle.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if null.
  */
 llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) noexcept {
   if (dbg_state == nullptr || dbg_state->builder == nullptr) {
@@ -94,14 +115,10 @@ llvm_gen_be_error_t debug_info_finalize(llvm_gen_be_debug_state_t* dbg_state) no
 }
 
 /**
- * @brief Debug info cleanup.
- * @details Implements debug_info_cleanup.
- * @return llvm_gen_be_error_t::o/**
- * @brief debug_info_cleanup
- * @param[in] _p param
- * @return llvm_gen_be_error_t::ok
- */
-k on success.
+ * @brief Releases all allocated memory and resources associated with debug info generation.
+ * @details Frees the DIBuilder and clears maps and scope stacks.
+ * @param[in,out] dbg_state Pointer to the debug state pointer to clean up and nullify.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if pointer is null.
  */
 llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state) noexcept {
   if (dbg_state == nullptr || *dbg_state == nullptr) {
@@ -123,6 +140,14 @@ llvm_gen_be_error_t debug_info_cleanup(llvm_gen_be_debug_state_t** dbg_state) no
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Retrieves or creates an LLVM DIFile metadata node for a given source file path.
+ * @details Hashes file contents with MD5 checksum if available and caches DIFile instances.
+ * @param[in,out] dbg_state Pointer to the active debug state handle.
+ * @param[in] file_path The path to the source file.
+ * @param[out] out_di_file Receives the resulting DIFile metadata pointer on success.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t get_or_create_di_file(
     llvm_gen_be_debug_state_t* dbg_state,
     const char* file_path,
@@ -171,5 +196,20 @@ llvm_gen_be_error_t get_or_create_di_file(
   return llvm_gen_be_error_t::ok;
 }
 
+llvm_gen_be_error_t build_pdb_symbol_records(
+    a_scope_ptr scope,
+    llvm::DIScope** out_node) noexcept {
+  if (scope == nullptr || out_node == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  
+  if (!be_state || !be_state->dbg_state || !be_state->dbg_state->builder) {
+    return llvm_gen_be_error_t::di_metadata_failure;
+  }
+  
+  // Implementation of CodeView/PDB specific line tables and inline sites.
+  return llvm_gen_be_error_t::not_implemented;
+}
+
 END_EDG_NAMESPACE
-#endif // BACK_END_IS_LLVM_GEN_BE
+#endif /* BACK_END_IS_LLVM_GEN_BE */

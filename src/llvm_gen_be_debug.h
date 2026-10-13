@@ -46,6 +46,9 @@ struct llvm_gen_be_debug_state_t {
 
   /// @brief Stack of current lexical scopes (DIScope*).
   std::vector<llvm::DIScope*> scope_stack;
+
+  /// @brief True if CodeView metadata should be emitted instead of DWARF.
+  bool is_codeview;
 };
 
 /**
@@ -188,6 +191,173 @@ llvm_gen_be_error_t emit_dbg_declare_for_variable(
     a_variable_ptr var,
     llvm::AllocaInst* alloca_inst) noexcept;
 
+/**
+ * @brief Emits a dbg.value intrinsic for an SSA variable update.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] var The EDG variable entry.
+ * @param[in] value The LLVM value representing the variable's new SSA value.
+ * @param[in] insert_before The instruction before which to insert the dbg.value intrinsic.
+ * @param[in] insert_at_end The basic block where the dbg.value intrinsic should be inserted at the end.
+ * @param[in] expr_ops Optional array of DWARF expression operators (e.g. DW_OP_deref, DW_OP_LLVM_fragment).
+ * @param[in] num_expr_ops Number of expression operators.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t emit_dbg_value_for_variable(
+    llvm_gen_be_debug_state_t* dbg_state,
+    a_variable_ptr var,
+    llvm::Value* value,
+    llvm::Instruction* insert_before,
+    llvm::BasicBlock* insert_at_end = nullptr,
+    const uint64_t* expr_ops = nullptr,
+    size_t num_expr_ops = 0) noexcept;
+
+/**
+ * @brief Emits a dbg.assign intrinsic for optimized value tracking (assignment tracking).
+ */
+llvm_gen_be_error_t emit_dbg_assign_for_variable(
+    llvm_gen_be_debug_state_t* dbg_state,
+    a_variable_ptr var,
+    llvm::Value* value,
+    llvm::Value* dest,
+    llvm::Instruction* insert_before) noexcept;
+
+/**
+ * @brief Implements DWARF metadata for class inheritance.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] derived_type The derived class type.
+ * @param[in] base_type The base class type.
+ * @param[in] base_offset Offset of the base class in bits.
+ * @param[in] vb_ptr_offset Offset of the virtual base pointer.
+ * @param[in] flags DWARF flags.
+ * @param[out] out_inheritance Pointer to the resulting `DIDerivedType`.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t createInheritance(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIType* derived_type,
+    llvm::DIType* base_type,
+    uint64_t base_offset,
+    uint32_t vb_ptr_offset,
+    llvm::DINode::DIFlags flags,
+    llvm::DIDerivedType** out_inheritance) noexcept;
+
+/**
+ * @brief Implements DWARF metadata for virtual and non-virtual member functions.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] scope The DIScope representing the class.
+ * @param[in] name The method name.
+ * @param[in] linkage_name The mangled name.
+ * @param[in] file The file where the method is declared.
+ * @param[in] line_no The line number.
+ * @param[in] type The subroutine type.
+ * @param[in] vindex Virtual function index.
+ * @param[in] this_adjustment The 'this' pointer adjustment.
+ * @param[in] vtable_holder The type that holds the vtable.
+ * @param[in] flags DWARF flags.
+ * @param[in] sp_flags Subprogram flags.
+ * @param[out] out_method Pointer to the resulting `DISubprogram`.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t createMethod(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIScope* scope,
+    const char* name,
+    const char* linkage_name,
+    llvm::DIFile* file,
+    unsigned line_no,
+    llvm::DISubroutineType* type,
+    unsigned vindex,
+    int this_adjustment,
+    llvm::DIType* vtable_holder,
+    llvm::DINode::DIFlags flags,
+    llvm::DISubprogram::DISPFlags sp_flags,
+    llvm::DISubprogram** out_method) noexcept;
+
+/**
+ * @brief Implements DWARF metadata for C++ namespaces.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] scope The parent scope.
+ * @param[in] name The namespace name.
+ * @param[in] export_symbols True if symbols are exported.
+ * @param[out] out_namespace Pointer to the resulting `DINamespace`.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t createNameSpace(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIScope* scope,
+    const char* name,
+    bool export_symbols,
+    llvm::DINamespace** out_namespace) noexcept;
+
+/**
+ * @brief Implements DWARF metadata for template type parameters.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] scope The context scope.
+ * @param[in] name The parameter name.
+ * @param[in] type The parameter type.
+ * @param[in] is_default True if default parameter.
+ * @param[out] out_param Pointer to the resulting `DITemplateTypeParameter`.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t createTemplateTypeParameter(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIScope* scope,
+    const char* name,
+    llvm::DIType* type,
+    bool is_default,
+    llvm::DITemplateTypeParameter** out_param) noexcept;
+
+/**
+ * @brief Implements DWARF metadata for template value parameters.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] scope The context scope.
+ * @param[in] name The parameter name.
+ * @param[in] type The parameter type.
+ * @param[in] is_default True if default parameter.
+ * @param[in] value The value metadata.
+ * @param[out] out_param Pointer to the resulting `DITemplateValueParameter`.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t createTemplateValueParameter(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIScope* scope,
+    const char* name,
+    llvm::DIType* type,
+    bool is_default,
+    llvm::Metadata* value,
+    llvm::DITemplateValueParameter** out_param) noexcept;
+
+/**
+ * @brief Implements DWARF metadata for enumeration types.
+ * @param[in,out] dbg_state The debug state.
+ * @param[in] scope The parent scope.
+ * @param[in] name The enum name.
+ * @param[in] file The declaring file.
+ * @param[in] line_no The line number.
+ * @param[in] size_in_bits The size.
+ * @param[in] align_in_bits The alignment.
+ * @param[in] elements The enumerators.
+ * @param[in] underlying_type The underlying integral type.
+ * @param[in] unique_identifier The unique identifier.
+ * @param[in] is_scoped True if enum class.
+ * @param[out] out_enum Pointer to the resulting `DICompositeType`.
+ * @return An `llvm_gen_be_error_t` code indicating success or failure.
+ */
+llvm_gen_be_error_t createEnumerationType(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIScope* scope,
+    const char* name,
+    llvm::DIFile* file,
+    unsigned line_no,
+    uint64_t size_in_bits,
+    uint32_t align_in_bits,
+    llvm::DINodeArray elements,
+    llvm::DIType* underlying_type,
+    const char* unique_identifier,
+    bool is_scoped,
+    llvm::DICompositeType** out_enum) noexcept;
+
 END_EDG_NAMESPACE
+
 
 #endif /* LLVM_GEN_BE_DEBUG_H */

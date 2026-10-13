@@ -118,6 +118,17 @@ llvm_gen_be_error_t llvm_type_from_routine(
     llvm::FunctionType** out_fn_type) noexcept;
 
 /**
+ * @brief Maps an EDG routine type's calling convention to an LLVM CallingConv::ID.
+ * @details Examines the routine type supplement and maps conventions like cdecl, fastcall, stdcall, etc.
+ * @param[in] edg_type Pointer to the EDG routine type structure.
+ * @param[out] out_cc Pointer to the variable where the resulting LLVM calling convention ID is stored.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_calling_conv_from_routine(
+    a_type_ptr edg_type,
+    unsigned* out_cc) noexcept;
+
+/**
  * @brief Legacy compatibility helper redirecting to llvm_type_from_edg_type.
  * @details Convenience wrapper returning llvm::Type* while inspecting error codes internally.
  * @param[in] edg_type Pointer to the EDG type structure.

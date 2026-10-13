@@ -2,7 +2,11 @@
  * @file test_llvm_declarations.cpp
  * @brief Unit tests for the LLVM backend declarations and globals subsystem.
  * @details Validates function coverage of llvm_lower_global_variable,
- * llvm_lower_function_prototype, llvm_lower_function_body, and global ctors/dtors.
+ * llvm_lower_function_prototype, llvm_lower_function_body, global ctors/dtors, and TLS models.
+ *
+ * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://edgcpp.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
 #include "llvm_gen_be_internal.h"
@@ -37,6 +41,7 @@ namespace edg {
   char* mangled_typeinfo_name(a_type_ptr type) { return (char*)"_ZTIi"; }
   a_type_qualifier_set f_get_type_qualifiers(a_type_ptr type, a_boolean x) { return 0; }
   a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
   llvm_gen_be_error_t evaluate_constant(a_constant_ptr con, llvm::Type* ty, llvm::Constant** out_const) noexcept { 
     if (ty->isIntegerTy()) *out_const = llvm::ConstantInt::get(ty, 1);
     else if (ty->isFloatingPointTy()) *out_const = llvm::ConstantFP::get(ty, 1.0);
@@ -44,6 +49,25 @@ namespace edg {
     return llvm_gen_be_error_t::ok; 
   }
   a_byte_boolean int_kind_is_signed[ik_last] = {0};
+
+  a_boolean sanitize_address = FALSE; a_boolean sanitize_thread = FALSE; a_boolean sanitize_memory = FALSE; a_boolean sanitize_undefined = FALSE; a_boolean sanitize_hwaddress = FALSE; int stack_protector_mode = 0; a_boolean use_safestack = FALSE; a_boolean use_shadowcallstack = FALSE;
+
+  llvm_gen_be_error_t build_wasm_function_type(a_type_ptr ty, llvm::FunctionType** out_ty, llvm::AttributeList* out_attrs) noexcept {
+      *out_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
+      return llvm_gen_be_error_t::ok;
+  }
+  llvm_gen_be_error_t build_arm32_function_type(a_type_ptr ty, llvm::FunctionType** out_ty, llvm::AttributeList* out_attrs) noexcept {
+      *out_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
+      return llvm_gen_be_error_t::ok;
+  }
+  llvm_gen_be_error_t build_x86_32_function_type(a_type_ptr ty, llvm::FunctionType** out_ty, llvm::AttributeList* out_attrs) noexcept {
+      *out_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
+      return llvm_gen_be_error_t::ok;
+  }
+  llvm_gen_be_error_t build_riscv64_function_type(a_type_ptr ty, llvm::FunctionType** out_ty, llvm::AttributeList* out_attrs) noexcept {
+      *out_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
+      return llvm_gen_be_error_t::ok;
+  }
   
   llvm_gen_be_error_t get_llvm_type(a_type_ptr ty, llvm::Type** out_ty) noexcept {
     *out_ty = llvm::Type::getInt32Ty(*be_state->context);
@@ -55,6 +79,13 @@ namespace edg {
       *init = nullptr;
   }
   
+  llvm_gen_be_error_t llvm_lower_expression(an_expr_node* expr, llvm::Value** out_val) noexcept { return llvm_gen_be_error_t::ok; }
+  llvm_gen_be_error_t llvm_lower_asm_stmt(a_statement_ptr stmt) noexcept { return llvm_gen_be_error_t::ok; }
+  llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept { return llvm_gen_be_error_t::ok; }
+  llvm_gen_be_error_t llvm_lower_coroutine_return_stmt(a_statement_ptr stmt) noexcept { return llvm_gen_be_error_t::ok; }
+  
+  llvm_gen_be_error_t get_di_location(llvm_gen_be_debug_state_t*, a_source_position, llvm::DIScope*, llvm::DILocation**) noexcept { return llvm_gen_be_error_t::ok; }
+
   llvm_gen_be_error_t build_aapcs64_function_type(a_type_ptr ty, llvm::FunctionType** out_ty, llvm::AttributeList* out_attrs) noexcept {
       *out_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
       return llvm_gen_be_error_t::ok;
@@ -75,14 +106,7 @@ namespace edg {
       return llvm_gen_be_error_t::ok;
   }
   
-  
   a_scope_ptr scope_for_routine(a_routine_ptr r) { return nullptr; }
-  
-  llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) noexcept {
-    return llvm_gen_be_error_t::ok;
-  }
-  
-  
   
   llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_ti) noexcept {
     *out_ti = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
@@ -119,16 +143,20 @@ int main() {
   a_scope root_scope = {};
   edg::il_header.primary_scope = &root_scope;
 
-  // Test global variable
+  // 1. Test global variable with TLS models
   a_variable gvar = {};
   gvar.source_corresp.name = "my_global";
   gvar.storage_class = sc_extern;
+  gvar.is_thread_local = TRUE;
   root_scope.variables = &gvar;
 
   assert(llvm_lower_global_variables() == llvm_gen_be_error_t::ok);
-  assert(state.module->getNamedGlobal("my_global") != nullptr);
+  llvm::GlobalVariable* gv = state.module->getNamedGlobal("my_global");
+  assert(gv != nullptr);
+  assert(gv->isThreadLocal());
+  assert(gv->getThreadLocalMode() == llvm::GlobalValue::GeneralDynamicTLSModel);
 
-  // Test function prototype
+  // 2. Test function prototype
   a_routine fn = {};
   fn.source_corresp.name = "my_func";
   fn.storage_class = sc_extern;
@@ -141,17 +169,26 @@ int main() {
   assert(llvm_lower_function_declarations() == llvm_gen_be_error_t::ok);
   assert(state.module->getFunction("my_func") != nullptr);
 
-  // Test function body
+  // 3. Test function body
   fn.function_def_number = 1;
   a_function_def_descr def_table[2] = {};
   edg::il_header.function_def_table = def_table;
-  // Stub scope_for_routine returns nullptr, so body is empty block, which will be terminated with ret void.
   assert(llvm_lower_function_definitions() == llvm_gen_be_error_t::ok);
   
-  // Test ctors
+  // 4. Test global ctors and dtors
   fn.is_initialization_routine = TRUE;
+  fn.is_finalization_routine = TRUE;
   assert(llvm_lower_global_ctors_and_dtors() == llvm_gen_be_error_t::ok);
   assert(state.module->getNamedGlobal("llvm.global_ctors") != nullptr);
+  assert(state.module->getNamedGlobal("llvm.global_dtors") != nullptr);
+
+  // 5. Test MSVC ctors / dtors
+  if (auto* c = state.module->getNamedGlobal("llvm.global_ctors")) c->eraseFromParent();
+  if (auto* d = state.module->getNamedGlobal("llvm.global_dtors")) d->eraseFromParent();
+  state.module->setTargetTriple(llvm::Triple("x86_64-pc-windows-msvc"));
+  
+  assert(llvm_lower_global_ctors_and_dtors() == llvm_gen_be_error_t::ok);
+  assert(state.module->getNamedGlobal("llvm.used") != nullptr);
 
   printf("PASS\n");
   return 0;

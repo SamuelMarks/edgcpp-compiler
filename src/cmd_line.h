@@ -117,8 +117,13 @@ enum an_option_kind {
 #if BACK_END_IS_LLVM_GEN_BE
   optk_gen_llvm_file_name,
   optk_gen_llvm_bc_file_name,
+  optk_gen_llvm_thinlto_index,
+  optk_flto,
+  optk_fprofile_generate,
+  optk_fprofile_use,
   optk_gen_obj_file_name,
   optk_gen_asm_file_name,
+  optk_fsanitize,
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   optk_create_pch,
   optk_use_pch,
@@ -1389,6 +1394,18 @@ EXTERN_THREAD a_const_char
            *gen_llvm_bc_file_name;
                    /* Points to a string specifying the name of the
                       generated LLVM bitcode file to be created. */
+EXTERN_THREAD a_boolean
+           gen_llvm_thinlto_index;
+                   /* TRUE if ThinLTO module summary index should be emitted. */
+EXTERN_THREAD a_const_char
+           *flto_kind;
+                   /* Points to a string specifying the LTO kind ('thin', 'full'). */
+EXTERN_THREAD a_const_char
+           *fprofile_generate_path;
+                   /* Points to a string specifying the profile generate directory/file. */
+EXTERN_THREAD a_const_char
+           *fprofile_use_path;
+                   /* Points to a string specifying the profile use data file. */
 EXTERN_THREAD a_const_char
            *gen_obj_file_name;
                    /* Points to a string specifying the name of the
@@ -1397,6 +1414,18 @@ EXTERN_THREAD a_const_char
            *gen_asm_file_name;
                    /* Points to a string specifying the name of the
                       generated assembly file to be created. */
+EXTERN_THREAD a_boolean
+           sanitize_address;
+                   /* TRUE if AddressSanitizer is enabled. */
+EXTERN_THREAD a_boolean
+           sanitize_thread;
+                   /* TRUE if ThreadSanitizer is enabled. */
+EXTERN_THREAD a_boolean
+           sanitize_memory;
+                   /* TRUE if MemorySanitizer is enabled. */
+EXTERN_THREAD a_boolean
+           sanitize_undefined;
+                   /* TRUE if UndefinedBehaviorSanitizer is enabled. */
 #endif /* BACK_END_IS_LLVM_GEN_BE */
 
 EXTERN_THREAD a_boolean

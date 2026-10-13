@@ -34,6 +34,7 @@ namespace edg {
   char* mangled_typeinfo_name(a_type_ptr type) { return (char*)"_ZTIi"; }
   a_type_qualifier_set f_get_type_qualifiers(a_type_ptr type, a_boolean x) { return 0; }
   a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
   llvm_gen_be_error_t evaluate_constant(a_constant_ptr con, llvm::Type* ty, llvm::Constant** out_const) noexcept { 
     if (ty->isIntegerTy()) *out_const = llvm::ConstantInt::get(ty, 1);
     else if (ty->isFloatingPointTy()) *out_const = llvm::ConstantFP::get(ty, 1.0);

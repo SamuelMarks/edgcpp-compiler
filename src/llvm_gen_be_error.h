@@ -31,6 +31,7 @@ typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   ok = 0,                        ///< Operation completed successfully without error.
   invalid_argument = 1,          ///< A null pointer or invalid argument was supplied.
   out_of_memory = 2,             ///< Dynamic heap allocation failed.
+  not_implemented = 19,          ///< Feature not implemented.
   unsupported_type = 3,          ///< Encountered an unsupported or unhandled EDG type kind.
   unsupported_expr = 4,          ///< Encountered an unsupported or unhandled EDG expression operator.
   unsupported_stmt = 5,          ///< Encountered an unsupported or unhandled EDG statement kind.
@@ -48,6 +49,33 @@ typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   inline_asm_failure = 17,       ///< Inline assembly translation failure.
   internal_inconsistency = 18    ///< Internal compiler inconsistency or invariant violation.
 } llvm_gen_be_error_t;
+
+/**
+ * @brief Evaluates an expression returning llvm_gen_be_error_t, and returns it immediately if not ok.
+ * @details This macro evaluates the provided expression once. If the result is not
+ * llvm_gen_be_error_t::ok, the enclosing function returns the error code early.
+ * @param expr The expression to evaluate, expected to return llvm_gen_be_error_t.
+ */
+#define LLVM_GEN_BE_CHECK(expr) \
+  do { \
+    llvm_gen_be_error_t _err_eval_result = (expr); \
+    if (_err_eval_result != llvm_gen_be_error_t::ok) { \
+      return _err_eval_result; \
+    } \
+  } while (0)
+
+/**
+ * @brief Checks if a pointer is null, and returns llvm_gen_be_error_t::invalid_argument if so.
+ * @details This macro evaluates the provided pointer. If it evaluates to nullptr,
+ * the enclosing function returns llvm_gen_be_error_t::invalid_argument early.
+ * @param ptr The pointer expression to check against nullptr.
+ */
+#define LLVM_GEN_BE_CHECK_NOT_NULL(ptr) \
+  do { \
+    if ((ptr) == nullptr) { \
+      return llvm_gen_be_error_t::invalid_argument; \
+    } \
+  } while (0)
 
 /**
  * @struct llvm_gen_be_error_context_t

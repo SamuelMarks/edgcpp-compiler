@@ -34,6 +34,7 @@ namespace edg {
   char* mangled_typeinfo_name(a_type_ptr type) { static char buf[] = "_ZTIi"; return buf; }
   a_type_qualifier_set f_get_type_qualifiers(a_type_ptr type, a_boolean x) { return 0; }
   a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
   llvm_gen_be_error_t evaluate_constant(a_constant_ptr con, llvm::Type* ty, llvm::Constant** out_const) noexcept { 
     if (ty->isIntegerTy()) *out_const = llvm::ConstantInt::get(ty, 1);
     else if (ty->isFloatingPointTy()) *out_const = llvm::ConstantFP::get(ty, 1.0);
@@ -172,6 +173,25 @@ int main() {
       assert(llvm_lower_statement(&stmt) == llvm_gen_be_error_t::ok);
   }
 
+  // stmk_range_based_for
+  {
+      a_statement stmt = {};
+      stmt.kind = stmk_range_based_for;
+      a_statement body = {};
+      body.kind = stmk_empty;
+      a_range_based_for_loop loop_info = {};
+      a_statement init = {};
+      init.kind = stmk_empty;
+      loop_info.initialization = &init;
+      an_expr_node ne_expr = {};
+      loop_info.ne_call_expr = &ne_expr;
+      an_expr_node inc_expr = {};
+      loop_info.incr_call_expr = &inc_expr;
+      stmt.variant.range_based_for_loop.statement = &body;
+      stmt.variant.range_based_for_loop.extra_info = &loop_info;
+      assert(llvm_lower_statement(&stmt) == llvm_gen_be_error_t::ok);
+  }
+
   // stmk_label
   {
       a_statement stmt = {};
@@ -202,11 +222,41 @@ int main() {
       assert(llvm_lower_statement(&stmt) == llvm_gen_be_error_t::ok);
   }
 
+  // Test break and continue via goto
+  {
+      a_statement loop_stmt = {};
+      loop_stmt.kind = stmk_while;
+      an_expr_node expr = {};
+      loop_stmt.expr = &expr;
+
+      a_statement body = {};
+      body.kind = stmk_block;
+
+      a_statement break_stmt = {};
+      break_stmt.kind = stmk_goto;
+      a_label brk_lbl = {};
+      break_stmt.variant.label.ptr = &brk_lbl;
+
+      a_statement cont_stmt = {};
+      cont_stmt.kind = stmk_goto;
+      a_label cnt_lbl = {};
+      cont_stmt.variant.label.ptr = &cnt_lbl;
+
+      break_stmt.next = &cont_stmt;
+      body.variant.block.statements = &break_stmt;
+
+      loop_stmt.variant.loop_statement = &body;
+      assert(llvm_lower_statement(&loop_stmt) == llvm_gen_be_error_t::ok);
+  }
+
   // stmk_switch
   {
       a_statement stmt = {};
       stmt.kind = stmk_switch;
       an_expr_node expr = {};
+      a_type expr_ty = {};
+      expr_ty.kind = tk_integer;
+      expr.type = &expr_ty;
       stmt.expr = &expr;
       a_switch_stmt_descr descr = {};
       a_switch_case_entry c1 = {};
@@ -225,7 +275,66 @@ int main() {
       assert(llvm_lower_statement(&stmt) == llvm_gen_be_error_t::ok);
   }
 
+  // stmk_set_vla_size and stmk_vla_decl
+  {
+      a_statement stmt = {};
+      stmt.kind = stmk_set_vla_size;
+      a_vla_dimension dim = {};
+      a_type dim_ty = {};
+      dim_ty.kind = tk_integer;
+      dim.type = &dim_ty;
+      an_expr_node expr = {};
+      expr.type = &dim_ty;
+      dim.dimension_expr = &expr;
+      a_variable var = {};
+      dim.dimension_variable = &var;
+      stmt.variant.vla_dimension = &dim;
+      state.local_vars[&var] = state.builder->CreateAlloca(llvm::Type::getInt32Ty(*state.context));
+      assert(llvm_lower_statement(&stmt) == llvm_gen_be_error_t::ok);
 
+      a_statement decl_stmt = {};
+      decl_stmt.kind = stmk_vla_decl;
+      a_variable vla_var = {};
+      memset(&vla_var, 0, sizeof(vla_var));
+      a_type vla_ty = {};
+      memset(&vla_ty, 0, sizeof(vla_ty));
+      vla_ty.kind = tk_array;
+      vla_ty.variant.array.element_type = &dim_ty;
+      vla_ty.variant.array.is_vla = TRUE;
+      vla_ty.variant.array.has_assoc_vla_dimension = TRUE;
+      vla_var.type = &vla_ty;
+      decl_stmt.variant.vla.variant.variable = &vla_var;
+      state.local_vars[&vla_var] = state.builder->CreateAlloca(llvm::PointerType::getUnqual(*state.context));
+      assert(llvm_lower_statement(&decl_stmt) == llvm_gen_be_error_t::ok);
+  }
+
+
+
+  // Test assigned goto
+  a_statement assigned_goto_stmt = {};
+  assigned_goto_stmt.kind = stmk_assigned_goto;
+  an_expr_node address_expr = {};
+  address_expr.kind = enk_constant;
+  assigned_goto_stmt.expr = &address_expr;
+
+  assert(llvm_lower_statement(&assigned_goto_stmt) == llvm_gen_be_error_t::ok);
+
+
+  // Test Coroutine Statements
+  a_statement coro_stmt = {};
+  coro_stmt.kind = stmk_coroutine;
+  a_coroutine_descr coro_descr = {};
+  coro_stmt.variant.coroutine.descr = &coro_descr;
+  
+  a_routine new_rout = {};
+  new_rout.source_corresp.name = "_Znwm_coro";
+  coro_descr.new_routine = &new_rout;
+  
+  assert(llvm_lower_statement(&coro_stmt) == llvm_gen_be_error_t::ok);
+  
+  a_statement coro_ret = {};
+  coro_ret.kind = stmk_coroutine_return;
+  assert(llvm_lower_statement(&coro_ret) == llvm_gen_be_error_t::ok);
 
   printf("PASS\n");
   return 0;
