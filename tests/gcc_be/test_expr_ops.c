@@ -1,3 +1,13 @@
+/**
+ * @file test_expr_ops.c
+ * @brief Missing brief.
+ * @details Missing details.
+ */
+/**
+ * @brief Main entry point.
+ * @details Runs tests.
+ * @return 0 on success.
+ */
 int main() {
     int a = 1, b = 2;
     a += b;

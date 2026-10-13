@@ -203,6 +203,7 @@ enum gcc_jit_variable_attribute {
 #endif
 
 /* Function pointer types for modern APIs */
+/** @brief pfn_gcc_jit_block_end_with_extended_asm_goto member. */
 typedef void (*pfn_gcc_jit_block_end_with_extended_asm_goto)(
     struct gcc_jit_block *block,
     struct gcc_jit_location *loc,
@@ -213,23 +214,38 @@ typedef void (*pfn_gcc_jit_block_end_with_extended_asm_goto)(
     int num_goto_blocks, struct gcc_jit_block **goto_blocks,
     struct gcc_jit_block *fallthrough_block);
 
+/** @brief pfn_gcc_jit_lvalue_set_tls_model member. */
 typedef void (*pfn_gcc_jit_lvalue_set_tls_model)(
     struct gcc_jit_lvalue *lvalue,
     enum gcc_jit_tls_model model);
 
+/** @brief pfn_gcc_jit_function_add_attribute member. */
 typedef void (*pfn_gcc_jit_function_add_attribute)(
     struct gcc_jit_function *func,
     enum gcc_jit_fn_attribute attribute);
 
+/** @brief pfn_gcc_jit_function_add_string_attribute member. */
+typedef void (*pfn_gcc_jit_function_add_string_attribute)(
+    struct gcc_jit_function *func,
+    enum gcc_jit_fn_attribute attribute,
+    const char *value);
+
+/** @brief pfn_gcc_jit_lvalue_add_string_attribute member. */
 typedef void (*pfn_gcc_jit_lvalue_add_string_attribute)(
     struct gcc_jit_lvalue *variable,
     enum gcc_jit_variable_attribute attribute,
     const char* value);
 
+/** @brief pfn_gcc_jit_lvalue_set_alignment member. */
 typedef void (*pfn_gcc_jit_lvalue_set_alignment)(
     struct gcc_jit_lvalue *lvalue,
     unsigned bytes);
 
+/** @brief pfn_gcc_jit_context_new_array_constructor member. */
+/** @brief pfn_gcc_jit_context_new_struct_constructor member. */
+/** @brief pfn_gcc_jit_type_get_vector member. */
+/** @brief pfn_gcc_jit_context_get_int_type member. */
+/** @brief pfn_gcc_jit_lvalue_set_register_name member. */
 typedef void (*pfn_gcc_jit_lvalue_set_register_name)(
     struct gcc_jit_lvalue *lvalue,
     const char *reg_name);
@@ -260,6 +276,10 @@ typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_array_constructor)(
     struct gcc_jit_rvalue **values);
 
 /** @brief Function pointer. */
+/** @brief pfn_gcc_jit_context_get_builtin_function member. */
+/** @brief pfn_gcc_jit_context_new_rvalue_from_vector member. */
+/** @brief pfn_gcc_jit_context_new_bitcast member. */
+/** @brief pfn_gcc_jit_context_new_union_constructor member. */
 extern pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor;
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_union_constructor)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_type *type, struct gcc_jit_field *field, struct gcc_jit_rvalue *value);
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_bitcast)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_rvalue *rvalue, struct gcc_jit_type *type);
@@ -286,9 +306,14 @@ extern pfn_gcc_jit_block_end_with_extended_asm_goto p_gcc_jit_block_end_with_ext
 extern pfn_gcc_jit_lvalue_set_tls_model p_gcc_jit_lvalue_set_tls_model;
 /** @brief Function pointer. */
 extern pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute;
+/** @brief pfn_gcc_jit_lvalue_set_link_section member. */
 typedef void (*pfn_gcc_jit_lvalue_set_link_section)(struct gcc_jit_lvalue *lvalue, const char *section_name);
 /** @brief Function pointer. */
 extern pfn_gcc_jit_lvalue_set_link_section p_gcc_jit_lvalue_set_link_section;
+
+/** @brief Function pointer. */
+/** @brief Function pointer. */
+extern pfn_gcc_jit_function_add_string_attribute p_gcc_jit_function_add_string_attribute;
 
 /** @brief Function pointer. */
 extern pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute;

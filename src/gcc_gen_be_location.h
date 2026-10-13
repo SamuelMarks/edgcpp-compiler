@@ -49,6 +49,11 @@ extern gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr exp
  */
 extern gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
 
+
+extern gcc_gen_be_error_t gcc_gen_be_get_location_from_type(a_type_ptr tp, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_get_location_from_var(a_variable_ptr var, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_get_location_from_routine(a_routine_ptr rout, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT;
+
 END_EDG_NAMESPACE
 
 #endif /* GCC_GEN_BE_LOCATION_H */

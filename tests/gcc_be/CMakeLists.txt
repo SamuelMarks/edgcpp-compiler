@@ -19,6 +19,7 @@ set(GCC_BE_TEST_FILES
     test_eh.cpp
     test_inline_asm.c
     test_edge_cases.c
+    test_dynamic_init.cpp
 )
 
 add_custom_target(run_gcc_be_tests
@@ -44,6 +45,16 @@ foreach(test_file ${GCC_BE_TEST_FILES})
     set_tests_properties(test_gcc_be_${test_file} PROPERTIES 
         FIXTURES_SETUP "gcc_be_test_run"
         ENVIRONMENT "EDG_BASE=${PROJECT_SOURCE_DIR}/bases/cmake-native/macos-arm/clang")
+
+    if(test_file STREQUAL "test_dynamic_init.cpp")
+        add_test(NAME test_gcc_be_link_${test_file}
+                 COMMAND ${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_BINARY_DIR}/${test_file}.o -o ${CMAKE_CURRENT_BINARY_DIR}/${test_file}.exe)
+        set_tests_properties(test_gcc_be_link_${test_file} PROPERTIES DEPENDS test_gcc_be_${test_file})
+        
+        add_test(NAME test_gcc_be_exec_${test_file}
+                 COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${test_file}.exe)
+        set_tests_properties(test_gcc_be_exec_${test_file} PROPERTIES DEPENDS test_gcc_be_link_${test_file})
+    endif()
 endforeach()
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -58,23 +69,24 @@ add_custom_target(coverage_gcc_be
 
 # Unit tests for backend components
 add_executable(test_gcc_be_errors test_gcc_be_errors.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_error.c)
+add_dependencies(test_gcc_be_errors error-info)
 target_include_directories(test_gcc_be_errors PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_errors_unit COMMAND test_gcc_be_errors)
 target_compile_options(test_gcc_be_errors PRIVATE "-x" "c++")
 target_compile_definitions(test_gcc_be_errors PRIVATE BACK_END_IS_GCC_GEN_BE=1)
 target_include_directories(test_gcc_be_errors PRIVATE ${PROJECT_BINARY_DIR}/includes)
-add_dependencies(test_gcc_be_errors error-info)
 
 add_executable(test_gcc_be_context test_gcc_be_context.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_context error-info)
 target_include_directories(test_gcc_be_context PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(test_gcc_be_context PRIVATE LibGCCJIT::LibGCCJIT)
 add_test(NAME test_gcc_be_context_unit COMMAND test_gcc_be_context)
 target_compile_options(test_gcc_be_context PRIVATE "-x" "c++")
 target_compile_definitions(test_gcc_be_context PRIVATE BACK_END_IS_GCC_GEN_BE=1)
 target_include_directories(test_gcc_be_context PRIVATE ${PROJECT_BINARY_DIR}/includes)
-add_dependencies(test_gcc_be_context error-info)
 
 add_executable(test_gcc_be_lib_loader test_gcc_be_lib_loader.cpp)
+add_dependencies(test_gcc_be_lib_loader error-info)
 target_include_directories(test_gcc_be_lib_loader PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_lib_loader_unit COMMAND test_gcc_be_lib_loader)
 target_compile_definitions(test_gcc_be_lib_loader PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -82,6 +94,7 @@ target_compile_options(test_gcc_be_lib_loader PRIVATE "-x" "c++")
 target_include_directories(test_gcc_be_lib_loader PRIVATE ${PROJECT_BINARY_DIR}/includes)
 
 add_executable(test_gcc_be_cache test_gcc_be_cache.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c)
+add_dependencies(test_gcc_be_cache error-info)
 target_include_directories(test_gcc_be_cache PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_cache_unit COMMAND test_gcc_be_cache)
 target_compile_definitions(test_gcc_be_cache PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -89,6 +102,7 @@ target_compile_options(test_gcc_be_cache PRIVATE "-x" "c++")
 target_include_directories(test_gcc_be_cache PRIVATE ${PROJECT_BINARY_DIR}/includes)
 
 add_executable(test_gcc_be_type test_gcc_be_type.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_type.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_type error-info)
 target_include_directories(test_gcc_be_type PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_type_unit COMMAND test_gcc_be_type)
 target_compile_definitions(test_gcc_be_type PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -97,6 +111,7 @@ target_include_directories(test_gcc_be_type PRIVATE ${PROJECT_BINARY_DIR}/includ
 target_link_libraries(test_gcc_be_type PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_rtti test_gcc_be_rtti.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_rtti.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_rtti error-info)
 target_include_directories(test_gcc_be_rtti PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_rtti_unit COMMAND test_gcc_be_rtti)
 target_compile_definitions(test_gcc_be_rtti PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -105,6 +120,7 @@ target_include_directories(test_gcc_be_rtti PRIVATE ${PROJECT_BINARY_DIR}/includ
 target_link_libraries(test_gcc_be_rtti PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_builtin test_gcc_be_builtin.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_builtin.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_builtin error-info)
 target_include_directories(test_gcc_be_builtin PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_builtin_unit COMMAND test_gcc_be_builtin)
 target_compile_definitions(test_gcc_be_builtin PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -113,6 +129,7 @@ target_include_directories(test_gcc_be_builtin PRIVATE ${PROJECT_BINARY_DIR}/inc
 target_link_libraries(test_gcc_be_builtin PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_decl test_gcc_be_decl.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_decl.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_type.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_location.c)
+add_dependencies(test_gcc_be_decl error-info)
 target_include_directories(test_gcc_be_decl PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_decl_unit COMMAND test_gcc_be_decl)
 target_compile_definitions(test_gcc_be_decl PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -121,6 +138,7 @@ target_include_directories(test_gcc_be_decl PRIVATE ${PROJECT_BINARY_DIR}/includ
 target_link_libraries(test_gcc_be_decl PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_expr test_gcc_be_expr.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_expr.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_rtti.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_expr error-info)
 target_include_directories(test_gcc_be_expr PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_expr_unit COMMAND test_gcc_be_expr)
 target_compile_definitions(test_gcc_be_expr PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -129,6 +147,7 @@ target_include_directories(test_gcc_be_expr PRIVATE ${PROJECT_BINARY_DIR}/includ
 target_link_libraries(test_gcc_be_expr PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_abi test_gcc_be_abi.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_abi.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_abi error-info)
 target_include_directories(test_gcc_be_abi PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_abi_unit COMMAND test_gcc_be_abi)
 target_compile_definitions(test_gcc_be_abi PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -137,6 +156,7 @@ target_include_directories(test_gcc_be_abi PRIVATE ${PROJECT_BINARY_DIR}/include
 target_link_libraries(test_gcc_be_abi PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_debug test_gcc_be_debug.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_debug.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_location.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_debug error-info)
 target_include_directories(test_gcc_be_debug PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_debug_unit COMMAND test_gcc_be_debug)
 target_compile_definitions(test_gcc_be_debug PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -145,6 +165,7 @@ target_include_directories(test_gcc_be_debug PRIVATE ${PROJECT_BINARY_DIR}/inclu
 target_link_libraries(test_gcc_be_debug PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_dtor test_gcc_be_dtor.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_dtor.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_dtor error-info)
 target_include_directories(test_gcc_be_dtor PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_dtor_unit COMMAND test_gcc_be_dtor)
 target_compile_definitions(test_gcc_be_dtor PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -153,6 +174,7 @@ target_include_directories(test_gcc_be_dtor PRIVATE ${PROJECT_BINARY_DIR}/includ
 target_link_libraries(test_gcc_be_dtor PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_stmt2 test_gcc_be_stmt2.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_stmt.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_expr.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_rtti.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_stmt2 error-info)
 target_include_directories(test_gcc_be_stmt2 PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_stmt2_unit COMMAND test_gcc_be_stmt2)
 target_compile_definitions(test_gcc_be_stmt2 PRIVATE BACK_END_IS_GCC_GEN_BE=1)
@@ -161,6 +183,7 @@ target_include_directories(test_gcc_be_stmt2 PRIVATE ${PROJECT_BINARY_DIR}/inclu
 target_link_libraries(test_gcc_be_stmt2 PRIVATE LibGCCJIT::LibGCCJIT)
 
 add_executable(test_gcc_be_stmt test_gcc_be_stmt.cpp ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_stmt.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_rtti.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_context.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_cache.c ${PROJECT_SOURCE_DIR}/src/gcc_gen_be_lib_loader.c)
+add_dependencies(test_gcc_be_stmt error-info)
 target_include_directories(test_gcc_be_stmt PRIVATE ${PROJECT_SOURCE_DIR}/src)
 add_test(NAME test_gcc_be_stmt_unit COMMAND test_gcc_be_stmt)
 target_compile_definitions(test_gcc_be_stmt PRIVATE BACK_END_IS_GCC_GEN_BE=1)

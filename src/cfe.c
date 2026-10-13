@@ -111,7 +111,10 @@ MAKE_FRONT_END_CALLABLE is TRUE.
 #endif /* BACK_END_SHOULD_BE_CALLED && BACK_END_IS_CP_GEN_BE && ... */
 #if BACK_END_SHOULD_BE_CALLED && BACK_END_IS_GCC_GEN_BE && \
     MAKE_FRONT_END_CALLABLE
-  gcc_gen_be_early_init();
+  gcc_gen_be_error_t err = gcc_gen_be_early_init();
+  if (err != GCC_GEN_BE_SUCCESS) {
+    internal_error("gcc_gen_be_early_init failed");
+  }
 #endif /* BACK_END_SHOULD_BE_CALLED && BACK_END_IS_GCC_GEN_BE && ... */
   /* Get the execution starting time.  Do this unconditionally because the
      timing command line option will not have been processed yet.  This must
@@ -176,7 +179,13 @@ MAKE_FRONT_END_CALLABLE is TRUE.
       }  /* if */
 #endif /* USING_KAI_INLINER */
       if (display_compilation_time) get_timer(&be_start_time);
+#if BACK_END_IS_GCC_GEN_BE
+      if (back_end() != GCC_GEN_BE_SUCCESS) {
+        internal_error("back_end failed");
+      }
+#else
       back_end();
+#endif
       if (display_compilation_time) {
         /* Get the back end ending time. */
         get_timer(&be_end_time);

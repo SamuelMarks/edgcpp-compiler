@@ -1810,6 +1810,7 @@ Initialize the option information table.
 #if BACK_END_IS_GCC_GEN_BE
   add_option_description(optk_gcc_gen_be, "gcc_gen_be", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_c, "compile_only", 'c', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_S, "assemble_only", 'S', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_O0, "O0", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_O1, "O1", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_O2, "O2", '\0', TRUE, FALSE, pchek_command_line);
@@ -1819,8 +1820,24 @@ Initialize the option information table.
   add_option_description(optk_gcc_be_g, "g", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_fPIC, "fPIC", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_fPIE, "fPIE", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_fno_pie, "fno-pie", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_dump_initial_tree, "fdump-tree-all", '\0', TRUE, FALSE, pchek_command_line);
   add_option_description(optk_gcc_be_dump_gimple, "fdump-tree-gimple", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_dump_rtl_all, "fdump-rtl-all", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_ffast_math, "ffast-math", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_fno_trapping_math, "fno-trapping-math", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_fassociative_math, "fassociative-math", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_shared, "shared", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_static, "static", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_march, "march", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mcpu, "mcpu", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mtune, "mtune", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mfpu, "mfpu", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mcmodel, "mcmodel", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_m64, "m64", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_m32, "m32", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_L, "L", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_l, "l", '\0', TRUE, TRUE, pchek_command_line);
 #endif /* BACK_END_IS_GCC_GEN_BE */
 
 }  /* initialize_option_descriptions */
@@ -12269,8 +12286,9 @@ enable_microsoft_mode:
         break;
 
 #if BACK_END_IS_GCC_GEN_BE
-      case optk_gcc_gen_be: break;
-      case optk_gcc_be_c: break;
+      case optk_gcc_gen_be: gcc_be_enabled = TRUE; break;
+      case optk_gcc_be_c: gcc_be_compile_only = TRUE; break;
+      case optk_gcc_be_S: gcc_be_assemble_only = TRUE; break;
       case optk_gcc_be_O0: gcc_be_opt_level = 0; break;
       case optk_gcc_be_O1: gcc_be_opt_level = 1; break;
       case optk_gcc_be_O2: gcc_be_opt_level = 2; break;
@@ -12280,8 +12298,34 @@ enable_microsoft_mode:
       case optk_gcc_be_g: gcc_be_debug_info = TRUE; break;
       case optk_gcc_be_fPIC: gcc_be_fPIC = TRUE; break;
       case optk_gcc_be_fPIE: gcc_be_fPIE = TRUE; break;
+      case optk_gcc_be_fno_pie: gcc_be_fno_pie = TRUE; break;
       case optk_gcc_be_dump_initial_tree: gcc_be_dump_initial_tree = TRUE; break;
       case optk_gcc_be_dump_gimple: gcc_be_dump_gimple = TRUE; break;
+      case optk_gcc_be_dump_rtl_all: gcc_be_dump_rtl_all = TRUE; break;
+      case optk_gcc_be_ffast_math: gcc_be_ffast_math = TRUE; break;
+      case optk_gcc_be_fno_trapping_math: gcc_be_fno_trapping_math = TRUE; break;
+      case optk_gcc_be_fassociative_math: gcc_be_fassociative_math = TRUE; break;
+      case optk_gcc_be_shared: gcc_be_shared = TRUE; break;
+      case optk_gcc_be_static: gcc_be_static = TRUE; break;
+      case optk_gcc_be_march: gcc_be_march = opt_arg; break;
+      case optk_gcc_be_mcpu: gcc_be_mcpu = opt_arg; break;
+      case optk_gcc_be_mtune: gcc_be_mtune = opt_arg; break;
+      case optk_gcc_be_mfpu: gcc_be_mfpu = opt_arg; break;
+      case optk_gcc_be_mcmodel: gcc_be_mcmodel = opt_arg; break;
+      case optk_gcc_be_m64: gcc_be_m64 = TRUE; break;
+      case optk_gcc_be_m32: gcc_be_m32 = TRUE; break;
+      case optk_gcc_be_L:
+        add_to_list(&gcc_be_driver_options, 
+                    new_str_list_entry_using_host_mem(
+                        add_to_temp_string(
+                            add_to_temp_string(alloc_temp_string(), "-L"), opt_arg)));
+        break;
+      case optk_gcc_be_l:
+        add_to_list(&gcc_be_driver_options, 
+                    new_str_list_entry_using_host_mem(
+                        add_to_temp_string(
+                            add_to_temp_string(alloc_temp_string(), "-l"), opt_arg)));
+        break;
 #endif /* BACK_END_IS_GCC_GEN_BE */
 
      default:
@@ -13165,6 +13209,12 @@ enable_microsoft_mode:
     raw_string_literals_enabled = TRUE;
   }  /* if */
 #endif /* GNU_EXTENSIONS_ALLOWED */
+
+#if BACK_END_IS_GCC_GEN_BE
+  if (!gcc_be_enabled) {
+    suppress_back_end = TRUE;
+  }
+#endif
 }  /* proc_command_line */
 
 #if COMPILE_MULTIPLE_TRANSLATION_UNITS
@@ -13902,7 +13952,34 @@ variables declared in cmd_line.h.
   auto_cast_enabled = FALSE;
   embed_enabled = FALSE;
   struct_binding_packs_enabled = FALSE;
-  pack_indexing_enabled = FALSE;
+#if BACK_END_IS_GCC_GEN_BE
+  gcc_be_enabled = FALSE;
+  gcc_be_output_file_name = NULL;
+  gcc_be_opt_level = 0;
+  gcc_be_compile_only = FALSE;
+  gcc_be_assemble_only = FALSE;
+  gcc_be_debug_info = FALSE;
+  gcc_be_fPIC = FALSE;
+  gcc_be_fPIE = FALSE;
+  gcc_be_fno_pie = FALSE;
+  gcc_be_dump_initial_tree = FALSE;
+  gcc_be_dump_gimple = FALSE;
+  gcc_be_dump_rtl_all = FALSE;
+  gcc_be_ffast_math = FALSE;
+  gcc_be_fno_trapping_math = FALSE;
+  gcc_be_fassociative_math = FALSE;
+  gcc_be_shared = FALSE;
+  gcc_be_static = FALSE;
+  gcc_be_march = NULL;
+  gcc_be_mcpu = NULL;
+  gcc_be_mtune = NULL;
+  gcc_be_mfpu = NULL;
+  gcc_be_mcmodel = NULL;
+  gcc_be_m64 = FALSE;
+  gcc_be_m32 = FALSE;
+  gcc_be_driver_options = NULL;
+  gcc_be_compiler_options = NULL;
+#endif
 }  /* cmd_line_static_var_init */
 
 

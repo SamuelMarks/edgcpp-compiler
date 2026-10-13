@@ -13,7 +13,34 @@
 
 #include "gcc_gen_be_error.h"
 #include <libgccjit.h>
+
+
+#ifdef EDG_GCC_BE_ISOLATED_TEST
+struct a_type;
+struct a_routine;
+struct an_expr_node;
+typedef struct a_type *a_type_ptr;
+typedef struct a_routine *a_routine_ptr;
+typedef struct an_expr_node *an_expr_node_ptr;
+#else
+#ifndef EDG_GCC_BE_ISOLATED_TEST
 #include "fe_common.h"
+#include "il_def.h"
+#else
+#include "basic_hdrs.h"
+struct a_type;
+struct a_routine;
+struct an_expr_node;
+typedef struct a_type *a_type_ptr;
+typedef struct a_routine *a_routine_ptr;
+typedef struct an_expr_node *an_expr_node_ptr;
+#endif
+#endif
+
+#ifndef BEGIN_EDG_NAMESPACE
+#define BEGIN_EDG_NAMESPACE
+#define END_EDG_NAMESPACE
+#endif
 
 BEGIN_EDG_NAMESPACE
 

@@ -80,4 +80,30 @@ extern gcc_gen_be_error_t gcc_gen_be_emit_stack_save(struct gcc_jit_function *fu
  */
 extern gcc_gen_be_error_t gcc_gen_be_emit_stack_restore(struct gcc_jit_function *func, struct gcc_jit_block *block, struct gcc_jit_lvalue *save_var) GCC_GEN_BE_NOEXCEPT;
 
+/**
+ * @brief Lowers coroutine frame.
+ * @details Stubs coroutine frame.
+ * @param[in] rout Routine.
+ * @param[out] out_frame_type Frame type.
+ * @return GCC_GEN_BE_SUCCESS
+ */
+extern gcc_gen_be_error_t gcc_gen_be_lower_coroutine_frame(a_routine_ptr rout, struct gcc_jit_type **out_frame_type) GCC_GEN_BE_NOEXCEPT;
+/**
+ * @brief Lowers coroutine ramp.
+ * @details Stubs coroutine ramp.
+ * @param[in] rout Routine.
+ * @param[out] ramp_func Ramp function.
+ * @return GCC_GEN_BE_SUCCESS
+ */
+extern gcc_gen_be_error_t gcc_gen_be_lower_coroutine_ramp(a_routine_ptr rout, struct gcc_jit_function *ramp_func) GCC_GEN_BE_NOEXCEPT;
+/**
+ * @brief Lowers coroutine dispatchers.
+ * @details Stubs coroutine dispatchers.
+ * @param[in] rout Routine.
+ * @param[out] out_resume Resume fn.
+ * @param[out] out_destroy Destroy fn.
+ * @return GCC_GEN_BE_SUCCESS
+ */
+extern gcc_gen_be_error_t gcc_gen_be_lower_coroutine_dispatchers(a_routine_ptr rout, struct gcc_jit_function **out_resume, struct gcc_jit_function **out_destroy) GCC_GEN_BE_NOEXCEPT;
+
 #endif

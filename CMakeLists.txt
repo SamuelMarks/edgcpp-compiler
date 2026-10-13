@@ -59,7 +59,7 @@ if(NOT DEFINED EDG_PREFERRED_LINKER)
 
     # Only use lld with Clang, it doesn't understand GCC's LTO format well (at
     # least at the time of writing).
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
       if(NOT DEFINED EDG_PREFERRED_LINKER_TRIAL)
         find_program(LLD_LINKER ld.lld NO_CACHE)
         if(NOT LLD_LINKER STREQUAL "LLD_LINKER-NOTFOUND")

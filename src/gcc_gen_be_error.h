@@ -96,6 +96,9 @@ typedef enum GCC_GEN_BE_NODISCARD {
     /** @brief Indicates that creating a landing pad for a try block failed. */
     GCC_GEN_BE_ERROR_EH_LANDING_PAD_FAILED,
 
+    /** @brief Indicates that generating an EH table failed. */
+    GCC_GEN_BE_ERROR_EH_TABLE_GENERATION_FAILED,
+
     /** @brief Indicates that a symbol could not be resolved. */
     GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL,
 
@@ -114,11 +117,17 @@ typedef enum GCC_GEN_BE_NODISCARD {
     /** @brief Indicates that generating a vtable failed. */
     GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED,
 
+    /** @brief Indicates that vtable layout computation failed. */
+    GCC_GEN_BE_ERROR_VTABLE_LAYOUT_FAILED,
+
     /** @brief Indicates that an RTTI descriptor is invalid. */
     GCC_GEN_BE_ERROR_RTTI_INVALID,
 
     /** @brief Indicates that generating RTTI information failed. */
     GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED,
+
+    /** @brief Indicates that RTTI emission failed. */
+    GCC_GEN_BE_ERROR_RTTI_EMISSION_FAILED,
 
     /** @brief Indicates that an inline assembly constraint is invalid. */
     GCC_GEN_BE_ERROR_ASM_CONSTRAINT_INVALID,
@@ -126,8 +135,53 @@ typedef enum GCC_GEN_BE_NODISCARD {
     /** @brief Indicates that DWARF debug information emission failed. */
     GCC_GEN_BE_ERROR_DWARF_EMISSION_FAILED,
 
-    /** @brief Indicates that a JIT compilation failed. */
-    GCC_GEN_BE_ERROR_COMPILATION_FAILED
+    /** @brief Indicates that DWARF DIE creation failed. */
+    GCC_GEN_BE_ERROR_DWARF_DIE_CREATION_FAILED,
+
+    /** @brief Indicates that JIT compilation failed. */
+    GCC_GEN_BE_ERROR_COMPILATION_FAILED,
+
+    /** @brief Indicates that VTT generation failed. */
+    GCC_GEN_BE_ERROR_VTT_GENERATION_FAILED,
+
+    /** @brief Indicates that thunk generation failed. */
+    GCC_GEN_BE_ERROR_THUNK_GENERATION_FAILED,
+
+    /** @brief Indicates that target ABI parameter classification failed. */
+    GCC_GEN_BE_ERROR_ABI_CLASSIFICATION_FAILED,
+
+    /** @brief Indicates that the calling convention is unsupported. */
+    GCC_GEN_BE_ERROR_UNSUPPORTED_CALLING_CONV,
+
+    /** @brief Indicates that DWARF type emission failed. */
+    GCC_GEN_BE_ERROR_DWARF_TYPE_EMISSION_FAILED,
+
+    /** @brief Indicates that an inline assembly operand is unsupported. */
+    GCC_GEN_BE_ERROR_ASM_OPERAND_UNSUPPORTED,
+
+    /** @brief Indicates that struct packing failed. */
+    GCC_GEN_BE_ERROR_STRUCT_PACKING_FAILED,
+
+    /** @brief Indicates that bitfield layout failed. */
+    GCC_GEN_BE_ERROR_BITFIELD_LAYOUT_FAILED,
+
+    /** @brief Indicates that coroutine frame generation failed. */
+    GCC_GEN_BE_ERROR_COROUTINE_FRAME_FAILED,
+
+    /** @brief Indicates that coroutine ramp generation failed. */
+    GCC_GEN_BE_ERROR_COROUTINE_RAMP_FAILED,
+
+    /** @brief Indicates that coroutine dispatch generation failed. */
+    GCC_GEN_BE_ERROR_COROUTINE_DISPATCH_FAILED,
+
+    /** @brief Indicates that CFI unwind table generation failed. */
+    GCC_GEN_BE_ERROR_CFI_UNWIND_FAILED,
+
+    /** @brief Indicates that SIMD lowering failed. */
+    GCC_GEN_BE_ERROR_SIMD_LOWERING_FAILED,
+
+    /** @brief Indicates that a target option is invalid. */
+    GCC_GEN_BE_ERROR_TARGET_OPTION_INVALID
 } gcc_gen_be_error_t;
 
 /**

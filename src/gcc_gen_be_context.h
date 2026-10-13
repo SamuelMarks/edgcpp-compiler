@@ -20,7 +20,9 @@
 /* Forward declarations for libgccjit types to avoid including the header in
  * every file that needs the context, though it may still be needed depending
  * on usage. */
+/** @brief gcc_jit_context member. */
 typedef struct gcc_jit_context gcc_jit_context;
+/** @brief gcc_jit_block member. */
 typedef struct gcc_jit_block gcc_jit_block;
 struct gcc_jit_function;
 struct gcc_jit_location;
@@ -218,7 +220,6 @@ extern gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *
  *
  * @return A GCC_GEN_BE_SUCCESS on success, or an error code otherwise.
  */
-extern gcc_gen_be_error_t gcc_gen_be_early_init(void) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Initializes the main gcc_jit_context and sets default options.
@@ -279,16 +280,22 @@ extern gcc_gen_be_error_t gcc_gen_be_pop_block(gcc_jit_block **out_block) GCC_GE
 /**
  * @brief Pushes a new lexical scope for variable shadowing onto the scope stack.
  *
+ * @param[in] lifetime The scope block to push.
  * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
-extern gcc_gen_be_error_t gcc_gen_be_push_scope(void) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_push_scope(an_object_lifetime_ptr lifetime) GCC_GEN_BE_NOEXCEPT;
 
 /**
  * @brief Pops the current lexical scope from the scope stack.
  *
+ * @param[in] block The block.
  * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
-extern gcc_gen_be_error_t gcc_gen_be_pop_scope(void) GCC_GEN_BE_NOEXCEPT;
+extern gcc_gen_be_error_t gcc_gen_be_pop_scope(struct gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT;
+
+extern gcc_gen_be_error_t gcc_gen_be_register_cleanup(struct gcc_jit_lvalue *var, struct gcc_jit_function *dtor_func) GCC_GEN_BE_NOEXCEPT;
+
+extern gcc_gen_be_error_t gcc_gen_be_emit_cleanups(an_object_lifetime_ptr target_lifetime, struct gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT;
 
 END_EDG_NAMESPACE
 

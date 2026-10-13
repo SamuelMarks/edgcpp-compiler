@@ -6,5 +6,8 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 echo "Checking GCC Backend test coverage..."
-python3 tests/gcc_be/check_coverage.py
+if ! python3 tests/gcc_be/check_coverage.py; then
+    echo "Coverage check failed."
+    exit 1
+fi
 exit 0

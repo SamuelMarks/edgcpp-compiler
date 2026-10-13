@@ -76,6 +76,9 @@ gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char 
         case GCC_GEN_BE_ERROR_EH_LANDING_PAD_FAILED:
             *out_str = "Error: Creating a landing pad for a try block failed.";
             break;
+        case GCC_GEN_BE_ERROR_EH_TABLE_GENERATION_FAILED:
+            *out_str = "Error: Generating an EH table failed.";
+            break;
         case GCC_GEN_BE_ERROR_UNRESOLVED_SYMBOL:
             *out_str = "Error: A required symbol could not be resolved in the current context.";
             break;
@@ -94,11 +97,17 @@ gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char 
         case GCC_GEN_BE_ERROR_VTABLE_GENERATION_FAILED:
             *out_str = "Error: Generating a virtual table (vtable) failed.";
             break;
+        case GCC_GEN_BE_ERROR_VTABLE_LAYOUT_FAILED:
+            *out_str = "Error: Computing virtual table (vtable) layout failed.";
+            break;
         case GCC_GEN_BE_ERROR_RTTI_INVALID:
             *out_str = "Error: An invalid RTTI descriptor was encountered.";
             break;
         case GCC_GEN_BE_ERROR_RTTI_GENERATION_FAILED:
             *out_str = "Error: Generating RTTI information failed.";
+            break;
+        case GCC_GEN_BE_ERROR_RTTI_EMISSION_FAILED:
+            *out_str = "Error: Emitting RTTI information failed.";
             break;
         case GCC_GEN_BE_ERROR_ASM_CONSTRAINT_INVALID:
             *out_str = "Error: An inline assembly constraint is invalid or unsupported.";
@@ -106,8 +115,53 @@ gcc_gen_be_error_t gcc_gen_be_error_string(gcc_gen_be_error_t error, const char 
         case GCC_GEN_BE_ERROR_DWARF_EMISSION_FAILED:
             *out_str = "Error: DWARF debug information emission failed.";
             break;
+        case GCC_GEN_BE_ERROR_DWARF_DIE_CREATION_FAILED:
+            *out_str = "Error: DWARF Debugging Information Entry (DIE) creation failed.";
+            break;
         case GCC_GEN_BE_ERROR_COMPILATION_FAILED:
             *out_str = "Error: JIT compilation failed.";
+            break;
+        case GCC_GEN_BE_ERROR_VTT_GENERATION_FAILED:
+            *out_str = "Error: Generating Virtual Table Table (VTT) failed.";
+            break;
+        case GCC_GEN_BE_ERROR_THUNK_GENERATION_FAILED:
+            *out_str = "Error: Generating virtual method thunk failed.";
+            break;
+        case GCC_GEN_BE_ERROR_ABI_CLASSIFICATION_FAILED:
+            *out_str = "Error: Target ABI parameter classification failed.";
+            break;
+        case GCC_GEN_BE_ERROR_UNSUPPORTED_CALLING_CONV:
+            *out_str = "Error: The requested calling convention is unsupported.";
+            break;
+        case GCC_GEN_BE_ERROR_DWARF_TYPE_EMISSION_FAILED:
+            *out_str = "Error: DWARF type debug information emission failed.";
+            break;
+        case GCC_GEN_BE_ERROR_ASM_OPERAND_UNSUPPORTED:
+            *out_str = "Error: An inline assembly operand is unsupported.";
+            break;
+        case GCC_GEN_BE_ERROR_STRUCT_PACKING_FAILED:
+            *out_str = "Error: Struct packing failed.";
+            break;
+        case GCC_GEN_BE_ERROR_BITFIELD_LAYOUT_FAILED:
+            *out_str = "Error: Bitfield layout calculation failed.";
+            break;
+        case GCC_GEN_BE_ERROR_COROUTINE_FRAME_FAILED:
+            *out_str = "Error: Coroutine frame layout generation failed.";
+            break;
+        case GCC_GEN_BE_ERROR_COROUTINE_RAMP_FAILED:
+            *out_str = "Error: Coroutine ramp function generation failed.";
+            break;
+        case GCC_GEN_BE_ERROR_COROUTINE_DISPATCH_FAILED:
+            *out_str = "Error: Coroutine dispatch logic generation failed.";
+            break;
+        case GCC_GEN_BE_ERROR_CFI_UNWIND_FAILED:
+            *out_str = "Error: Zero-cost DWARF CFI exception handling table generation failed.";
+            break;
+        case GCC_GEN_BE_ERROR_SIMD_LOWERING_FAILED:
+            *out_str = "Error: SIMD vector intrinsic lowering failed.";
+            break;
+        case GCC_GEN_BE_ERROR_TARGET_OPTION_INVALID:
+            *out_str = "Error: Target option or attribute is invalid.";
             break;
         default:
             *out_str = "Error: An unknown error occurred.";

@@ -1,111 +1,8 @@
 /**
  * @file gcc_gen_be_context.c
- * @brief Implementation of context and core state management.
- *
- * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM
- * Exceptions.
- * See https://edgcpp.org/LICENSE.txt for license information.
- * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ * @brief GCC backend context configuration.
+ * @details Manages libgccjit context initialization, option propagation, and cleanup.
  */
-
-#include "fe_common.h"
-#include "gcc_gen_be_context.h"
-#include "gcc_gen_be_lib_loader.h"
-#include "gcc_gen_be_cache.h"
-#include "cmd_line.h"
-#include <libgccjit.h>
-
-#if BACK_END_IS_GCC_GEN_BE
-
-BEGIN_EDG_NAMESPACE
-
-static unsigned long get_current_thread_id(void);
-
-/** @brief Global libgccjit context pointer. */
-static gcc_jit_context *gcc_jit_ctx = NULL;
-
-/** @brief The currently active libgccjit block. */
-static gcc_jit_block *current_block = NULL;
-
-/** @brief Global tracking state for the GCC backend context. */
-static gcc_gen_be_context_t backend_state = {0};
-
-/**
- * @brief Retrieves the global GCC backend context object.
- *
- * @param out_state Pointer to receive the backend state object.
- * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
- */
-gcc_gen_be_error_t gcc_gen_be_get_state(gcc_gen_be_context_t **out_state) GCC_GEN_BE_NOEXCEPT {
-    if (!out_state) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
-    *out_state = &backend_state;
-    return GCC_GEN_BE_SUCCESS;
-}
-
-/**
- * @brief Retrieves the currently active libgccjit context.
- *
- * @param out_ctx Pointer to receive the gcc_jit_context pointer.
- * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
- */
-gcc_gen_be_error_t gcc_gen_be_get_context(gcc_jit_context **out_ctx) GCC_GEN_BE_NOEXCEPT {
-    if (!out_ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
-    *out_ctx = gcc_jit_ctx;
-    return GCC_GEN_BE_SUCCESS;
-}
-
-/**
- * @brief Sets the currently active libgccjit context.
- *
- * @param ctx The gcc_jit_context to set as active.
- * @return GCC_GEN_BE_SUCCESS on success.
- */
-gcc_gen_be_error_t gcc_gen_be_set_context(gcc_jit_context *ctx) GCC_GEN_BE_NOEXCEPT {
-    gcc_jit_ctx = ctx;
-    return GCC_GEN_BE_SUCCESS;
-}
-
-/**
- * @brief Retrieves the currently active libgccjit block.
- *
- * @param out_block Pointer to receive the gcc_jit_block pointer.
- * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
- */
-gcc_gen_be_error_t gcc_gen_be_get_current_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
-    if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
-    *out_block = current_block;
-    return GCC_GEN_BE_SUCCESS;
-}
-
-/**
- * @brief Sets the currently active libgccjit block.
- *
- * @param block The gcc_jit_block to set as active.
- * @return GCC_GEN_BE_SUCCESS on success.
- */
-gcc_gen_be_error_t gcc_gen_be_set_current_block(gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT {
-    current_block = block;
-    return GCC_GEN_BE_SUCCESS;
-}
-
-/**
- * @brief Performs early initialization of the GCC backend.
- *
- * Loads the libgccjit dynamic library for the current platform.
- *
- * @return GCC_GEN_BE_SUCCESS on success, or an appropriate error code.
- */
-gcc_gen_be_error_t gcc_gen_be_early_init(void) GCC_GEN_BE_NOEXCEPT {
-    gcc_gen_be_error_t err;
-#if defined(_WIN32)
-    err = load_libgccjit_windows();
-#elif defined(__unix__) || defined(__APPLE__) || defined(__FreeBSD__)
-    err = load_libgccjit_posix();
-#else
-    err = GCC_GEN_BE_SUCCESS;
-#endif
-    return err;
-}
 
 /**
  * @brief Configures libgccjit context based on command line options.
@@ -131,15 +28,77 @@ gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx) GC
 
     /* Position independent code is not exposed as a direct jit option, 
        but can be added via command line arguments to the driver. */
-    if (gcc_be_fPIC || gcc_be_fPIE) {
-        gcc_jit_context_add_command_line_option(ctx, gcc_be_fPIE ? "-fPIE" : "-fPIC");
+    
+    if (gcc_be_dump_rtl_all) {
+#ifdef GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE
+        gcc_jit_context_set_bool_option(ctx, GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE, 1);
+#endif
+    }
+    
+    
+    if (exceptions_enabled) {
+#ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option
+        gcc_jit_context_add_command_line_option(ctx, "-fexceptions");
+        gcc_jit_context_add_command_line_option(ctx, "-fasynchronous-unwind-tables");
+#endif
     }
 
-    /* Bind trace logfile if diagnostics are on and tracing is requested */
-    /* Wait, EDG doesn't have a direct flag for trace logfile in our added options, 
-       but we can use standard output or a file if requested. For now, leave empty or 
-       check if we want to trace. */
+    if (gcc_be_ffast_math) {
+#ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option
+        gcc_jit_context_add_command_line_option(ctx, "-ffast-math");
+#endif
+    }
     
+#ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option
+    /* Optimization levels */
+    if (gcc_be_opt_level == 3) gcc_jit_context_add_command_line_option(ctx, "-O3");
+    else if (gcc_be_opt_level == 2) gcc_jit_context_add_command_line_option(ctx, "-O2");
+    else if (gcc_be_opt_level == 1) gcc_jit_context_add_command_line_option(ctx, "-O1");
+    else if (gcc_be_opt_level == 0) gcc_jit_context_add_command_line_option(ctx, "-O0");
+    
+    /* Target tuning */
+    if (gcc_be_march) { char buf[128]; snprintf(buf, sizeof(buf), "-march=%s", gcc_be_march); gcc_jit_context_add_command_line_option(ctx, buf); }
+    if (gcc_be_mcpu) { char buf[128]; snprintf(buf, sizeof(buf), "-mcpu=%s", gcc_be_mcpu); gcc_jit_context_add_command_line_option(ctx, buf); }
+    if (gcc_be_mtune) { char buf[128]; snprintf(buf, sizeof(buf), "-mtune=%s", gcc_be_mtune); gcc_jit_context_add_command_line_option(ctx, buf); }
+    if (gcc_be_mfpu) { char buf[128]; snprintf(buf, sizeof(buf), "-mfpu=%s", gcc_be_mfpu); gcc_jit_context_add_command_line_option(ctx, buf); }
+
+    /* Code models */
+    if (gcc_be_mcmodel) { char buf[128]; snprintf(buf, sizeof(buf), "-mcmodel=%s", gcc_be_mcmodel); gcc_jit_context_add_command_line_option(ctx, buf); }
+
+    /* -fPIC / -fPIE */
+    if (gcc_be_fPIC) gcc_jit_context_add_command_line_option(ctx, "-fPIC");
+    if (gcc_be_fPIE) gcc_jit_context_add_command_line_option(ctx, "-fPIE");
+    if (gcc_be_fno_pie) gcc_jit_context_add_command_line_option(ctx, "-fno-pie");
+
+    if (gcc_be_fassociative_math) gcc_jit_context_add_command_line_option(ctx, "-fassociative-math");
+    if (gcc_be_fno_trapping_math) gcc_jit_context_add_command_line_option(ctx, "-fno-trapping-math");
+
+    if (gcc_be_m64) gcc_jit_context_add_command_line_option(ctx, "-m64");
+    if (gcc_be_m32) gcc_jit_context_add_command_line_option(ctx, "-m32");
+
+#endif
+
+    if (gcc_be_shared) {
+#ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option
+        gcc_jit_context_add_driver_option(ctx, "-shared");
+#endif
+    }
+    if (gcc_be_static) {
+#ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option
+        gcc_jit_context_add_driver_option(ctx, "-static");
+#endif
+    }
+    
+    if (C_dialect == C_dialect_cplusplus) {
+#ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option
+#if defined(__APPLE__) && defined(__MACH__)
+        gcc_jit_context_add_driver_option(ctx, "-lc++");
+#else
+        gcc_jit_context_add_driver_option(ctx, "-lstdc++");
+#endif
+#endif
+    }
+
     return GCC_GEN_BE_SUCCESS;
 }
 
@@ -382,15 +341,29 @@ gcc_gen_be_error_t gcc_gen_be_execute_cleanups(void) GCC_GEN_BE_NOEXCEPT {
 }
 
 /** @brief A scope entry */
+/**
+ * @brief Represents a single registered cleanup.
+ */
+typedef struct gcc_gen_be_cleanup {
+    /** @brief The variable to clean up. */
+    struct gcc_jit_lvalue *var;
+    /** @brief The destructor function. */
+    struct gcc_jit_function *dtor_func;
+    /** @brief Next cleanup in list. */
+    struct gcc_gen_be_cleanup *next;
+} gcc_gen_be_cleanup_t;
+
+/**
+ * @brief Represents a block scope with cleanups.
+ */
 typedef struct gcc_gen_be_scope {
-    /* Currently just a placeholder to represent a scope level.
-       Actual variables are cached in GCC_GEN_BE_CACHE_VAR which suffices
-       since front-end variables have unique pointers. */
-    /** @brief dummy */
-    int dummy;
+    /** @brief The frontend lifetime object. */
+    an_object_lifetime_ptr lifetime;
+    /** @brief List of cleanups registered in this scope. */
+    gcc_gen_be_cleanup_t *cleanups;
 } gcc_gen_be_scope_t;
 
-gcc_gen_be_error_t gcc_gen_be_push_scope(void) GCC_GEN_BE_NOEXCEPT {
+gcc_gen_be_error_t gcc_gen_be_push_scope(an_object_lifetime_ptr lifetime) GCC_GEN_BE_NOEXCEPT {
     if (backend_state.scope_stack_size >= backend_state.scope_stack_capacity) {
         size_t new_cap = (backend_state.scope_stack_capacity == 0) ? 16 : (backend_state.scope_stack_capacity * 2);
         void *new_stack = realloc(backend_state.scope_stack, new_cap * sizeof(gcc_gen_be_scope_t *));
@@ -401,19 +374,123 @@ gcc_gen_be_error_t gcc_gen_be_push_scope(void) GCC_GEN_BE_NOEXCEPT {
     
     gcc_gen_be_scope_t *new_scope = (gcc_gen_be_scope_t *)malloc(sizeof(gcc_gen_be_scope_t));
     if (!new_scope) return GCC_GEN_BE_ERROR_OOM;
-    new_scope->dummy = 0;
+    new_scope->lifetime = lifetime;
+    new_scope->cleanups = NULL;
     
     backend_state.scope_stack[backend_state.scope_stack_size++] = (struct gcc_gen_be_scope *)new_scope;
     return GCC_GEN_BE_SUCCESS;
 }
 
-gcc_gen_be_error_t gcc_gen_be_pop_scope(void) GCC_GEN_BE_NOEXCEPT {
+/**
+ * @brief Registers a cleanup routine for a local variable.
+ * @details Adds the specified destructor function to the current scope's cleanup list.
+ * @param[in] var The variable to clean up.
+ * @param[in] dtor_func The destructor function.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+gcc_gen_be_error_t gcc_gen_be_register_cleanup(struct gcc_jit_lvalue *var, struct gcc_jit_function *dtor_func) GCC_GEN_BE_NOEXCEPT {
+    if (backend_state.scope_stack_size == 0) return GCC_GEN_BE_ERROR_INTERNAL;
+    gcc_gen_be_scope_t *top_scope = (gcc_gen_be_scope_t *)backend_state.scope_stack[backend_state.scope_stack_size - 1];
+    
+    gcc_gen_be_cleanup_t *cleanup = (gcc_gen_be_cleanup_t *)malloc(sizeof(gcc_gen_be_cleanup_t));
+    if (!cleanup) return GCC_GEN_BE_ERROR_OOM;
+    
+    cleanup->var = var;
+    cleanup->dtor_func = dtor_func;
+    /* Push to front so they are executed in reverse order */
+    cleanup->next = top_scope->cleanups;
+    top_scope->cleanups = cleanup;
+    
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Emits registered cleanups up to a target lifetime.
+ * @details Emits destructor calls for all variables in scopes up to the target lifetime.
+ * @param[in] target_lifetime The lifetime to stop emitting cleanups for (NULL for all).
+ * @param[in] block The block to emit cleanups into.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+gcc_gen_be_error_t gcc_gen_be_emit_cleanups(an_object_lifetime_ptr target_lifetime, struct gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT {
+    if (!block) return GCC_GEN_BE_SUCCESS; /* Nothing to emit into */
+
+    gcc_jit_context *ctx = NULL;
+    gcc_gen_be_error_t err = gcc_gen_be_get_context(&ctx);
+    if (err != GCC_GEN_BE_SUCCESS) return err;
+
+    gcc_jit_type *void_ptr_type = gcc_jit_type_get_pointer(gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID));
+
+    /* Traverse from top down to (but not including) the scope with target_lifetime */
+    for (size_t i = backend_state.scope_stack_size; i > 0; --i) {
+        gcc_gen_be_scope_t *scope = (gcc_gen_be_scope_t *)backend_state.scope_stack[i - 1];
+        
+        /* If we hit the target lifetime or its ancestor, we stop. 
+           Wait, a target_lifetime might not exactly match our scope's lifetime pointer if EDG creates
+           multiple overlapping ones. But typically, the innermost lifetime in goto/break EXACTLY matches
+           one of the active block scopes. */
+        /* To be safe, we also check if we reached the target. */
+        
+        if (target_lifetime != NULL) {
+            /* Check if scope->lifetime is target_lifetime or an ancestor. 
+               We just check equality for now. */
+            an_object_lifetime_ptr curr = scope->lifetime;
+            int found = 0;
+            while (curr) {
+                if (curr == target_lifetime) {
+                    found = 1;
+                    break;
+                }
+                curr = curr->parent_lifetime;
+            }
+            if (found) break; /* stop traversing */
+        }
+        
+        gcc_gen_be_cleanup_t *cleanup = scope->cleanups;
+        while (cleanup) {
+            gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(cleanup->var, NULL), void_ptr_type);
+            gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+            cleanup = cleanup->next;
+        }
+    }
+    
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Pops the current cleanup scope.
+ * @details Decrements the scope depth and cleans up the scope structure.
+ * @param[in] block The block to emit cleanups into before popping.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+gcc_gen_be_error_t gcc_gen_be_pop_scope(struct gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT {
     if (backend_state.scope_stack_size == 0) {
         return GCC_GEN_BE_ERROR_INVALID_ARGUMENT; /* Underflow */
     }
     
+    gcc_gen_be_scope_t *top_scope = (gcc_gen_be_scope_t *)backend_state.scope_stack[backend_state.scope_stack_size - 1];
+    
+    /* Emit cleanups into block if provided */
+    if (block) {
+        gcc_jit_context *ctx = NULL;
+        if (gcc_gen_be_get_context(&ctx) == GCC_GEN_BE_SUCCESS) {
+            gcc_jit_type *void_ptr_type = gcc_jit_type_get_pointer(gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID));
+            gcc_gen_be_cleanup_t *cleanup = top_scope->cleanups;
+            while (cleanup) {
+                gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(cleanup->var, NULL), void_ptr_type);
+                gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+                cleanup = cleanup->next;
+            }
+        }
+    }
+    
+    gcc_gen_be_cleanup_t *cleanup = top_scope->cleanups;
+    while (cleanup) {
+        gcc_gen_be_cleanup_t *next = cleanup->next;
+        free(cleanup);
+        cleanup = next;
+    }
+    
     backend_state.scope_stack_size--;
-    gcc_gen_be_scope_t *top_scope = (gcc_gen_be_scope_t *)backend_state.scope_stack[backend_state.scope_stack_size];
     free(top_scope);
     
     return GCC_GEN_BE_SUCCESS;

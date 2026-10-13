@@ -105,6 +105,10 @@ pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute = NULL;
 /** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_link_section p_gcc_jit_lvalue_set_link_section = NULL;
 /** @brief Function pointer. */
+/** @brief Function pointer. */
+pfn_gcc_jit_function_add_string_attribute p_gcc_jit_function_add_string_attribute = NULL;
+
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute = NULL;
 /** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment = NULL;
@@ -207,6 +211,8 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_tls_model, gcc_jit_lvalue_set_tls_model)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_attribute, gcc_jit_function_add_attribute)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_link_section, gcc_jit_lvalue_set_link_section)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_string_attribute, gcc_jit_function_add_string_attribute)
+
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_alignment, gcc_jit_lvalue_set_alignment)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
@@ -247,6 +253,10 @@ pfn_gcc_jit_function_add_attribute p_gcc_jit_function_add_attribute = NULL;
 /** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_link_section p_gcc_jit_lvalue_set_link_section = NULL;
 /** @brief Function pointer. */
+/** @brief Function pointer. */
+pfn_gcc_jit_function_add_string_attribute p_gcc_jit_function_add_string_attribute = NULL;
+
+/** @brief Function pointer. */
 pfn_gcc_jit_lvalue_add_string_attribute p_gcc_jit_lvalue_add_string_attribute = NULL;
 /** @brief Function pointer. */
 pfn_gcc_jit_lvalue_set_alignment p_gcc_jit_lvalue_set_alignment = NULL;
@@ -285,6 +295,8 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_tls_model, gcc_jit_lvalue_set_tls_model)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_attribute, gcc_jit_function_add_attribute)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_link_section, gcc_jit_lvalue_set_link_section)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_add_string_attribute, gcc_jit_function_add_string_attribute)
+
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_add_string_attribute, gcc_jit_lvalue_add_string_attribute)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_alignment, gcc_jit_lvalue_set_alignment)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)

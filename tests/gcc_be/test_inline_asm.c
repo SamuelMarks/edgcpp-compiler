@@ -1,3 +1,13 @@
+/**
+ * @file test_inline_asm.c
+ * @brief Missing brief.
+ * @details Missing details.
+ */
+/**
+ * @brief Main entry point.
+ * @details Runs tests.
+ * @return 0 on success.
+ */
 int main() {
     int out = 0;
 #if defined(__aarch64__)

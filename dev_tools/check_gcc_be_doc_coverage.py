@@ -14,8 +14,8 @@ OUTPUT_DIRECTORY       = docs_tmp
 GENERATE_XML           = YES
 GENERATE_HTML          = NO
 GENERATE_LATEX         = NO
-INPUT                  = src
-FILE_PATTERNS          = gcc_gen_be_*.h gcc_gen_be_*.c
+INPUT                  = src tests/gcc_be
+FILE_PATTERNS          = gcc_gen_be_*.h gcc_gen_be_*.c test_*.c test_*.cpp
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = YES
 EXTRACT_STATIC         = YES
@@ -59,7 +59,7 @@ def check_coverage():
             name = compound.findtext('compoundname')
             
             # Skip non-backend files
-            if kind == 'file' and not name.startswith('gcc_gen_be_'):
+            if kind == 'file' and not (name.startswith('gcc_gen_be_') or name.startswith('test_')):
                 continue
             # Skip non-backend structs/enums (though they are generated from these files)
             
@@ -107,7 +107,7 @@ def check_coverage():
                     
                     # Check return
                     type_str = "".join(member.find('type').itertext()).strip()
-                    if type_str != 'void':
+                    if type_str != 'void' and type_str != '' and not mname.startswith('TEST'):
                         ret = details.find('.//simplesect[@kind="return"]')
                         if ret is None or not has_text(ret):
                             print(f"FAIL: Function {mname} in {name} returning '{type_str}' is missing @return.")

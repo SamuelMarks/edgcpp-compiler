@@ -1,6 +1,9 @@
 /**
  * @file gcc_gen_be_location.c
- * @brief Implementation of source location mapping for the GCC backend.
+ * @brief Implementation of Source Location Tracking for DWARF Generation.
+ *
+ * Maps EDG IL source coordinates (line, column, filename) to gcc_jit_location
+ * to enable precise DWARF metadata emission.
  *
  * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM
  * Exceptions.
@@ -10,84 +13,106 @@
 
 #include "gcc_gen_be_location.h"
 #include "gcc_gen_be_context.h"
-#include <libgccjit.h>
+#include "gcc_gen_be_cache.h"
+#include "il_def.h"
 
 #if BACK_END_IS_GCC_GEN_BE
 
 BEGIN_EDG_NAMESPACE
 
-
-
-
 /**
- * @brief Converts an EDG source position into a libgccjit location.
+ * @brief Maps a source correspondence to a gcc_jit_location.
  *
- * @param pos The EDG source position pointer.
- * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
- * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated (can be NULL if pos is invalid).
+ * @param sc The source correspondence.
+ * @param out_loc Pointer to receive the location.
+ * @return GCC_GEN_BE_SUCCESS on success.
  */
-gcc_gen_be_error_t gcc_gen_be_get_location(a_source_position *pos, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
-    if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+static gcc_gen_be_error_t map_source_corresp_to_location(a_source_correspondence sc, gcc_jit_location **out_loc) {
     *out_loc = NULL;
-
-    if (!pos || pos->seq == 0) return GCC_GEN_BE_SUCCESS;
-    
-    a_const_char *file_name = NULL;
-    a_const_char *full_name = NULL;
-    a_line_number line_number = 0;
-    a_boolean at_end = FALSE;
-    
-    a_source_file_ptr sfp = conv_seq_to_file_and_line(pos->seq, &file_name, &full_name, &line_number, &at_end);
-    if (!file_name) return GCC_GEN_BE_SUCCESS;
-    
     gcc_jit_context *ctx = NULL;
     GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
-    if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
-
-    *out_loc = gcc_jit_context_new_location(ctx, file_name, line_number, pos->column);
+    
+    if (sc.source_line == 0 || !sc.source_file_name) {
+        return GCC_GEN_BE_SUCCESS; /* No location */
+    }
+    
+    int line = (int)sc.source_line;
+    int col = (int)sc.source_column;
+    if (col <= 0) col = 1;
+    
+    *out_loc = gcc_jit_context_new_location(ctx, sc.source_file_name, line, col);
     return GCC_GEN_BE_SUCCESS;
 }
 
 /**
- * @brief Attempts to extract a source location from an EDG expression node.
+ * @brief Retrieves the JIT location for a given IL type.
  *
- * @param expr The EDG expression node.
- * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
- * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
+ * @param tp The frontend type.
+ * @param out_loc Pointer to receive the JIT location.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_location_from_type(a_type_ptr tp, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
+    if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_loc = NULL;
+    if (!tp) return GCC_GEN_BE_SUCCESS;
+    return map_source_corresp_to_location(tp->source_corresp, out_loc);
+}
+
+/**
+ * @brief Retrieves the JIT location for a given IL variable.
+ *
+ * @param var The frontend variable.
+ * @param out_loc Pointer to receive the JIT location.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_location_from_var(a_variable_ptr var, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
+    if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_loc = NULL;
+    if (!var) return GCC_GEN_BE_SUCCESS;
+    return map_source_corresp_to_location(var->source_corresp, out_loc);
+}
+
+/**
+ * @brief Retrieves the JIT location for a given IL routine.
+ *
+ * @param rout The frontend routine.
+ * @param out_loc Pointer to receive the JIT location.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_location_from_routine(a_routine_ptr rout, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
+    if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_loc = NULL;
+    if (!rout) return GCC_GEN_BE_SUCCESS;
+    return map_source_corresp_to_location(rout->source_corresp, out_loc);
+}
+
+/**
+ * @brief Retrieves the JIT location for a given IL expression.
+ *
+ * @param expr The frontend expression.
+ * @param out_loc Pointer to receive the JIT location.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
 gcc_gen_be_error_t gcc_gen_be_get_location_from_expr(an_expr_node_ptr expr, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
-
     if (!expr) return GCC_GEN_BE_SUCCESS;
-    
-    /* Source positions for expressions are typically stored in the position field for some nodes,
-       but EDG's AST doesn't always have one simple position. Let's stick to NULL for now or try to extract it if available. */
-    
-    return GCC_GEN_BE_SUCCESS;
+    return map_source_corresp_to_location(expr->source_corresp, out_loc);
 }
 
 /**
- * @brief Attempts to extract a source location from an EDG statement node.
+ * @brief Retrieves the JIT location for a given IL statement.
  *
- * @param stmt The EDG statement node.
- * @param out_loc A pointer to a gcc_jit_location pointer that will receive the result.
- * @return GCC_GEN_BE_SUCCESS on success, with `*out_loc` populated.
+ * @param stmt The frontend statement.
+ * @param out_loc Pointer to receive the JIT location.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
 gcc_gen_be_error_t gcc_gen_be_get_location_from_stmt(a_statement_ptr stmt, struct gcc_jit_location **out_loc) GCC_GEN_BE_NOEXCEPT {
     if (!out_loc) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_loc = NULL;
-
     if (!stmt) return GCC_GEN_BE_SUCCESS;
-
-    if (stmt->position.seq != 0) {
-        GCC_GEN_BE_CHECK(gcc_gen_be_get_location(&stmt->position, out_loc));
-    }
-
-    return GCC_GEN_BE_SUCCESS;
+    return map_source_corresp_to_location(stmt->source_corresp, out_loc);
 }
-
-
 
 END_EDG_NAMESPACE
 
