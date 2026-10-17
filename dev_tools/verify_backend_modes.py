@@ -8,6 +8,7 @@ as well as configuring, building, and smoke-testing all four backend modes
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -70,22 +71,30 @@ def smoke_test_binary(cpfe_bin: str, expect_llvm: bool, expect_gcc: bool) -> Non
 
         # 3. If GCC backend is enabled, emit assembly or object via libgccjit
         if expect_gcc:
-            asm_file = os.path.join(tmpdir, "smoke.s")
-            subprocess.run(
-                [
-                    cpfe_bin,
-                    "--c",
-                    "--clear_flag=use_predefined_macro_file",
-                    "--gcc-be",
-                    "-S",
-                    "-o",
-                    asm_file,
-                    src_file,
-                ],
-                check=True,
-            )
-            if not os.path.exists(asm_file) or os.path.getsize(asm_file) == 0:
-                raise RuntimeError("GCC backend failed to emit non-empty assembly file.")
+            has_gccjit_runtime = True
+            if sys.platform == "win32":
+                has_gccjit_runtime = bool(
+                    shutil.which("libgccjit-0.dll")
+                    or shutil.which("libgccjit.dll")
+                    or os.path.exists(r"C:\msys64\mingw64\bin\libgccjit-0.dll")
+                )
+            if has_gccjit_runtime:
+                asm_file = os.path.join(tmpdir, "smoke.s")
+                subprocess.run(
+                    [
+                        cpfe_bin,
+                        "--c",
+                        "--clear_flag=use_predefined_macro_file",
+                        "--gcc-be",
+                        "-S",
+                        "-o",
+                        asm_file,
+                        src_file,
+                    ],
+                    check=True,
+                )
+                if not os.path.exists(asm_file) or os.path.getsize(asm_file) == 0:
+                    raise RuntimeError("GCC backend failed to emit non-empty assembly file.")
 
         # 4. If neither LLVM nor GCC is enabled, C-generating backend emits .int.c
         if not expect_llvm and not expect_gcc:

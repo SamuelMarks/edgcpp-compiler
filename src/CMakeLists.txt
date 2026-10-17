@@ -181,6 +181,48 @@ if(EDG_ENABLE_LLVM_BACKEND OR ENABLE_LLVM_BACKEND)
     message(FATAL_ERROR "LLVM IR backend was enabled (EDG_ENABLE_LLVM_BACKEND=TRUE), but LLVM was not found. Please install LLVM or specify LLVM_DIR.")
   endif()
   include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+  if(MSVC AND NOT LLVM_ENABLE_RTTI)
+    add_compile_options(/GR-)
+  endif()
+  if(NOT TARGET ZLIB::ZLIB OR NOT TARGET zstd::libzstd_static)
+    set(_edg_llvm_comp_stub "${CMAKE_CURRENT_BINARY_DIR}/llvm_compression_stubs.c")
+    file(WRITE "${_edg_llvm_comp_stub}"
+      "#include <stddef.h>\n"
+      "#ifdef __cplusplus\n"
+      "extern \"C\" {\n"
+      "#endif\n"
+      "unsigned long crc32(unsigned long crc, const unsigned char *buf, unsigned int len) {\n"
+      "  if (!buf) return 0UL;\n"
+      "  crc = ~crc;\n"
+      "  for (unsigned int i = 0; i < len; ++i) {\n"
+      "    crc ^= buf[i];\n"
+      "    for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xedb88320UL & (0UL - (crc & 1UL)));\n"
+      "  }\n"
+      "  return ~crc;\n"
+      "}\n"
+      "unsigned long compressBound(unsigned long sourceLen) { return sourceLen + (sourceLen >> 12) + (sourceLen >> 14) + (sourceLen >> 25) + 13UL; }\n"
+      "int compress2(unsigned char *dest, unsigned long *destLen, const unsigned char *source, unsigned long sourceLen, int level) { (void)dest; (void)destLen; (void)source; (void)sourceLen; (void)level; return -4; }\n"
+      "int uncompress(unsigned char *dest, unsigned long *destLen, const unsigned char *source, unsigned long sourceLen) { (void)dest; (void)destLen; (void)source; (void)sourceLen; return -4; }\n"
+      "void *ZSTD_createCCtx(void) { return (void *)1; }\n"
+      "size_t ZSTD_freeCCtx(void *cctx) { (void)cctx; return 0; }\n"
+      "size_t ZSTD_CCtx_setParameter(void *cctx, int param, int value) { (void)cctx; (void)param; (void)value; return 0; }\n"
+      "size_t ZSTD_compressBound(size_t srcSize) { return srcSize + (srcSize >> 8) + 64; }\n"
+      "size_t ZSTD_compress2(void *cctx, void *dst, size_t dstCapacity, const void *src, size_t srcSize) { (void)cctx; (void)dst; (void)dstCapacity; (void)src; (void)srcSize; return (size_t)-1; }\n"
+      "size_t ZSTD_decompress(void *dst, size_t dstCapacity, const void *src, size_t compressedSize) { (void)dst; (void)dstCapacity; (void)src; (void)compressedSize; return (size_t)-1; }\n"
+      "unsigned int ZSTD_isError(size_t code) { return code > (size_t)-120; }\n"
+      "const char *ZSTD_getErrorName(size_t code) { (void)code; return \"zstd unavailable\"; }\n"
+      "#ifdef __cplusplus\n"
+      "}\n"
+      "#endif\n"
+    )
+    add_library(edg_llvm_compression_stubs STATIC "${_edg_llvm_comp_stub}")
+    if(NOT TARGET ZLIB::ZLIB)
+      add_library(ZLIB::ZLIB ALIAS edg_llvm_compression_stubs)
+    endif()
+    if(NOT TARGET zstd::libzstd_static)
+      add_library(zstd::libzstd_static ALIAS edg_llvm_compression_stubs)
+    endif()
+  endif()
 endif()
 
 # GCC (libgccjit) Backend configuration

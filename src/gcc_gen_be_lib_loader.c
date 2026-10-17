@@ -29,32 +29,49 @@ void *p_gcc_jit_context_set_int_option = NULL;
 void *p_gcc_jit_context_set_bool_option = NULL;
 void *p_gcc_jit_context_set_str_option = NULL;
 void *p_gcc_jit_context_add_command_line_option = NULL;
+void *p_gcc_jit_context_add_driver_option = NULL;
 void *p_gcc_jit_context_get_type = NULL;
 void *p_gcc_jit_type_get_pointer = NULL;
 void *p_gcc_jit_type_get_const = NULL;
 void *p_gcc_jit_type_get_volatile = NULL;
+void *p_gcc_jit_type_get_size = NULL;
+void *p_gcc_jit_type_is_pointer = NULL;
+void *p_gcc_jit_type_is_struct = NULL;
+void *p_gcc_jit_type_unqualified = NULL;
 void *p_gcc_jit_context_new_array_type = NULL;
 void *p_gcc_jit_context_new_field = NULL;
 void *p_gcc_jit_context_new_bitfield = NULL;
 void *p_gcc_jit_context_new_struct_type = NULL;
 void *p_gcc_jit_context_new_opaque_struct = NULL;
 void *p_gcc_jit_struct_set_fields = NULL;
+void *p_gcc_jit_struct_as_type = NULL;
+void *p_gcc_jit_struct_get_field = NULL;
+void *p_gcc_jit_struct_get_field_count = NULL;
 void *p_gcc_jit_context_new_union_type = NULL;
 void *p_gcc_jit_context_new_function_ptr_type = NULL;
 void *p_gcc_jit_context_new_param = NULL;
 void *p_gcc_jit_context_new_function = NULL;
 void *p_gcc_jit_context_new_global = NULL;
 void *p_gcc_jit_global_set_initializer = NULL;
+void *p_gcc_jit_global_set_initializer_rvalue = NULL;
+void *p_gcc_jit_global_set_readonly = NULL;
 void *p_gcc_jit_function_new_block = NULL;
 void *p_gcc_jit_function_new_local = NULL;
+void *p_gcc_jit_function_get_address = NULL;
+void *p_gcc_jit_function_get_param = NULL;
+void *p_gcc_jit_function_get_param_count = NULL;
+void *p_gcc_jit_function_get_return_type = NULL;
+void *p_gcc_jit_block_get_function = NULL;
 void *p_gcc_jit_block_add_eval = NULL;
 void *p_gcc_jit_block_add_assignment = NULL;
 void *p_gcc_jit_block_add_assignment_op = NULL;
+void *p_gcc_jit_block_add_comment = NULL;
 void *p_gcc_jit_block_end_with_conditional = NULL;
 void *p_gcc_jit_block_end_with_jump = NULL;
 void *p_gcc_jit_block_end_with_return = NULL;
 void *p_gcc_jit_block_end_with_void_return = NULL;
 void *p_gcc_jit_block_end_with_switch = NULL;
+void *p_gcc_jit_context_new_case = NULL;
 void *p_gcc_jit_context_new_rvalue_from_int = NULL;
 void *p_gcc_jit_context_new_rvalue_from_long = NULL;
 void *p_gcc_jit_context_new_rvalue_from_double = NULL;
@@ -63,6 +80,7 @@ void *p_gcc_jit_context_new_string_literal = NULL;
 void *p_gcc_jit_context_null = NULL;
 void *p_gcc_jit_context_zero = NULL;
 void *p_gcc_jit_context_one = NULL;
+void *p_gcc_jit_context_new_sizeof = NULL;
 void *p_gcc_jit_context_new_unary_op = NULL;
 void *p_gcc_jit_context_new_binary_op = NULL;
 void *p_gcc_jit_context_new_comparison = NULL;
@@ -72,6 +90,7 @@ void *p_gcc_jit_lvalue_access_field = NULL;
 void *p_gcc_jit_rvalue_access_field = NULL;
 void *p_gcc_jit_rvalue_dereference_field = NULL;
 void *p_gcc_jit_rvalue_dereference = NULL;
+void *p_gcc_jit_rvalue_get_type = NULL;
 void *p_gcc_jit_lvalue_get_address = NULL;
 void *p_gcc_jit_lvalue_as_rvalue = NULL;
 void *p_gcc_jit_param_as_lvalue = NULL;
@@ -79,6 +98,10 @@ void *p_gcc_jit_param_as_rvalue = NULL;
 void *p_gcc_jit_context_new_call = NULL;
 void *p_gcc_jit_context_new_call_through_ptr = NULL;
 void *p_gcc_jit_block_add_extended_asm = NULL;
+void *p_gcc_jit_extended_asm_set_volatile_flag = NULL;
+void *p_gcc_jit_extended_asm_add_output_operand = NULL;
+void *p_gcc_jit_extended_asm_add_input_operand = NULL;
+void *p_gcc_jit_extended_asm_add_clobber = NULL;
 void *p_gcc_jit_context_new_location = NULL;
 void *p_gcc_jit_context_compile_to_file = NULL;
 void *p_gcc_jit_context_get_first_error = NULL;
@@ -169,32 +192,49 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_context_set_bool_option)
   LOAD_SYM(gcc_jit_context_set_str_option)
   LOAD_SYM(gcc_jit_context_add_command_line_option)
+  LOAD_SYM(gcc_jit_context_add_driver_option)
   LOAD_SYM(gcc_jit_context_get_type)
   LOAD_SYM(gcc_jit_type_get_pointer)
   LOAD_SYM(gcc_jit_type_get_const)
   LOAD_SYM(gcc_jit_type_get_volatile)
+  LOAD_SYM(gcc_jit_type_get_size)
+  LOAD_SYM(gcc_jit_type_is_pointer)
+  LOAD_SYM(gcc_jit_type_is_struct)
+  LOAD_SYM(gcc_jit_type_unqualified)
   LOAD_SYM(gcc_jit_context_new_array_type)
   LOAD_SYM(gcc_jit_context_new_field)
   LOAD_SYM(gcc_jit_context_new_bitfield)
   LOAD_SYM(gcc_jit_context_new_struct_type)
   LOAD_SYM(gcc_jit_context_new_opaque_struct)
   LOAD_SYM(gcc_jit_struct_set_fields)
+  LOAD_SYM(gcc_jit_struct_as_type)
+  LOAD_SYM(gcc_jit_struct_get_field)
+  LOAD_SYM(gcc_jit_struct_get_field_count)
   LOAD_SYM(gcc_jit_context_new_union_type)
   LOAD_SYM(gcc_jit_context_new_function_ptr_type)
   LOAD_SYM(gcc_jit_context_new_param)
   LOAD_SYM(gcc_jit_context_new_function)
   LOAD_SYM(gcc_jit_context_new_global)
   LOAD_SYM(gcc_jit_global_set_initializer)
+  LOAD_SYM(gcc_jit_global_set_initializer_rvalue)
+  LOAD_SYM(gcc_jit_global_set_readonly)
   LOAD_SYM(gcc_jit_function_new_block)
   LOAD_SYM(gcc_jit_function_new_local)
+  LOAD_SYM(gcc_jit_function_get_address)
+  LOAD_SYM(gcc_jit_function_get_param)
+  LOAD_SYM(gcc_jit_function_get_param_count)
+  LOAD_SYM(gcc_jit_function_get_return_type)
+  LOAD_SYM(gcc_jit_block_get_function)
   LOAD_SYM(gcc_jit_block_add_eval)
   LOAD_SYM(gcc_jit_block_add_assignment)
   LOAD_SYM(gcc_jit_block_add_assignment_op)
+  LOAD_SYM(gcc_jit_block_add_comment)
   LOAD_SYM(gcc_jit_block_end_with_conditional)
   LOAD_SYM(gcc_jit_block_end_with_jump)
   LOAD_SYM(gcc_jit_block_end_with_return)
   LOAD_SYM(gcc_jit_block_end_with_void_return)
   LOAD_SYM(gcc_jit_block_end_with_switch)
+  LOAD_SYM(gcc_jit_context_new_case)
   LOAD_SYM(gcc_jit_context_new_rvalue_from_int)
   LOAD_SYM(gcc_jit_context_new_rvalue_from_long)
   LOAD_SYM(gcc_jit_context_new_rvalue_from_double)
@@ -203,6 +243,7 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_context_null)
   LOAD_SYM(gcc_jit_context_zero)
   LOAD_SYM(gcc_jit_context_one)
+  LOAD_SYM(gcc_jit_context_new_sizeof)
   LOAD_SYM(gcc_jit_context_new_unary_op)
   LOAD_SYM(gcc_jit_context_new_binary_op)
   LOAD_SYM(gcc_jit_context_new_comparison)
@@ -212,6 +253,7 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_rvalue_access_field)
   LOAD_SYM(gcc_jit_rvalue_dereference_field)
   LOAD_SYM(gcc_jit_rvalue_dereference)
+  LOAD_SYM(gcc_jit_rvalue_get_type)
   LOAD_SYM(gcc_jit_lvalue_get_address)
   LOAD_SYM(gcc_jit_lvalue_as_rvalue)
   LOAD_SYM(gcc_jit_param_as_lvalue)
@@ -219,6 +261,10 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_context_new_call)
   LOAD_SYM(gcc_jit_context_new_call_through_ptr)
   LOAD_SYM(gcc_jit_block_add_extended_asm)
+  LOAD_SYM(gcc_jit_extended_asm_set_volatile_flag)
+  LOAD_SYM(gcc_jit_extended_asm_add_output_operand)
+  LOAD_SYM(gcc_jit_extended_asm_add_input_operand)
+  LOAD_SYM(gcc_jit_extended_asm_add_clobber)
   LOAD_SYM(gcc_jit_context_new_location)
   LOAD_SYM(gcc_jit_context_compile_to_file)
   LOAD_SYM(gcc_jit_context_get_first_error)

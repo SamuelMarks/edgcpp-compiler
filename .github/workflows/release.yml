@@ -124,20 +124,28 @@ jobs:
           fi
           brew install "${pkgs[@]}"
 
-      - name: Set up MSYS2 on Windows (for libgccjit headers/runtime & LLVM)
-        if: matrix.platform.os_name == 'windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: ${{ matrix.platform.arch == 'arm64' && 'CLANGARM64' || 'MINGW64' }}
-          update: true
-          install: >-
-            ${{ matrix.platform.arch == 'arm64' && 'mingw-w64-clang-aarch64-ninja mingw-w64-clang-aarch64-cmake mingw-w64-clang-aarch64-llvm' || 'mingw-w64-x86_64-ninja mingw-w64-x86_64-cmake mingw-w64-x86_64-llvm mingw-w64-x86_64-libgccjit' }}
-
       - name: Set up MSVC developer environment on Windows
         if: matrix.platform.os_name == 'windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.platform.arch == 'arm64' && 'arm64' || 'x64' }}
+
+      - name: Install LLVM SDK on Windows (MSVC ABI)
+        if: matrix.platform.os_name == 'windows' && matrix.backend.enable_llvm == 'ON'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.platform.arch }}" = "arm64" ]; then
+            llvm_arch="aarch64"
+          else
+            llvm_arch="x86_64"
+          fi
+          llvm_pkg="clang+llvm-23.1.3-${llvm_arch}-pc-windows-msvc"
+          curl -fSL --retry 3 "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.3/${llvm_pkg}.tar.zst" -o llvm.tar.zst
+          zstd -d --long=31 llvm.tar.zst -o llvm.tar
+          tar -xf llvm.tar
+          mv "${llvm_pkg}" "${GITHUB_WORKSPACE}/llvm-msvc"
+          rm -f llvm.tar.zst llvm.tar
 
       - name: Build SoftFloat (Linux / macOS)
         if: matrix.platform.os_name != 'windows' && steps.cache-softfloat.outputs.cache-hit != 'true'
@@ -233,18 +241,8 @@ jobs:
           export EDG_SOFTFLOAT_INCLUDE_PATH="${GITHUB_WORKSPACE}/softfloat/include"
           if [ "${{ matrix.platform.os_name }}" = "windows" ]; then
             export EDG_SOFTFLOAT_LIB_PATH="${GITHUB_WORKSPACE}/softfloat/lib/softfloat.lib"
-            if [ "${{ matrix.platform.arch }}" = "arm64" ]; then
-              if [ -d "C:/msys64/clangarm64/lib/cmake/llvm" ]; then
-                extra_args+=("-DLLVM_DIR=C:/msys64/clangarm64/lib/cmake/llvm")
-              fi
-            else
-              if [ -d "C:/msys64/mingw64/lib/cmake/llvm" ]; then
-                extra_args+=("-DLLVM_DIR=C:/msys64/mingw64/lib/cmake/llvm")
-              fi
-            fi
-            if [ ! -f "C:/msys64/mingw64/include/libgccjit.h" ]; then
-              mkdir -p "${GITHUB_WORKSPACE}/win-gccjit-include"
-              cp dev_tools/builtins/libgccjit.h "${GITHUB_WORKSPACE}/win-gccjit-include/" 2>/dev/null || true
+            if [ -d "${GITHUB_WORKSPACE}/llvm-msvc/lib/cmake/llvm" ]; then
+              extra_args+=("-DLLVM_DIR=${GITHUB_WORKSPACE}/llvm-msvc/lib/cmake/llvm")
             fi
           else
             export EDG_SOFTFLOAT_LIB_PATH="${GITHUB_WORKSPACE}/softfloat/lib/libsoftfloat.a"

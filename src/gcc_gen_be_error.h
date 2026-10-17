@@ -14,6 +14,12 @@
 #ifndef GCC_GEN_BE_ERROR_H
 #define GCC_GEN_BE_ERROR_H
 
+#if defined(_MSC_VER) && !defined(_SSIZE_T_DEFINED)
+#include <stddef.h>
+typedef ptrdiff_t ssize_t;
+#define _SSIZE_T_DEFINED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
