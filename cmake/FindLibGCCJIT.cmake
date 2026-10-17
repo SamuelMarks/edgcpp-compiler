@@ -13,7 +13,7 @@ find_path(LibGCCJIT_INCLUDE_DIR
 )
 
 find_library(LibGCCJIT_LIBRARY
-  NAMES gccjit
+  NAMES gccjit libgccjit.dll.a
   PATHS 
     /usr/lib 
     /usr/local/lib 
@@ -24,24 +24,39 @@ find_library(LibGCCJIT_LIBRARY
     /opt/homebrew/lib/gcc/current
     /opt/local/lib
     "C:/msys64/mingw64/lib"
+    "C:/msys64/ucrt64/lib"
+    "C:/msys64/clangarm64/lib"
     "C:/Program Files/GCC/lib"
 )
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(LibGCCJIT
-  REQUIRED_VARS LibGCCJIT_LIBRARY LibGCCJIT_INCLUDE_DIR
-)
+if(WIN32)
+  find_package_handle_standard_args(LibGCCJIT
+    REQUIRED_VARS LibGCCJIT_INCLUDE_DIR
+  )
+else()
+  find_package_handle_standard_args(LibGCCJIT
+    REQUIRED_VARS LibGCCJIT_LIBRARY LibGCCJIT_INCLUDE_DIR
+  )
+endif()
 
 if(LibGCCJIT_FOUND)
   set(LibGCCJIT_INCLUDE_DIRS ${LibGCCJIT_INCLUDE_DIR})
   set(LibGCCJIT_LIBRARIES ${LibGCCJIT_LIBRARY})
   
   if(NOT TARGET LibGCCJIT::LibGCCJIT)
-    add_library(LibGCCJIT::LibGCCJIT UNKNOWN IMPORTED)
-    set_target_properties(LibGCCJIT::LibGCCJIT PROPERTIES
-      IMPORTED_LOCATION "${LibGCCJIT_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES "${LibGCCJIT_INCLUDE_DIR}"
-    )
+    if(WIN32 AND (MSVC OR NOT LibGCCJIT_LIBRARY))
+      add_library(LibGCCJIT::LibGCCJIT INTERFACE IMPORTED)
+      set_target_properties(LibGCCJIT::LibGCCJIT PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${LibGCCJIT_INCLUDE_DIR}"
+      )
+    else()
+      add_library(LibGCCJIT::LibGCCJIT UNKNOWN IMPORTED)
+      set_target_properties(LibGCCJIT::LibGCCJIT PROPERTIES
+        IMPORTED_LOCATION "${LibGCCJIT_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${LibGCCJIT_INCLUDE_DIR}"
+      )
+    endif()
   endif()
 
   include(CheckCSourceCompiles)

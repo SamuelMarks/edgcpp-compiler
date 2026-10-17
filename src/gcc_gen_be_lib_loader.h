@@ -18,12 +18,14 @@
 #include "gcc_gen_be_error.h"
 #include "fe_common.h"
 
-#if !defined(_WIN32)
 #if defined(__has_include)
 #  if __has_include(<libgccjit.h>)
 #    include <libgccjit.h>
 #  endif
 #endif
+
+#if defined(_MSC_VER) && !defined(__clang__) && !defined(__typeof__)
+#define __typeof__(x) decltype(x)
 #endif
 
 struct gcc_jit_context;
