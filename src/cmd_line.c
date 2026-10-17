@@ -300,6 +300,9 @@ Initialize the option information table.
   add_option_description(optk_front_end_only, "no_code_gen", 'n',
                          /*value=*/TRUE, /*arg_required=*/FALSE,
                          pchek_command_line);
+  add_option_description(optk_front_end_only, "fe_only", '\0',
+                         /*value=*/TRUE, /*arg_required=*/FALSE,
+                         pchek_command_line);
   add_option_description(optk_use_signed_chars, "signed_chars", 's',
                          /*value=*/TRUE, /*arg_required=*/FALSE,
                          pchek_command_line);
@@ -507,11 +510,17 @@ Initialize the option information table.
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_command_line);
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
-#if BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
   add_option_description(optk_backend_select, "backend",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_none);
-#endif /* BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE */
+  add_option_description(optk_c_gen_be, "c_gen_be",
+                         '\0', /*value=*/TRUE, /*arg_required=*/FALSE,
+                         pchek_none);
+  add_option_description(optk_c_gen_be, "c-be",
+                         '\0', /*value=*/TRUE, /*arg_required=*/FALSE,
+                         pchek_none);
+#endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || ... */
 #if BACK_END_IS_LLVM_GEN_BE
   add_option_description(optk_llvm_gen_be, "llvm_gen_be",
                          '\0', /*value=*/TRUE, /*arg_required=*/FALSE,
@@ -11283,7 +11292,7 @@ Process the arguments on the command line that invoked the compiler.
         clang_is_generated_code_target = TRUE;
         break;
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
-#if BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
       case optk_backend_select:
         if (opt_arg != NULL) {
           if (strcmp(opt_arg, "llvm") == 0) {
@@ -11300,10 +11309,25 @@ Process the arguments on the command line that invoked the compiler.
 #if BACK_END_IS_LLVM_GEN_BE
             llvm_be_enabled = FALSE;
 #endif /* BACK_END_IS_LLVM_GEN_BE */
+          } else if (strcmp(opt_arg, "c") == 0) {
+#if BACK_END_IS_LLVM_GEN_BE
+            llvm_be_enabled = FALSE;
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+#if BACK_END_IS_GCC_GEN_BE
+            gcc_be_enabled = FALSE;
+#endif /* BACK_END_IS_GCC_GEN_BE */
           }
         }
         break;
-#endif /* BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE */
+      case optk_c_gen_be:
+#if BACK_END_IS_LLVM_GEN_BE
+        llvm_be_enabled = FALSE;
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+#if BACK_END_IS_GCC_GEN_BE
+        gcc_be_enabled = FALSE;
+#endif /* BACK_END_IS_GCC_GEN_BE */
+        break;
+#endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || ... */
 #if BACK_END_IS_LLVM_GEN_BE
       case optk_llvm_gen_be:
         llvm_be_enabled = TRUE;
@@ -13549,10 +13573,8 @@ enable_microsoft_mode:
 #endif /* GNU_EXTENSIONS_ALLOWED */
 
 #if BACK_END_IS_GCC_GEN_BE && !BACK_END_IS_LLVM_GEN_BE
-  if (!gcc_be_enabled) {
-    suppress_back_end = TRUE;
-  }
-#endif
+  gcc_be_enabled = TRUE;
+#endif /* BACK_END_IS_GCC_GEN_BE && !BACK_END_IS_LLVM_GEN_BE */
 }  /* proc_command_line */
 
 #if COMPILE_MULTIPLE_TRANSLATION_UNITS

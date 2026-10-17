@@ -189,6 +189,24 @@ if(EDG_ENABLE_GCC_BACKEND)
   add_subdirectory(tests/gcc_be)
 endif()
 
+if(EDG_ENABLE_LLVM_BACKEND)
+  set(EDG_EXPECTED_LLVM_FLAG 1)
+else()
+  set(EDG_EXPECTED_LLVM_FLAG 0)
+endif()
+if(EDG_ENABLE_GCC_BACKEND)
+  set(EDG_EXPECTED_GCC_FLAG 1)
+else()
+  set(EDG_EXPECTED_GCC_FLAG 0)
+endif()
+add_test(
+  NAME verify_cmake_backend_mode
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/dev_tools/verify_backend_modes.py
+          --cpfe $<TARGET_FILE:cpfe>
+          --llvm ${EDG_EXPECTED_LLVM_FLAG}
+          --gcc ${EDG_EXPECTED_GCC_FLAG}
+)
+
 # 100% Doc Coverage Check for LLVM Backend
 if(EDG_ENABLE_LLVM_BACKEND)
   add_custom_target(

@@ -116,9 +116,10 @@ enum an_option_kind {
   optk_gnu_target_version,
   optk_clang_target_version,
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
-#if BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
   optk_backend_select,
-#endif /* BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE */
+  optk_c_gen_be,
+#endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || ... */
 #if BACK_END_IS_LLVM_GEN_BE
   optk_llvm_gen_be,
   optk_gen_llvm_file_name,
