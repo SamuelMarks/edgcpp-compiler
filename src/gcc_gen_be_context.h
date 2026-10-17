@@ -29,6 +29,7 @@ struct gcc_jit_location;
 struct gcc_jit_lvalue;
 struct gcc_jit_rvalue;
 struct gcc_jit_type;
+struct gcc_jit_field;
 
 #include "fe_common.h"
 
@@ -65,9 +66,6 @@ extern gcc_gen_be_error_t gcc_gen_be_get_current_block(gcc_jit_block **out_block
  * @return GCC_GEN_BE_SUCCESS on success.
  */
 extern gcc_gen_be_error_t gcc_gen_be_set_current_block(gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT;
-
-/** @brief Forward declaration for gcc_jit_field. */
-struct gcc_jit_field;
 
 /**
  * @brief Tracks Itanium C++ ABI substitution candidates (`S_`, `S0_`, ...).

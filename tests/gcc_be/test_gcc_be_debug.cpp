@@ -143,7 +143,7 @@ static gcc_gen_be_error_t run_debug_unit_tests(int *out_ok) GCC_GEN_BE_NOEXCEPT 
     a_type base_tp = {};
     base_tp.kind = tk_class;
     base_tp.source_corresp.name = "BaseCls";
-    a_derivation_step deriv_prot = {}, deriv_priv = {};
+    a_base_class_derivation deriv_prot = {}, deriv_priv = {};
     deriv_prot.access = as_protected;
     deriv_priv.access = as_private;
     a_base_class bc0 = {}, bc1 = {}, bc2 = {};

@@ -75,6 +75,8 @@ typedef enum {
     GCC_GEN_BE_TARGET_ABI_SYSV_I386,
     /** @brief PowerPC64 ELFv2 little-endian ABI (ppc64le). */
     GCC_GEN_BE_TARGET_ABI_PPC64LE_ELFV2,
+    /** @brief Alias for PowerPC64 ELFv2 ABI. */
+    GCC_GEN_BE_TARGET_ABI_PPC64_ELFV2 = GCC_GEN_BE_TARGET_ABI_PPC64LE_ELFV2,
     /** @brief IBM z/Architecture 64-bit ELF ABI (s390x). */
     GCC_GEN_BE_TARGET_ABI_S390X,
     /** @brief ARM 32-bit AAPCS / AAPCS-VFP ABI. */

@@ -1565,11 +1565,11 @@ gcc_gen_be_error_t gcc_gen_be_emit_lsda_call_site_table(
             GCC_GEN_BE_CHECK(gcc_gen_be_format_lsda_asm_directives(
                 table_id, r->try_id, r->landing_pad_id, r->action_table_index,
                 lsda_dir_buf, sizeof(lsda_dir_buf), &lsda_dir_len));
-            if (p_gcc_jit_context_add_top_level_asm) {
-                p_gcc_jit_context_add_top_level_asm(ctx, NULL, lsda_dir_buf);
-            }
             char wrapped_asm[560];
             snprintf(wrapped_asm, sizeof(wrapped_asm), "/* %s */", lsda_dir_buf);
+            if (p_gcc_jit_context_add_top_level_asm) {
+                p_gcc_jit_context_add_top_level_asm(ctx, NULL, wrapped_asm);
+            }
             gcc_jit_extended_asm *cs_asm = gcc_jit_block_add_extended_asm(active_lsda_blk, NULL, wrapped_asm);
             gcc_jit_extended_asm_set_volatile_flag(cs_asm, 1);
         }

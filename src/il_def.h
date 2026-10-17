@@ -3609,6 +3609,14 @@ typedef struct a_source_correspondence {
   an_attribute_ptr
 		attributes;
 			/* The set of attributes applicable to this entity. */
+#if BACK_END_IS_GCC_GEN_BE
+  struct a_module
+		*module_info;
+			/* Optional pointer to the owning C++20 module descriptor
+			   for module-purview mangling in the GCC backend. */
+  a_bit_field	is_exported:1;
+			/* TRUE if the entity is exported from a C++20 module. */
+#endif /* BACK_END_IS_GCC_GEN_BE */
 } a_source_correspondence;
 
 
@@ -13124,6 +13132,12 @@ typedef struct a_routine {
 			/* A small integer identifying an intrinsic known to
 			   the constexpr interpreter. */
   } number;
+#if BACK_END_IS_GCC_GEN_BE
+  a_virtual_function_number
+		virtual_function_number;
+			/* Virtual function table slot index for DWARF debug info
+			   emission in the GCC backend. */
+#endif /* BACK_END_IS_GCC_GEN_BE */
 #if MICROSOFT_EXTENSIONS_ALLOWED
   an_il_entity_list_entry_ptr
 		overridden_functions;

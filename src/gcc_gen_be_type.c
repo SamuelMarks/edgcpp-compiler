@@ -9,6 +9,7 @@
  */
 
 #include "gcc_gen_be_type.h"
+#include "gcc_gen_be_abi.h"
 #include "gcc_gen_be_context.h"
 #include "gcc_gen_be_cache.h"
 #include "gcc_gen_be_location.h"

@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.19)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release" AND APPLE)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND APPLE AND NOT EDG_ENABLE_GCC_BACKEND)
   # Release builds on MacOS are built for both the ARM and x86_64
   # architectures.
   set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
@@ -87,8 +87,10 @@ if(DEFINED EDG_PREFERRED_LINKER)
 endif()
 
 # Require EDG_BASE and attempt to build the library by default.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EDG_ENABLE_GCC_BACKEND)
   set(EDG_BUILD_LIB TRUE CACHE BOOL "Enable the EDG library build")
+else()
+  set(EDG_BUILD_LIB FALSE CACHE BOOL "Enable the EDG library build")
 endif()
 
 # Enable Testing
