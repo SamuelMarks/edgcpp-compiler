@@ -64,8 +64,9 @@ To rebuild the real example bytes (for local reproduction, not for commit):
 ```bash
 edg-changes-example decode utf8-fragment.txt > raw-fragment.txt
 edg-changes-example decode -o raw-fragment.txt utf8-fragment.txt
-# Whole file:
-edg-changes-example decode src/Changes > /tmp/Changes.raw
+# Whole file (write host-only output to your scratchpad, see
+# edg-agent-temp-files):
+edg-changes-example decode src/Changes > <scratchpad>/Changes.raw
 ```
 
 Decode replaces each `«HHHH…»` (or legacy `«HH»«HH»`) with the corresponding
