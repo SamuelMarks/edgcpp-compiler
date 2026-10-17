@@ -824,6 +824,7 @@ int main(void) {
 
   /* Test 9: Pointer to member */
   {
+    be_state->type_cache.clear();
     a_type dummy_ret;
     memset(&dummy_ret, 0, sizeof(dummy_ret));
     dummy_ret.kind = tk_void;

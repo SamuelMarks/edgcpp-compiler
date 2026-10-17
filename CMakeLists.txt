@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.19)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release" AND APPLE)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND APPLE AND NOT ENABLE_LLVM_BACKEND)
   # Release builds on MacOS are built for both the ARM and x86_64
   # architectures.
   set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
@@ -82,9 +82,12 @@ if(DEFINED EDG_PREFERRED_LINKER)
   message(STATUS "Preferring linker: ${EDG_PREFERRED_LINKER}")
 endif()
 
-# Require EDG_BASE and attempt to build the library by default.
-if(NOT WIN32)
+# Require EDG_BASE and attempt to build the library by default (unless using
+# the direct LLVM backend where cpfe generates LLVM IR/objects rather than C).
+if(NOT WIN32 AND NOT ENABLE_LLVM_BACKEND)
   set(EDG_BUILD_LIB TRUE CACHE BOOL "Enable the EDG library build")
+else()
+  set(EDG_BUILD_LIB FALSE CACHE BOOL "Enable the EDG library build")
 endif()
 
 # For GCC and Clang provide an (off by default) option for colored output.
@@ -151,10 +154,10 @@ include(${CMAKE_SOURCE_DIR}/cmake/wrapper.cmake)
 # development
 add_edg_wrapper_script(eccp "." ${CMAKE_SOURCE_DIR}/util/eccp.sh)
 
+enable_testing()
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
-enable_testing()
 
 # 100% Doc Coverage Check for LLVM Backend
 add_custom_target(

@@ -420,6 +420,7 @@ int main(void) {
 
     a_type bad_ty = {};
     bad_ty.kind = static_cast<a_type_kind>(999);
+    state.type_cache.clear();
     addr_var.source_corresp.name = (char*)"addr_gvar";
     addr_var.type = &bad_ty;
     assert(llvm_const_from_address(&dummy_const, ptr_ty, &out) == llvm_gen_be_error_t::unsupported_type);

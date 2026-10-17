@@ -4,6 +4,10 @@ project(EDG_Tests CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
+if(NOT MSVC)
+  add_compile_options(-UNDEBUG)
+endif()
+
 option(EDG_LLVM_BE_COVERAGE "Enable Clang source-based code coverage for LLVM backend tests" ON)
 if(EDG_LLVM_BE_COVERAGE AND (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
   add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
@@ -12,7 +16,7 @@ endif()
 
 find_package(LLVM REQUIRED CONFIG)
 
-include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
 add_executable(test_llvm_type_lowering test_llvm_type_lowering.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_type.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_win64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_x86_32.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_arm32.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_wasm.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_sysv_x86_64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_aapcs64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_riscv64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_loongarch64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_mips.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_ppc64.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_s390x.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_abi_sparc.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_rtti.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_ptrmem.cpp ${CMAKE_SOURCE_DIR}/src/llvm_gen_be_ptrmem.cpp)
@@ -221,39 +225,40 @@ add_executable(test_llvm_build_config test_llvm_build_config.cpp)
 target_include_directories(test_llvm_build_config PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include_c++ ${CMAKE_BINARY_DIR}/src/includes)
 target_compile_definitions(test_llvm_build_config PRIVATE BACK_END_IS_LLVM_GEN_BE=1)
 
-if(TARGET error-info)
-  foreach(llvm_test_target
-      test_llvm_type_lowering
-      test_llvm_const_evaluation
-      test_llvm_expressions
-      test_llvm_control_flow
-      test_llvm_exceptions
-      test_llvm_declarations
-      test_llvm_abi
-      test_llvm_debug_info
-      test_llvm_codegen
-      test_llvm_opt_pipeline
-      test_llvm_pgo
-      test_llvm_lto
-      test_llvm_vtable_rtti
-      test_llvm_coro_atomics
-      test_llvm_inline_asm
-      test_llvm_msvc_asm
-      test_llvm_builtins
-      test_llvm_target_intrinsics
-      test_llvm_error
-      test_llvm_orchestrator
-      test_llvm_decl
-      test_llvm_stmt
-      test_llvm_omp
-      test_llvm_datalayout
-      test_llvm_type_translation
-      test_llvm_verifier
-      test_llvm_driver_flag
-      test_llvm_fuzz
-      test_llvm_build_config)
-    if(TARGET ${llvm_test_target})
+foreach(llvm_test_target
+    test_llvm_type_lowering
+    test_llvm_const_evaluation
+    test_llvm_expressions
+    test_llvm_control_flow
+    test_llvm_exceptions
+    test_llvm_declarations
+    test_llvm_abi
+    test_llvm_debug_info
+    test_llvm_codegen
+    test_llvm_opt_pipeline
+    test_llvm_pgo
+    test_llvm_lto
+    test_llvm_vtable_rtti
+    test_llvm_coro_atomics
+    test_llvm_inline_asm
+    test_llvm_msvc_asm
+    test_llvm_builtins
+    test_llvm_target_intrinsics
+    test_llvm_error
+    test_llvm_orchestrator
+    test_llvm_decl
+    test_llvm_stmt
+    test_llvm_omp
+    test_llvm_datalayout
+    test_llvm_type_translation
+    test_llvm_verifier
+    test_llvm_driver_flag
+    test_llvm_fuzz
+    test_llvm_build_config)
+  if(TARGET ${llvm_test_target})
+    if(TARGET error-info)
       add_dependencies(${llvm_test_target} error-info)
     endif()
-  endforeach()
-endif()
+    add_test(NAME ${llvm_test_target} COMMAND ${llvm_test_target})
+  endif()
+endforeach()

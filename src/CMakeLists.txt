@@ -179,7 +179,7 @@ if(ENABLE_LLVM_BACKEND)
   if(NOT LLVM_FOUND)
     message(FATAL_ERROR "LLVM IR backend was enabled (ENABLE_LLVM_BACKEND=TRUE), but LLVM was not found. Please install LLVM or specify LLVM_DIR.")
   endif()
-  include_directories(${LLVM_INCLUDE_DIRS})
+  include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 endif()
 
 # Disable undesirable C++ features.
