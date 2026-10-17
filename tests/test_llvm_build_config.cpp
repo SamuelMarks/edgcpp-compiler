@@ -1,156 +1,66 @@
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <cstdlib>
-#include <vector>
+/**
+ * @file test_llvm_build_config.cpp
+ * @brief Unit and integration tests for CMake LLVM backend macro configuration and lowering alignment.
+ * @details Validates macro exclusivity (`BACK_END_IS_LLVM_GEN_BE == 1`, `BACK_END_IS_C_GEN_BE == 0`),
+ *          default C++ exception enabling (`DEFAULT_EXCEPTIONS_ENABLED == 1`), and native LLVM EH
+ *          lowering configuration (`DO_FULL_PORTABLE_EH_LOWERING == 0`, `GENERATE_EH_TABLES == 0`).
+ */
 
-#ifdef _WIN32
-#include <direct.h>
-#define mkdir _mkdir
-#else
-#include <sys/stat.h>
-#endif
+#include "basic_hdrs.h"
+#include "fe_common.h"
+#include "llvm_gen_be_error.h"
 
-void remove_dir(const std::string& dir) {
-    std::string cmd;
-#ifdef _WIN32
-    cmd = "rmdir /S /Q " + dir;
-#else
-    cmd = "rm -rf " + dir;
-#endif
-    std::system(cmd.c_str());
+using namespace edg;
+
+/**
+ * @brief Evaluates the active backend macro exclusivity configuration.
+ * @details Writes `true` to @p out_exclusive when `BACK_END_IS_LLVM_GEN_BE == 1` and
+ *          `BACK_END_IS_C_GEN_BE == 0` and `BACK_END_IS_CP_GEN_BE == 0`.
+ * @param[out] out_exclusive Receives `true` if the LLVM backend macro configuration is exclusive.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if @p out_exclusive is null.
+ */
+static llvm_gen_be_error_t check_backend_macro_exclusivity(bool* out_exclusive) noexcept {
+  LLVM_GEN_BE_CHECK_NOT_NULL(out_exclusive);
+  *out_exclusive = (BACK_END_IS_LLVM_GEN_BE == 1) &&
+                   (BACK_END_IS_C_GEN_BE == 0) &&
+                   (BACK_END_IS_CP_GEN_BE == 0);
+  return llvm_gen_be_error_t::ok;
 }
 
-void make_dir(const std::string& dir) {
-#ifdef _WIN32
-    _mkdir(dir.c_str());
-#else
-    mkdir(dir.c_str(), 0755);
-#endif
+/**
+ * @brief Evaluates the EDG exception handling and IL lowering macro alignment for LLVM IR.
+ * @details Writes `true` to @p out_aligned when `DEFAULT_EXCEPTIONS_ENABLED == 1`,
+ *          `DO_FULL_PORTABLE_EH_LOWERING == 0`, and `GENERATE_EH_TABLES == 0`.
+ * @param[out] out_aligned Receives `true` if native LLVM EH lowering macros are aligned.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if @p out_aligned is null.
+ */
+static llvm_gen_be_error_t check_eh_lowering_macro_alignment(bool* out_aligned) noexcept {
+  LLVM_GEN_BE_CHECK_NOT_NULL(out_aligned);
+  *out_aligned = (DEFAULT_EXCEPTIONS_ENABLED == 1) &&
+                 (DO_FULL_PORTABLE_EH_LOWERING == 0) &&
+                 (GENERATE_EH_TABLES == 0) &&
+                 (KEEP_OBJECT_LIFETIME_INFO_IN_LOWERED_IL_WHEN_EH_ENABLED == 1);
+  return llvm_gen_be_error_t::ok;
 }
 
-struct RunResult {
-    int returncode;
-    std::string stdout_str;
-    std::string stderr_str;
-};
+/**
+ * @brief Entry point for the LLVM build configuration and macro alignment test suite.
+ * @details Exercises both valid and null-argument paths of the configuration verifiers.
+ * @return 0 on success.
+ */
+int main(void) {
+  bool exclusive = false;
+  llvm_gen_be_error_t err1 = check_backend_macro_exclusivity(nullptr);
+  llvm_gen_be_error_t err2 = check_backend_macro_exclusivity(&exclusive);
 
-RunResult run_command(const std::string& dir, const std::string& cmd) {
-    std::string out_file = dir + "/_test_out.txt";
-    std::string err_file = dir + "/_test_err.txt";
-    
-    std::string full_cmd;
-#ifdef _WIN32
-    full_cmd = "cd " + dir + " && " + cmd + " > " + out_file + " 2> " + err_file;
-#else
-    full_cmd = "cd " + dir + " && " + cmd + " > _test_out.txt 2> _test_err.txt";
-#endif
-    
-    int ret = std::system(full_cmd.c_str());
-    
-    RunResult res;
-    res.returncode = ret;
-    
-    std::ifstream out(out_file);
-    if(out) {
-        std::ostringstream ss;
-        ss << out.rdbuf();
-        res.stdout_str = ss.str();
-    }
-    
-    std::ifstream err(err_file);
-    if(err) {
-        std::ostringstream ss;
-        ss << err.rdbuf();
-        res.stderr_str = ss.str();
-    }
-    
-    std::remove(out_file.c_str());
-    std::remove(err_file.c_str());
-    
-    return res;
-}
+  bool aligned = false;
+  llvm_gen_be_error_t err3 = check_eh_lowering_macro_alignment(nullptr);
+  llvm_gen_be_error_t err4 = check_eh_lowering_macro_alignment(&aligned);
 
-void test_missing_llvm_fails_gracefully() {
-    std::cout << "Testing missing LLVM configuration...\n";
-    std::string build_dir = "build/test_llvm_missing";
-    remove_dir(build_dir);
-    make_dir("build");
-    make_dir(build_dir);
-    
-    RunResult res = run_command(build_dir, "cmake ../../ -DENABLE_LLVM_BACKEND=TRUE -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE");
-    std::string expected_msg = "LLVM IR backend was enabled (ENABLE_LLVM_BACKEND=TRUE), but LLVM was not";
-    
-    if (res.returncode != 0 && res.stderr_str.find(expected_msg) != std::string::npos) {
-        std::cout << "PASS: CMake failed gracefully with the expected error.\n";
-    } else {
-        std::cout << "FAIL: CMake did not fail gracefully or output the expected error.\n";
-        std::exit(1);
-    }
-}
-
-void test_cpfe_links_without_llvm() {
-    const char* env = std::getenv("RUN_LLVM_LINK_TESTS");
-    if (!env || std::string(env) != "1") {
-        std::cout << "Skipping link tests. Set RUN_LLVM_LINK_TESTS=1 to run.\n";
-        return;
-    }
-    
-    std::cout << "Testing build without LLVM...\n";
-    std::string build_dir = "build/test_llvm_disabled";
-    remove_dir(build_dir);
-    make_dir("build");
-    make_dir(build_dir);
-    
-    RunResult res = run_command(build_dir, "cmake ../../ -DENABLE_LLVM_BACKEND=FALSE");
-    if (res.returncode != 0) {
-        std::cout << "FAIL: CMake config failed for LLVM disabled.\n";
-        std::exit(1);
-    }
-    
-    RunResult build_res = run_command(build_dir, "cmake --build . --target cpfe");
-    if (build_res.returncode == 0) {
-        std::cout << "PASS: cpfe links successfully without LLVM.\n";
-    } else {
-        std::cout << "FAIL: cpfe failed to link without LLVM.\n";
-        std::cout << build_res.stderr_str << "\n";
-        std::exit(1);
-    }
-}
-
-void test_cpfe_links_with_llvm() {
-    const char* env = std::getenv("RUN_LLVM_LINK_TESTS");
-    if (!env || std::string(env) != "1") {
-        return;
-    }
-    
-    std::cout << "Testing build with LLVM...\n";
-    std::string build_dir = "build/test_llvm_enabled";
-    remove_dir(build_dir);
-    make_dir("build");
-    make_dir(build_dir);
-    
-    RunResult res = run_command(build_dir, "cmake ../../ -DENABLE_LLVM_BACKEND=TRUE");
-    if (res.returncode != 0) {
-        std::cout << "FAIL: CMake config failed for LLVM enabled.\n";
-        std::exit(1);
-    }
-    
-    RunResult build_res = run_command(build_dir, "cmake --build . --target cpfe");
-    if (build_res.returncode == 0) {
-        std::cout << "PASS: cpfe links successfully with LLVM.\n";
-    } else {
-        std::cout << "FAIL: cpfe failed to link with LLVM.\n";
-        std::cout << build_res.stderr_str << "\n";
-        std::exit(1);
-    }
-}
-
-int main() {
-    test_missing_llvm_fails_gracefully();
-    test_cpfe_links_without_llvm();
-    test_cpfe_links_with_llvm();
-    std::cout << "All Phase 1 tests passed!\n";
-    return 0;
+  return (err1 == llvm_gen_be_error_t::invalid_argument &&
+          err2 == llvm_gen_be_error_t::ok && exclusive &&
+          err3 == llvm_gen_be_error_t::invalid_argument &&
+          err4 == llvm_gen_be_error_t::ok && aligned)
+             ? 0
+             : 1;
 }

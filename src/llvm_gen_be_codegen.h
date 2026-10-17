@@ -36,27 +36,23 @@ enum class codegen_file_type_t {
 };
 
 /**
- * @brief Initializes all necessary LLVM target registries.
- * @details Calls InitializeAllTargetInfos(), InitializeAllTargets(), InitializeAllTargetMCs(),
- * InitializeAllAsmPrinters(), and InitializeAllAsmParsers(). This must be called before
- * attempting to create a target machine.
+ * @brief Initializes all LLVM target info, target machine, MC, asm printer, and asm parser registries.
+ * @details Must be called before looking up targets or creating `TargetMachine` instances.
+ * @return llvm_gen_be_error_t::ok on success.
  */
 llvm_gen_be_error_t initialize_llvm_targets(void) noexcept;
 
 /**
- * @brief Creates a configured TargetMachine instance.
- * @details Looks up the target based on the triple, sets up TargetOptions, and instantiates
- * a TargetMachine.
- * @param[in] triple_str The target triple string (e.g., "x86_64-pc-linux-gnu").
- * @param[in] cpu The target CPU name (e.g., "generic"). Can be empty.
- * @param[in] features Target feature string (e.g., "+sse2"). Can be empty.
- * @param[in] opt_level Code generation optimization level.
- * @param[in] reloc_model Relocation model (e.g., llvm::Reloc::PIC_).
- * @param[in] code_model Code model (e.g., llvm::CodeModel::Small).
- * @param[out] out_tm Receives the allocated TargetMachine on success.
- * @return llvm_gen_be_error_t::ok on success.
- * @return llvm_gen_be_error_t::invalid_argument if the target triple cannot be resolved.
- * @return llvm_gen_be_error_t::out_of_memory if allocation fails.
+ * @brief Creates or retrieves a cached LLVM TargetMachine for the specified target configuration.
+ * @details Looks up the target in `TargetRegistry` and caches the `TargetMachine` keyed by triple, CPU, features, and models.
+ * @param[in] triple_str The target triple string.
+ * @param[in] cpu The target CPU name (or nullptr for "generic").
+ * @param[in] features The target feature string (or nullptr for none).
+ * @param[in] opt_level The LLVM code generation optimization level.
+ * @param[in] reloc_model Optional relocation model.
+ * @param[in] code_model Optional code model.
+ * @param[out] out_tm Receives the resulting `llvm::TargetMachine*` on success.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t create_target_machine(
     const char* triple_str,
@@ -68,16 +64,13 @@ llvm_gen_be_error_t create_target_machine(
     llvm::TargetMachine** out_tm) noexcept;
 
 /**
- * @brief Emits the given LLVM module to a file.
- * @details Depending on `file_type`, this may emit native object code, assembly, LLVM bitcode,
- * or LLVM IR text. Object and assembly emission utilize the legacy pass manager.
+ * @brief Emits the LLVM module to a file in the specified representation (IR text, bitcode, assembly, or object).
+ * @details Opens `output_file_path` and writes textual IR, bitcode, or target machine code.
  * @param[in] module The LLVM module to emit.
- * @param[in] tm The TargetMachine configured for the target. Required for object and assembly.
- * @param[in] file_type The format of the output file.
- * @param[in] output_file_path The file path to write to.
- * @return llvm_gen_be_error_t::ok on success.
- * @return llvm_gen_be_error_t::io_error if the output file cannot be opened or written to.
- * @return llvm_gen_be_error_t::code_gen_failure if file emission fails in the pass manager.
+ * @param[in] tm The configured `TargetMachine` (required for assembly/object emission).
+ * @param[in] file_type The requested output file format.
+ * @param[in] output_file_path Destination file path on disk.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t emit_machine_code_to_file(
     llvm::Module* module,
@@ -86,11 +79,12 @@ llvm_gen_be_error_t emit_machine_code_to_file(
     const char* output_file_path) noexcept;
 
 /**
- * @brief Emits a direct object file (.o / .obj) from the given module.
+ * @brief Emits the LLVM module directly to a native object file (`.o` / `.obj`).
+ * @details Delegates to `emit_machine_code_to_file` with `codegen_file_type_t::object_file`.
  * @param[in] module The LLVM module to emit.
- * @param[in] tm The TargetMachine configured for the target.
- * @param[in] output_file_path The file path to write the object file to.
- * @return llvm_gen_be_error_t::ok on success, or an error code.
+ * @param[in] tm The configured `TargetMachine`.
+ * @param[in] output_file_path Destination object file path.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t emit_object_file(
     llvm::Module* module,
@@ -98,11 +92,12 @@ llvm_gen_be_error_t emit_object_file(
     const char* output_file_path) noexcept;
 
 /**
- * @brief Emits a direct assembly file (.s / .asm) from the given module.
+ * @brief Emits the LLVM module directly to a target assembly file (`.s` / `.asm`).
+ * @details Delegates to `emit_machine_code_to_file` with `codegen_file_type_t::assembly_file`.
  * @param[in] module The LLVM module to emit.
- * @param[in] tm The TargetMachine configured for the target.
- * @param[in] output_file_path The file path to write the assembly file to.
- * @return llvm_gen_be_error_t::ok on success, or an error code.
+ * @param[in] tm The configured `TargetMachine`.
+ * @param[in] output_file_path Destination assembly file path.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t emit_assembly_file(
     llvm::Module* module,
@@ -111,33 +106,57 @@ llvm_gen_be_error_t emit_assembly_file(
 
 /**
  * @brief Emits the machine code to a streaming memory buffer.
+ * @details Translates the given module into assembly or object code bytes stored in `out_buffer`.
  * @param[in] module The LLVM module to emit.
  * @param[in] tm The TargetMachine configured for the target.
  * @param[in] file_type The type of machine code to emit (assembly or object).
- * @param[out] out_buffer The emitted memory buffer on success.
+ * @param[out] out_buffer Pointer to the buffer that receives the emitted machine code on success.
  * @return llvm_gen_be_error_t::ok on success, or an error code.
  */
 llvm_gen_be_error_t emit_machine_code_to_memory_buffer(
     llvm::Module* module,
     llvm::TargetMachine* tm,
     codegen_file_type_t file_type,
-    llvm::SmallVectorImpl<char>& out_buffer) noexcept;
+    llvm::SmallVectorImpl<char>* out_buffer) noexcept;
 
 /**
- * @brief Generates a ThinLTO summary index for the given module directly in the backend driver.
- * @param[in] module The LLVM module.
- * @param[in] output_file_path The file path to write the ThinLTO index bitcode file to.
- * @return llvm_gen_be_error_t::ok on success, or an error code.
+ * @brief Clears and releases all cached TargetMachine instances.
+ * @details Safely destroys all `TargetMachine` objects stored in the internal cache.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t release_target_machine_cache(void) noexcept;
+
+/**
+ * @brief Emits a ThinLTO bitcode file containing module summary index records.
+ * @details Runs `ThinLTOBitcodeWriterPass` on `module` and writes the output to `output_file_path`.
+ * @param[in] module The LLVM module to summarize and write.
+ * @param[in] output_file_path The destination ThinLTO bitcode file path.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t emit_thinlto_summary(
     llvm::Module* module,
     const char* output_file_path) noexcept;
 
 /**
- * @brief Enables Split DWARF (.dwo) output during native object emission.
- * @param[in] tm The TargetMachine configured for the target.
- * @param[in] dwo_output_path The DWO file output path.
- * @return llvm_gen_be_error_t::ok on success.
+ * @brief Emits a ThinLTO or FullLTO bitcode file containing module summary index records.
+ * @details Delegates to `emit_thinlto_summary` when @p thin_lto is true, or writes standard
+ *          LTO bitcode via `emit_machine_code_to_file` when @p thin_lto is false.
+ * @param[in] module The LLVM module to serialize.
+ * @param[in] output_path Destination bitcode file path.
+ * @param[in] thin_lto `true` to include ThinLTO module summary index records, `false` for FullLTO bitcode.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+llvm_gen_be_error_t emit_llvm_lto_bitcode_file(
+    llvm::Module* module,
+    const char* output_path,
+    bool thin_lto) noexcept;
+
+/**
+ * @brief Configures Split DWARF (`.dwo`) emission on the given TargetMachine.
+ * @details Sets `MCOptions.SplitDwarfFile` to `dwo_output_path`.
+ * @param[in,out] tm The TargetMachine to configure.
+ * @param[in] dwo_output_path Path to the `.dwo` output file.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if pointers are null.
  */
 llvm_gen_be_error_t enable_split_dwarf_emission(
     llvm::TargetMachine* tm,

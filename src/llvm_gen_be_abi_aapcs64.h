@@ -73,8 +73,7 @@ llvm_gen_be_error_t detect_hfa_hva(
 /**
  * @brief Classifies a single EDG type into AAPCS64 ABI argument passing rules.
  * @details Evaluates scalars, arrays, pointers, and aggregates to determine 
- * register or memory allocation according to ARM64 rules. Handles Apple Darwin
- * ARM64 ABI specific quirks such as completely ignoring empty C++ struct types.
+ * register or memory allocation according to ARM64 rules.
  * @param[in] ty The EDG type to classify.
  * @param[out] out_info The classification result information structure.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
@@ -89,8 +88,7 @@ llvm_gen_be_error_t classify_aapcs64_argument(
  * @brief Computes ARM64 AAPCS64 return value passing information.
  * @details Evaluates the return type according to AAPCS64 return rules. 
  * Determines if the type requires an sret pointer, or if it can be returned 
- * in registers. Empty struct types are correctly classified as ignored for
- * both C and C++ on all AAPCS64 platforms.
+ * in registers.
  * @param[in] ret_ty The EDG type representing the function return type.
  * @param[out] out_info The classification result information structure.
  * @param[out] out_sret Pointer to a boolean set to true if the return is via sret.
@@ -182,6 +180,9 @@ llvm_gen_be_error_t lower_aapcs64_va_end(
 /**
  * @brief Builds Windows ARM64EC calling convention thunk signatures and entrypoints.
  * @details Emulation Compatible ARM64EC thunks mapping AAPCS64 to x64 conventions.
+ * Constructs the LLVM FunctionType and AttributeList for an ARM64EC guest-to-host
+ * or host-to-guest thunk, handling sret (mapped via x8/RCX adjustment) and variadic
+ * parameter array forwarding (via x4/x9).
  * @param[in] ty The EDG routine type.
  * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.

@@ -117,6 +117,13 @@ function(configure_definitions_as_values target macro_conf)
   # This will trigger any macros in definitions_from_cmake to be expanded
   # into their respective values (i.e., "@FOO@" -> the value of FOO in
   # CMake).
+  if(ENABLE_LLVM_BACKEND)
+    set(EDG_C_GEN_BE_DEFAULT 0)
+    set(EDG_LLVM_GEN_BE_DEFAULT 1)
+  else()
+    set(EDG_C_GEN_BE_DEFAULT 1)
+    set(EDG_LLVM_GEN_BE_DEFAULT 0)
+  endif()
   string(CONFIGURE "${definitions_from_cmakedef}"
          configured_cmakedef_definitions)
   # Export shared state.
@@ -140,6 +147,13 @@ function(configure_definitions_as_defines target macro_conf)
   endif()
   # This will trigger any macros in definitions_from_cmake to be expanded into
   # their respective values (i.e., "@FOO@" -> the value of FOO in CMake).
+  if(ENABLE_LLVM_BACKEND)
+    set(EDG_C_GEN_BE_DEFAULT 0)
+    set(EDG_LLVM_GEN_BE_DEFAULT 1)
+  else()
+    set(EDG_C_GEN_BE_DEFAULT 1)
+    set(EDG_LLVM_GEN_BE_DEFAULT 0)
+  endif()
   string(CONFIGURE "${definitions_from_cmakedef}"
          configured_cmakedef_definitions)
   # Export shared state with an extra trailing newline to avoid warnings from

@@ -17,14 +17,27 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @struct loongarch_field_info
+ * @brief Describes a flattened primitive field within a LoongArch aggregate.
+ * @details Records whether the primitive scalar is floating-point and its byte size.
+ */
 struct loongarch_field_info {
-  bool is_float;
-  uint64_t size;
+  bool is_float; ///< True if the field is a floating-point type.
+  uint64_t size; ///< Size of the field in bytes.
 };
 
+/**
+ * @brief Recursively flattens an aggregate type into primitive scalar fields for LoongArch64.
+ * @details Traverses nested structs and arrays to collect primitive scalar fields.
+ * @param[in] ty The EDG type to flatten.
+ * @param[in,out] fields Pointer to vector receiving flattened field descriptors.
+ * @param[in,out] is_valid Pointer to flag set to false if an unflatten-able member is found.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 static llvm_gen_be_error_t flatten_loongarch_struct(
     a_type_ptr ty,
-    std::vector<loongarch_field_info>& fields,
+    std::vector<loongarch_field_info>* fields,
     bool* is_valid) noexcept {
   
   if (!ty) return llvm_gen_be_error_t::invalid_argument;
@@ -34,10 +47,10 @@ static llvm_gen_be_error_t flatten_loongarch_struct(
   }
 
   if (ty->kind == tk_float) {
-    fields.push_back({true, static_cast<uint64_t>(ty->size)});
+    fields->push_back({true, static_cast<uint64_t>(ty->size)});
     return llvm_gen_be_error_t::ok;
-  } else if (ty->kind == tk_integer || ty->kind == tk_enum || ty->kind == tk_pointer) {
-    fields.push_back({false, static_cast<uint64_t>(ty->size)});
+  } else if (ty->kind == tk_integer || ty->kind == tk_pointer) {
+    fields->push_back({false, static_cast<uint64_t>(ty->size)});
     return llvm_gen_be_error_t::ok;
   } else if (ty->kind == tk_array) {
     a_type_ptr ety = ty->variant.array.element_type;
@@ -54,15 +67,19 @@ static llvm_gen_be_error_t flatten_loongarch_struct(
       if (err != llvm_gen_be_error_t::ok || !*is_valid) return err;
     }
     return llvm_gen_be_error_t::ok;
-  } else if (ty->kind == tk_union) {
-    *is_valid = false;
-    return llvm_gen_be_error_t::ok;
   }
 
   *is_valid = false;
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Classifies a single EDG argument type according to LoongArch 64 ABI rules.
+ * @details Determines register classes (integer, float, pair, or memory) and coerced LLVM type.
+ * @param[in] ty The EDG type to classify.
+ * @param[out] out_info Pointer to the loongarch64_arg_info_t structure receiving classification results.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t classify_loongarch64_argument(
     a_type_ptr ty,
     loongarch64_arg_info_t* out_info) noexcept {
@@ -83,7 +100,7 @@ llvm_gen_be_error_t classify_loongarch64_argument(
     return llvm_gen_be_error_t::ok;
   }
 
-  if (ty->kind == tk_integer || ty->kind == tk_enum || ty->kind == tk_pointer) {
+  if (ty->kind == tk_integer || ty->kind == tk_pointer) {
     out_info->abi_class = loongarch64_abi_class_t::integer;
     return llvm_type_from_edg_type(ty, &out_info->coerced_type);
   }
@@ -101,7 +118,7 @@ llvm_gen_be_error_t classify_loongarch64_argument(
 
   std::vector<loongarch_field_info> fields;
   bool is_valid = true;
-  llvm_gen_be_error_t err = flatten_loongarch_struct(ty, fields, &is_valid);
+  llvm_gen_be_error_t err = flatten_loongarch_struct(ty, &fields, &is_valid);
   if (err != llvm_gen_be_error_t::ok) return err;
 
   if (!is_valid || fields.empty()) {
@@ -125,7 +142,7 @@ llvm_gen_be_error_t classify_loongarch64_argument(
     llvm::Type* ft1 = fields[0].size == 4 ? llvm::Type::getFloatTy(*be_state->context) : llvm::Type::getDoubleTy(*be_state->context);
     llvm::Type* ft2 = fields[1].size == 4 ? llvm::Type::getFloatTy(*be_state->context) : llvm::Type::getDoubleTy(*be_state->context);
     out_info->coerced_type = llvm::StructType::get(ft1, ft2);
-  } else if (fields.size() == 2 && num_floats == 1 && num_ints == 1) {
+  } else if (fields.size() == 2 && num_floats == 1) {
     if (fields[0].is_float) {
       out_info->abi_class = loongarch64_abi_class_t::float_integer;
       llvm::Type* ft = fields[0].size == 4 ? llvm::Type::getFloatTy(*be_state->context) : llvm::Type::getDoubleTy(*be_state->context);
@@ -149,6 +166,14 @@ llvm_gen_be_error_t classify_loongarch64_argument(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Computes the return value classification and sret requirement for LoongArch 64.
+ * @details Evaluates whether the return type is passed in registers or via sret pointer.
+ * @param[in] ret_ty The EDG return type.
+ * @param[out] out_info Pointer to store the return classification info.
+ * @param[out] out_sret Pointer to boolean set to true if sret is required.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t compute_loongarch64_return_info(
     a_type_ptr ret_ty,
     loongarch64_arg_info_t* out_info,
@@ -168,6 +193,14 @@ llvm_gen_be_error_t compute_loongarch64_return_info(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Builds the LLVM FunctionType and AttributeList for a LoongArch 64 routine.
+ * @details Applies LoongArch LP64D ABI coercion rules to return type and parameters.
+ * @param[in] routine_ty The EDG routine type.
+ * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
+ * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t build_loongarch64_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
@@ -201,11 +234,8 @@ llvm_gen_be_error_t build_loongarch64_function_type(
   } else {
     if (ret_info.abi_class == loongarch64_abi_class_t::no_class) {
       llvm_ret_ty = llvm::Type::getVoidTy(*be_state->context);
-    } else if (ret_info.coerced_type) {
-      llvm_ret_ty = ret_info.coerced_type;
     } else {
-      err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
-      if (err != llvm_gen_be_error_t::ok) return err;
+      llvm_ret_ty = ret_info.coerced_type;
     }
   }
 
@@ -228,13 +258,8 @@ llvm_gen_be_error_t build_loongarch64_function_type(
         err = llvm_type_from_edg_type(param->type, &pointee_ty);
         if (err != llvm_gen_be_error_t::ok) return err;
         ab.addByValAttr(pointee_ty);
-      } else if (arg_info.coerced_type) {
-        llvm_param_types.push_back(arg_info.coerced_type);
       } else {
-        llvm::Type* pty = nullptr;
-        err = llvm_type_from_edg_type(param->type, &pty);
-        if (err != llvm_gen_be_error_t::ok) return err;
-        llvm_param_types.push_back(pty);
+        llvm_param_types.push_back(arg_info.coerced_type);
       }
       
       param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
@@ -254,6 +279,13 @@ llvm_gen_be_error_t build_loongarch64_function_type(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_start intrinsic for the LoongArch 64 ABI.
+ * @details Invokes the llvm.va_start intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_loongarch64_va_start(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -267,6 +299,14 @@ llvm_gen_be_error_t lower_loongarch64_va_start(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_arg operation for the LoongArch 64 ABI.
+ * @details Emits an LLVM VAArgInst for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Pointer to store the extracted LLVM value.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_loongarch64_va_arg(
     llvm::Value* va_list_ptr,
     a_type_ptr ty,
@@ -278,10 +318,26 @@ llvm_gen_be_error_t lower_loongarch64_va_arg(
   llvm_gen_be_error_t err = get_llvm_type(ty, &llvm_ty);
   if (err != llvm_gen_be_error_t::ok) return err;
 
+  loongarch64_arg_info_t info = {};
+  LLVM_GEN_BE_ASSERT_OK(classify_loongarch64_argument(ty, &info));
+  if (info.is_indirect) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+
   *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_end intrinsic for the LoongArch 64 ABI.
+ * @details Invokes the llvm.va_end intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_loongarch64_va_end(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -295,6 +351,14 @@ llvm_gen_be_error_t lower_loongarch64_va_end(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_copy intrinsic for the LoongArch 64 ABI.
+ * @details Invokes the llvm.va_copy intrinsic on destination and source va_list pointers.
+ * @param[in] dest_va_list_ptr Pointer to the destination va_list object.
+ * @param[in] src_va_list_ptr Pointer to the source va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_loongarch64_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,

@@ -18,7 +18,81 @@
 BEGIN_EDG_NAMESPACE
 
 /**
+ * @brief Internal recursive helper for Windows x64 __vectorcall HFA/HVA detection.
+ * @details Traverses struct fields and fixed-size arrays to count homogeneous
+ * float, double, or vector elements (1 to 4 identical elements).
+ * @param[in] ty The EDG type to inspect.
+ * @param[in,out] num_elements Counter for homogeneous elements found.
+ * @param[in,out] elem_ty The resolved LLVM element type.
+ * @param[in,out] is_valid Flag set to false if heterogeneous or non-HVA fields are encountered.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+static llvm_gen_be_error_t detect_win64_hva_internal(
+    a_type_ptr ty,
+    uint32_t* num_elements,
+    llvm::Type** elem_ty,
+    bool* is_valid) noexcept {
+  if (ty == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+
+  while (ty->kind == tk_typeref) {
+    ty = ty->variant.typeref.type;
+  }
+
+  if (ty->kind == tk_float
+#if GNU_VECTOR_TYPES_ALLOWED
+      || ty->kind == tk_vector
+#endif
+  ) {
+    llvm::Type* fty = nullptr;
+    llvm_gen_be_error_t err = llvm_type_from_edg_type(ty, &fty);
+    if (err != llvm_gen_be_error_t::ok) return err;
+
+    if (*elem_ty == nullptr) {
+      *elem_ty = fty;
+    } else if (*elem_ty != fty) {
+      *is_valid = false;
+      return llvm_gen_be_error_t::ok;
+    }
+    (*num_elements)++;
+    return llvm_gen_be_error_t::ok;
+  }
+
+  if (ty->kind == tk_array) {
+    a_type_ptr ety = ty->variant.array.element_type;
+    uint32_t count = static_cast<uint32_t>(ty->variant.array.variant.number_of_elements);
+    if (count == 0) {
+      *is_valid = false;
+      return llvm_gen_be_error_t::ok;
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      llvm_gen_be_error_t err = detect_win64_hva_internal(ety, num_elements, elem_ty, is_valid);
+      if (err != llvm_gen_be_error_t::ok || !*is_valid) return err;
+    }
+    return llvm_gen_be_error_t::ok;
+  }
+
+  if (ty->kind == tk_struct || ty->kind == tk_class) {
+    if (ty->variant.class_struct_union.field_list == nullptr) {
+      *is_valid = false;
+      return llvm_gen_be_error_t::ok;
+    }
+    for (a_field_ptr field = ty->variant.class_struct_union.field_list; field != nullptr; field = field->next) {
+      if (field->is_bit_field && field->bit_size == 0) continue;
+      llvm_gen_be_error_t err = detect_win64_hva_internal(field->type, num_elements, elem_ty, is_valid);
+      if (err != llvm_gen_be_error_t::ok || !*is_valid) return err;
+    }
+    return llvm_gen_be_error_t::ok;
+  }
+
+  *is_valid = false;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
  * @brief Classifies a single EDG type into Win64 ABI class.
+ * @details Implements or declares `classify_win64_argument` for the EDG LLVM backend.
  * @param[in] ty The EDG type to classify.
  * @param[in] is_vectorcall True if the function uses __vectorcall convention.
  * @param[out] out_info The classification result information structure.
@@ -56,6 +130,9 @@ llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, bool is_vectorcall, w
       return llvm_gen_be_error_t::ok;
 
     case tk_float:
+#if GNU_VECTOR_TYPES_ALLOWED
+    case tk_vector:
+#endif
       if (is_vectorcall) {
         out_info->abi_class = win64_abi_class_t::vectorcall_hva;
         llvm_gen_be_error_t err = llvm_type_from_edg_type(ty, &out_info->hva_elem_ty);
@@ -69,20 +146,27 @@ llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, bool is_vectorcall, w
     case tk_struct:
     case tk_union:
     case tk_array:
-      // Microsoft x64 aggregate passing: aggregates > 8 bytes or not powers of two passed by reference
-      if (is_vectorcall) {
-        // HVA detection for __vectorcall (1 to 4 identical float/vector elements)
-        // A placeholder for HVA detection: if it's a struct of 1-4 floats, it's an HVA.
-        // EDG frontend typically provides a way to inspect fields, but for this task 
-        // we will fall back to direct_integer or indirect_by_pointer if not an HVA.
-        // Actually, detecting HVA is similar to AAPCS64.
-        // For now, we will just say it's not HVA unless we have a helper.
-      }
       if ((ty->kind == tk_class || ty->kind == tk_struct) && !is_trivially_copyable_type(ty)) {
         out_info->abi_class = win64_abi_class_t::indirect_by_pointer;
         out_info->is_indirect = true;
         out_info->pass_by_invisible_reference = true;
-      } else if (size == 1 || size == 2 || size == 4 || size == 8) {
+        return llvm_gen_be_error_t::ok;
+      }
+      if (is_vectorcall && (ty->kind == tk_class || ty->kind == tk_struct || ty->kind == tk_array)) {
+        uint32_t hva_elems = 0;
+        llvm::Type* hva_ty = nullptr;
+        bool is_hva = true;
+        llvm_gen_be_error_t err = detect_win64_hva_internal(ty, &hva_elems, &hva_ty, &is_hva);
+        if (err != llvm_gen_be_error_t::ok) return err;
+        if (is_hva && hva_elems <= 4) {
+          out_info->abi_class = win64_abi_class_t::vectorcall_hva;
+          out_info->hva_elem_ty = hva_ty;
+          out_info->num_elements = hva_elems;
+          out_info->is_indirect = false;
+          return llvm_gen_be_error_t::ok;
+        }
+      }
+      if (size == 1 || size == 2 || size == 4 || size == 8) {
         out_info->abi_class = win64_abi_class_t::direct_integer;
       } else {
         out_info->abi_class = win64_abi_class_t::indirect_by_pointer;
@@ -98,6 +182,7 @@ llvm_gen_be_error_t classify_win64_argument(a_type_ptr ty, bool is_vectorcall, w
 
 /**
  * @brief Computes the ABI return passing mechanism for Windows x64.
+ * @details Implements or declares `compute_win64_return_info` for the EDG LLVM backend.
  * @param[in] ret_ty The EDG return type pointer.
  * @param[in] is_vectorcall True if the function uses __vectorcall convention.
  * @param[out] out_info Pointer to the win64_arg_info_t struct to populate with return classification results.
@@ -122,6 +207,7 @@ llvm_gen_be_error_t compute_win64_return_info(a_type_ptr ret_ty, bool is_vectorc
 
 /**
  * @brief Constructs an LLVM FunctionType and AttributeList matching Win64 ABI.
+ * @details Implements or declares `build_win64_function_type` for the EDG LLVM backend.
  * @param[in] routine_ty The EDG routine type structure.
  * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
@@ -138,7 +224,12 @@ llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::Funct
   llvm::Type* llvm_ret_ty = nullptr;
 
   bool is_vectorcall = false;
-  // Checking for __vectorcall attribute on routine_ty could be done here if EDG stores it.
+#if MICROSOFT_EXTENSIONS_ALLOWED || GNU_X86_ATTRIBUTES_ALLOWED
+  if (routine_ty->variant.routine.extra_info != nullptr &&
+      routine_ty->variant.routine.extra_info->calling_convention == cc_vectorcall) {
+    is_vectorcall = true;
+  }
+#endif
 
   win64_arg_info_t ret_info;
   bool is_sret = false;
@@ -159,7 +250,10 @@ llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::Funct
   } else {
     if (ret_ty->size == 0) {
       llvm_ret_ty = llvm::Type::getVoidTy(*be_state->context);
-    } else if (ret_info.abi_class == win64_abi_class_t::direct_integer && ret_ty->kind == tk_class) {
+    } else if (ret_info.abi_class == win64_abi_class_t::vectorcall_hva) {
+      err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
+      if (err != llvm_gen_be_error_t::ok) return err;
+    } else if (ret_info.abi_class == win64_abi_class_t::direct_integer && (ret_ty->kind == tk_class || ret_ty->kind == tk_struct)) {
       llvm_ret_ty = llvm::Type::getIntNTy(*be_state->context, ret_info.size * 8);
     } else {
       err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
@@ -167,6 +261,7 @@ llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::Funct
     }
   }
 
+  uint32_t vector_regs_used = 0;
   if (routine_ty->variant.routine.extra_info != nullptr) {
     for (a_param_type_ptr param = routine_ty->variant.routine.extra_info->param_type_list;
          param != nullptr; param = param->next) {
@@ -176,7 +271,24 @@ llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::Funct
       if (err != llvm_gen_be_error_t::ok) return err;
 
       llvm::AttrBuilder ab(*be_state->context);
-      if (arg_info.is_indirect) {
+      if (arg_info.abi_class == win64_abi_class_t::vectorcall_hva) {
+        if (vector_regs_used + arg_info.num_elements <= 6) {
+          vector_regs_used += arg_info.num_elements;
+          llvm::Type* pty = nullptr;
+          err = llvm_type_from_edg_type(param->type, &pty);
+          if (err != llvm_gen_be_error_t::ok) return err;
+          llvm_param_types.push_back(pty);
+          if (param->type->kind == tk_class || param->type->kind == tk_struct) {
+            ab.addAttribute(llvm::Attribute::InReg);
+          }
+        } else {
+          llvm_param_types.push_back(llvm::PointerType::getUnqual(*be_state->context));
+          llvm::Type* pointee_ty = nullptr;
+          err = llvm_type_from_edg_type(param->type, &pointee_ty);
+          if (err != llvm_gen_be_error_t::ok) return err;
+          ab.addByValAttr(pointee_ty);
+        }
+      } else if (arg_info.is_indirect) {
         llvm_param_types.push_back(llvm::PointerType::getUnqual(*be_state->context));
         if (!arg_info.pass_by_invisible_reference) {
           llvm::Type* pointee_ty = nullptr;
@@ -184,7 +296,7 @@ llvm_gen_be_error_t build_win64_function_type(a_type_ptr routine_ty, llvm::Funct
           if (err != llvm_gen_be_error_t::ok) return err;
           ab.addByValAttr(pointee_ty);
         }
-      } else if (arg_info.abi_class == win64_abi_class_t::direct_integer && param->type->kind == tk_class) {
+      } else if (arg_info.abi_class == win64_abi_class_t::direct_integer && (param->type->kind == tk_class || param->type->kind == tk_struct)) {
         llvm_param_types.push_back(llvm::Type::getIntNTy(*be_state->context, arg_info.size * 8));
       } else {
         llvm::Type* pty = nullptr;
@@ -224,6 +336,7 @@ llvm_gen_be_error_t build_win64_va_list_type(llvm::Type** out_ty) noexcept {
 
 /**
  * @brief Lowers a va_start call for Windows x64 ABI.
+ * @details Implements or declares `lower_win64_va_start` for the EDG LLVM backend.
  * @param[in] va_list_ptr The LLVM value pointing to the va_list.
  * @param[out] out_val The resulting LLVM value for the lowered intrinsic.
  * @return An `llvm_gen_be_error_t` code indicating success or failure.
@@ -254,6 +367,15 @@ llvm_gen_be_error_t lower_win64_va_arg(llvm::Value* va_list_ptr, a_type_ptr ty, 
   llvm_gen_be_error_t err = llvm_type_from_edg_type(ty, &llvm_ty);
   if (err != llvm_gen_be_error_t::ok) return err;
 
+  win64_arg_info_t arg_info = {};
+  LLVM_GEN_BE_ASSERT_OK(classify_win64_argument(ty, false, &arg_info));
+  if (arg_info.is_indirect) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+
   *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
   return llvm_gen_be_error_t::ok;
 }
@@ -279,6 +401,7 @@ llvm_gen_be_error_t lower_win64_va_copy(llvm::Value* dest_va_list_ptr, llvm::Val
 
 /**
  * @brief Lowers a va_end intrinsic for Windows x64 ABI.
+ * @details Implements or declares `lower_win64_va_end` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer to the va_list struct.
  * @param[out] out_val The resulting intrinsic call instruction.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.

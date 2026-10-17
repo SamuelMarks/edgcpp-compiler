@@ -18,6 +18,16 @@
 #include "llvm_gen_be_abi_sysv_x86_64.h"
 #include "llvm_gen_be_abi_win64.h"
 #include "llvm_gen_be_abi_aapcs64.h"
+#include "llvm_gen_be_abi_x86_32.h"
+#include "llvm_gen_be_abi_arm32.h"
+#include "llvm_gen_be_abi_riscv64.h"
+#include "llvm_gen_be_abi_loongarch64.h"
+#include "llvm_gen_be_abi_mips.h"
+#include "llvm_gen_be_abi_ppc64.h"
+#include "llvm_gen_be_abi_s390x.h"
+#include "llvm_gen_be_abi_sparc.h"
+#include "llvm_gen_be_abi_wasm.h"
+#include <llvm/IR/MDBuilder.h>
 #include <llvm/TargetParser/Triple.h>
 #include <vector>
 
@@ -66,12 +76,10 @@ llvm_gen_be_error_t llvm_type_from_integer(
     case ik_unsigned_long:
       *out_type = llvm::IntegerType::get(*be_state->context, (targ_sizeof_long * targ_char_bit));
       break;
-#if LONG_LONG_ALLOWED
     case ik_long_long:
     case ik_unsigned_long_long:
       *out_type = llvm::IntegerType::get(*be_state->context, (targ_sizeof_long_long * targ_char_bit));
       break;
-#endif /* LONG_LONG_ALLOWED */
 #if INT128_EXTENSIONS_ALLOWED
     case ik_int128:
     case ik_unsigned_int128:
@@ -85,13 +93,53 @@ llvm_gen_be_error_t llvm_type_from_integer(
         return llvm_gen_be_error_t::internal_inconsistency;
       }
       *out_type = llvm::IntegerType::get(*be_state->context, extra_info->bit_width);
-      break;
-    }
+    } break;
     default:
       *out_type = llvm::IntegerType::get(*be_state->context, edg_type->size * targ_char_bit);
       break;
   }
   return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Computes the fractional bit scale, signedness, and saturation flags for an EDG fixed-point type.
+ * @details Maps ISO/IEC TR 18037 `_Fract` and `_Accum` (`fpp_short`, `fpp_default`, `fpp_long`,
+ *          signed and unsigned, saturating and non-saturating) to their exact fractional bit count.
+ * @param[in] tp Pointer to the EDG `tk_fixed_point` type structure.
+ * @param[out] out_frac_bits Receives the number of fractional bits (`F`).
+ * @param[out] out_is_signed Receives `true` if the fixed-point type is signed.
+ * @param[out] out_is_saturating Receives `true` if the fixed-point type is saturating (`_Sat`).
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if inputs are null or not `tk_fixed_point`.
+ */
+llvm_gen_be_error_t llvm_get_fixed_point_scale(
+    a_type_ptr tp,
+    unsigned* out_frac_bits,
+    bool* out_is_signed,
+    bool* out_is_saturating) noexcept {
+  if (!tp || !out_frac_bits || !out_is_signed || !out_is_saturating) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  a_type_ptr raw_tp = skip_typerefs(tp);
+#if FIXED_POINT_ALLOWED
+  if (raw_tp->kind != tk_fixed_point) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  const a_fixed_point_type_descr& fxd = raw_tp->variant.fixed_point;
+  bool is_unsigned = (fxd.is_unsigned != 0);
+  *out_is_signed = !is_unsigned;
+  *out_is_saturating = (fxd.saturating != 0);
+  unsigned base_frac = 15;
+  if (fxd.precision == fpp_short) {
+    base_frac = 7;
+  } else if (fxd.precision == fpp_long) {
+    base_frac = 31;
+  }
+  *out_frac_bits = is_unsigned ? (base_frac + 1) : base_frac;
+  return llvm_gen_be_error_t::ok;
+#else
+  (void)raw_tp;
+  return llvm_gen_be_error_t::invalid_argument;
+#endif
 }
 
 /**
@@ -288,6 +336,23 @@ llvm_gen_be_error_t llvm_type_from_struct(
     return llvm_gen_be_error_t::ok;
   }
 
+  if (edg_type->variant.class_struct_union.extra_info &&
+      edg_type->variant.class_struct_union.extra_info->is_va_list_tag) {
+    llvm::Triple triple(be_state->module->getTargetTriple());
+    if (triple.isOSWindows() || triple.isRISCV() || triple.isLoongArch() ||
+        triple.isMIPS() || triple.isPPC() || triple.isARM() || triple.isThumb() ||
+        triple.getArch() == llvm::Triple::x86 || triple.isSPARC() || triple.isWasm()) {
+      return build_win64_va_list_type(out_type);
+    }
+    if (triple.isAArch64()) {
+      return build_aapcs64_va_list_type(out_type);
+    }
+    if (triple.isSystemZ()) {
+      return build_s390x_va_list_type(out_type);
+    }
+    return build_sysv_va_list_type(out_type);
+  }
+
   llvm::StructType* struct_ty = nullptr;
   auto it = be_state->type_cache.find(edg_type);
   if (it != be_state->type_cache.end()) {
@@ -343,12 +408,14 @@ llvm_gen_be_error_t llvm_type_from_struct(
   for (a_field_ptr f = edg_type->variant.class_struct_union.field_list; f != nullptr; f = f->next) {
     if (f->is_bit_field) continue;
     llvm::Type* fty = nullptr;
-    if (llvm_type_from_edg_type(f->type, &fty) == llvm_gen_be_error_t::ok) {
-      uint64_t align = be_state->module->getDataLayout().getABITypeAlign(fty).value();
-      if (f->offset % align != 0) {
-        is_packed = true;
-        break;
-      }
+    llvm_gen_be_error_t f_err = llvm_type_from_edg_type(f->type, &fty);
+    if (f_err != llvm_gen_be_error_t::ok) {
+      return f_err;
+    }
+    uint64_t align = be_state->module->getDataLayout().getABITypeAlign(fty).value();
+    if (f->offset % align != 0) {
+      is_packed = true;
+      break;
     }
   }
 
@@ -363,7 +430,14 @@ llvm_gen_be_error_t llvm_type_from_struct(
           field->offset - current_offset));
       current_offset = field->offset;
     } else if (field->offset < current_offset) {
-      continue; // Handled as part of a previous bitfield run
+      if (!field->is_bit_field &&
+          static_cast<uint64_t>(field->offset + field->type->size) > current_offset) {
+        uint64_t extra_bytes = static_cast<uint64_t>(field->offset + field->type->size) - current_offset;
+        elem_tys.push_back(llvm::ArrayType::get(
+            llvm::Type::getInt8Ty(*be_state->context), extra_bytes));
+        current_offset += extra_bytes;
+      }
+      continue; // Handled as part of a previous bitfield run or overlapping [[no_unique_address]] subobject
     }
 
     if (field->is_bit_field) {
@@ -372,9 +446,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
       llvm::Triple triple(be_state->module->getTargetTriple());
       bool is_msvc = triple.isWindowsMSVCEnvironment();
       
-      uint64_t container_bytes = field->type->size;
-      if (container_bytes == 0) container_bytes = 1;
-
+      uint64_t container_bytes = (field->type->size > 0) ? field->type->size : 1;
       uint64_t run_byte_end = current_offset + container_bytes;
 
       if (!is_msvc) {
@@ -385,11 +457,6 @@ llvm_gen_be_error_t llvm_type_from_struct(
           uint64_t next_bit_end = next_bf->offset * 8 + next_bf->offset_bit_remainder + next_bf->bit_size;
           uint64_t next_byte_end = (next_bit_end + 7) / 8;
           if (next_byte_end > run_byte_end) run_byte_end = next_byte_end;
-          
-          uint64_t next_type_size = next_bf->type->size;
-          if (next_type_size > container_bytes && (next_bf->offset + next_type_size) >= run_byte_end) {
-              container_bytes = next_type_size; // Upgrade container alignment/size
-          }
           next_bf = next_bf->next;
         }
         
@@ -397,32 +464,20 @@ llvm_gen_be_error_t llvm_type_from_struct(
         uint64_t span = run_byte_end - current_offset;
         container_bytes = 1;
         while (container_bytes < span) container_bytes *= 2;
-        if (container_bytes < 4 && span > 2) container_bytes = 4; // e.g., i24 -> i32
-      } else {
-        // MSVC rules: run spans exactly the declared container size
-        a_field_ptr next_bf = field->next;
-        while (next_bf != nullptr && next_bf->is_bit_field && next_bf->bit_size > 0 && next_bf->offset == current_offset) {
-          next_bf = next_bf->next;
-        }
       }
       
       uint64_t span_bytes = run_byte_end - current_offset;
-      if (span_bytes > 0) {
-        if (is_packed || container_bytes != span_bytes) {
-           elem_tys.push_back(llvm::IntegerType::get(*be_state->context, span_bytes * 8));
-        } else {
-           elem_tys.push_back(llvm::IntegerType::get(*be_state->context, container_bytes * 8));
-        }
-        current_offset = run_byte_end;
+      if (is_packed || container_bytes != span_bytes) {
+        elem_tys.push_back(llvm::IntegerType::get(*be_state->context, span_bytes * 8));
+      } else {
+        elem_tys.push_back(llvm::IntegerType::get(*be_state->context, container_bytes * 8));
       }
+      current_offset = run_byte_end;
       continue;
     }
 
     llvm::Type* ty = nullptr;
     llvm_gen_be_error_t err = llvm_type_from_edg_type(field->type, &ty);
-    if (err != llvm_gen_be_error_t::ok) {
-      return err;
-    }
     elem_tys.push_back(ty);
     current_offset += field->type->size;
   }
@@ -463,10 +518,28 @@ llvm_gen_be_error_t llvm_type_from_routine(
 
   if (triple.isOSWindows() && triple.getArch() == llvm::Triple::x86_64) {
     err = build_win64_function_type(edg_type, out_fn_type, &dummy_attrs);
-  } else if (triple.getArch() == llvm::Triple::aarch64) {
+  } else if (triple.getArch() == llvm::Triple::aarch64 || triple.getArch() == llvm::Triple::aarch64_be) {
     err = build_aapcs64_function_type(edg_type, out_fn_type, &dummy_attrs);
   } else if (triple.getArch() == llvm::Triple::x86_64) {
     err = build_sysv_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::x86) {
+    err = build_x86_32_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::arm || triple.getArch() == llvm::Triple::thumb) {
+    err = build_arm32_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::riscv64 || triple.getArch() == llvm::Triple::riscv32) {
+    err = build_riscv64_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::loongarch64 || triple.getArch() == llvm::Triple::loongarch32) {
+    err = build_loongarch64_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.isMIPS()) {
+    err = build_mips_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.isPPC64() || triple.isPPC32()) {
+    err = build_ppc64_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::systemz) {
+    err = build_s390x_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.getArch() == llvm::Triple::sparc || triple.getArch() == llvm::Triple::sparcv9 || triple.getArch() == llvm::Triple::sparcel) {
+    err = build_sparc_function_type(edg_type, out_fn_type, &dummy_attrs);
+  } else if (triple.isWasm()) {
+    err = build_wasm_function_type(edg_type, out_fn_type, &dummy_attrs);
   } else {
     // Fallback: simple parameter lowering
     a_type_ptr ret_ty = edg_type->variant.routine.return_type;
@@ -524,8 +597,7 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
     llvm::Type* cached_ty = it->second;
     bool needs_completion = false;
     if (auto* struct_ty = llvm::dyn_cast<llvm::StructType>(cached_ty)) {
-      if (struct_ty->isOpaque() && !edg_type->incomplete &&
-          (edg_type->kind == tk_struct || edg_type->kind == tk_class || edg_type->kind == tk_union)) {
+      if (struct_ty->isOpaque() && !edg_type->incomplete) {
         needs_completion = true;
       }
     }
@@ -545,19 +617,25 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
     case tk_integer:
       err = llvm_type_from_integer(edg_type, &llvm_ty);
       break;
+#if FIXED_POINT_ALLOWED
+    case tk_fixed_point: {
+      unsigned bits = (edg_type->size > 0) ? static_cast<unsigned>(edg_type->size * 8) : 32;
+      llvm_ty = llvm::IntegerType::get(*be_state->context, bits);
+    } break;
+#endif
     case tk_float:
+#if C99_IL_EXTENSIONS_SUPPORTED
+    case tk_imaginary:
+#endif
       err = llvm_type_from_float(edg_type, &llvm_ty);
       break;
-#if C99_IL_EXTENSIONS_SUPPORTED
     case tk_complex: {
       llvm::Type* elem_ty = nullptr;
       err = llvm_type_from_float(edg_type, &elem_ty);
       if (err == llvm_gen_be_error_t::ok) {
         llvm_ty = llvm::StructType::get(*be_state->context, {elem_ty, elem_ty});
       }
-      break;
-    }
-#endif /* C99_IL_EXTENSIONS_SUPPORTED */
+    } break;
     case tk_pointer:
       err = llvm_type_from_pointer(edg_type, &llvm_ty);
       break;
@@ -584,8 +662,7 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
             llvm_ty = sv_ty;
         }
       }
-      break;
-    }
+    } break;
     case tk_riscv_vector: {
       llvm::Type* elem_ty = nullptr;
       err = llvm_type_from_edg_type(edg_type->variant.riscv_vector.element_type, &elem_ty);
@@ -613,8 +690,7 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
             llvm_ty = sv_ty;
         }
       }
-      break;
-    }
+    } break;
     case tk_scalable_vector_count:
       // Opaque count type, often represented as boolean scalable vector for predicates
       llvm_ty = llvm::ScalableVectorType::get(llvm::Type::getInt1Ty(*be_state->context), 16);
@@ -627,8 +703,7 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
       llvm::FunctionType* fn_ty = nullptr;
       err = llvm_type_from_routine(edg_type, &fn_ty);
       llvm_ty = fn_ty;
-      break;
-    }
+    } break;
     case tk_struct:
     case tk_class:
     case tk_union:
@@ -637,6 +712,13 @@ llvm_gen_be_error_t llvm_type_from_edg_type(
     case tk_typeref:
       err = llvm_type_from_edg_type(edg_type->variant.typeref.type, &llvm_ty);
       break;
+#if GNU_VECTOR_TYPES_ALLOWED
+    case tk_mfp8:
+    case tk_float8e4m3:
+    case tk_float8e5m2:
+      llvm_ty = llvm::Type::getInt8Ty(*be_state->context);
+      break;
+#endif
     default:
       llvm_ty = llvm::Type::getInt8Ty(*be_state->context);
       err = llvm_gen_be_error_t::unsupported_type;
@@ -691,10 +773,8 @@ llvm_gen_be_error_t llvm_calling_conv_from_routine(
         *out_cc = llvm::CallingConv::X86_VectorCall;
         break;
       case cc_clrcall:
-        // LLVM does not have a direct ClrCall mapping, fallback to C or unsupported?
-        // Let's use C for now or 0
         *out_cc = llvm::CallingConv::C;
-        break;
+        return llvm_gen_be_error_t::abi_classification_failed;
       default:
         *out_cc = llvm::CallingConv::C;
         break;
@@ -726,6 +806,150 @@ llvm_gen_be_error_t get_llvm_type(a_type_ptr edg_type, llvm::Type** out_type) no
     return err;
   }
   *out_type = ty;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Constructs or retrieves the LLVM TBAA type descriptor `MDNode` for an EDG type.
+ * @details Creates the `"Simple C/C++ TBAA"` root, `"omnipotent char"` node, scalar type nodes,
+ *          and struct path descriptor nodes using `llvm::MDBuilder`.
+ * @param[in] type Pointer to the EDG type structure.
+ * @param[out] out_node Receives the constructed `llvm::MDNode*` type descriptor.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_node` is null.
+ */
+llvm_gen_be_error_t llvm_get_tbaa_type_node(
+    a_type_ptr type,
+    llvm::MDNode** out_node) noexcept {
+  LLVM_GEN_BE_CHECK_NOT_NULL(out_node);
+  llvm::MDBuilder mdb(*be_state->context);
+  llvm::MDNode* root = mdb.createTBAARoot("Simple C/C++ TBAA");
+  llvm::MDNode* char_node = mdb.createTBAAScalarTypeNode("omnipotent char", root, 0);
+  if (!type) {
+    *out_node = char_node;
+    return llvm_gen_be_error_t::ok;
+  }
+  a_type_ptr tp = skip_typerefs(type);
+  if (tp->kind == tk_integer) {
+    if (tp->size <= 1) {
+      *out_node = char_node;
+    } else if (tp->size == 2) {
+      *out_node = mdb.createTBAAScalarTypeNode("short", char_node, 0);
+    } else if (tp->size == 4) {
+      *out_node = mdb.createTBAAScalarTypeNode("int", char_node, 0);
+    } else {
+      *out_node = mdb.createTBAAScalarTypeNode("long long", char_node, 0);
+    }
+    return llvm_gen_be_error_t::ok;
+  }
+  if (tp->kind == tk_float) {
+    const char* fname = (tp->size == 4) ? "float" : "double";
+    *out_node = mdb.createTBAAScalarTypeNode(fname, char_node, 0);
+    return llvm_gen_be_error_t::ok;
+  }
+  if (tp->kind == tk_pointer) {
+    *out_node = mdb.createTBAAScalarTypeNode("any pointer", char_node, 0);
+    return llvm_gen_be_error_t::ok;
+  }
+  if (tp->kind == tk_struct || tp->kind == tk_class) {
+    std::vector<std::pair<llvm::MDNode*, uint64_t>> fields;
+    for (a_field_ptr f = tp->variant.class_struct_union.field_list; f != nullptr; f = f->next) {
+      if (f->is_bit_field) continue;
+      llvm::MDNode* f_node = nullptr;
+      LLVM_GEN_BE_ASSERT_OK(llvm_get_tbaa_type_node(f->type, &f_node));
+      fields.push_back({f_node, static_cast<uint64_t>(f->offset)});
+    }
+    const char* sname = (tp->source_corresp.name && tp->source_corresp.name[0] != '\0')
+                            ? tp->source_corresp.name
+                            : "anon_struct";
+    *out_node = mdb.createTBAAStructTypeNode(sname, fields);
+    return llvm_gen_be_error_t::ok;
+  }
+  *out_node = char_node;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Constructs an LLVM `!tbaa` access tag `MDNode` for a memory load or store.
+ * @details Combines the base type node, scalar access type node, and byte offset via `MDBuilder::createTBAAAccessTag`.
+ * @param[in] base_type Pointer to the base EDG type (struct or scalar).
+ * @param[in] access_type Pointer to the accessed scalar/pointer EDG type.
+ * @param[in] offset Byte offset of the access within `base_type`.
+ * @param[out] out_tag Receives the constructed `!tbaa` access tag `llvm::MDNode*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_tag` is null.
+ */
+llvm_gen_be_error_t llvm_get_tbaa_access_tag(
+    a_type_ptr base_type,
+    a_type_ptr access_type,
+    uint64_t offset,
+    llvm::MDNode** out_tag) noexcept {
+  LLVM_GEN_BE_CHECK_NOT_NULL(out_tag);
+  llvm::MDNode* base_node = nullptr;
+  llvm::MDNode* access_node = nullptr;
+  LLVM_GEN_BE_ASSERT_OK(llvm_get_tbaa_type_node(base_type, &base_node));
+  LLVM_GEN_BE_ASSERT_OK(llvm_get_tbaa_type_node(access_type, &access_node));
+  llvm::MDBuilder mdb(*be_state->context);
+  uint64_t size = (access_type && access_type->size > 0) ? static_cast<uint64_t>(access_type->size) : 1;
+  *out_tag = mdb.createTBAAAccessTag(base_node, access_node, offset, size);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Constructs an LLVM `!tbaa.struct` metadata node for aggregate memory copy operations.
+ * @details Builds field offset/size/tag triples for all non-bitfield fields of `struct_type`.
+ * @param[in] struct_type Pointer to the EDG struct/class type.
+ * @param[out] out_node Receives the constructed `!tbaa.struct` `llvm::MDNode*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_node` is null.
+ */
+llvm_gen_be_error_t llvm_get_tbaa_struct_node(
+    a_type_ptr struct_type,
+    llvm::MDNode** out_node) noexcept {
+  LLVM_GEN_BE_CHECK_NOT_NULL(out_node);
+  std::vector<llvm::MDBuilder::TBAAStructField> fields;
+  a_type_ptr tp = struct_type ? skip_typerefs(struct_type) : nullptr;
+  if (tp && (tp->kind == tk_struct || tp->kind == tk_class)) {
+    for (a_field_ptr f = tp->variant.class_struct_union.field_list; f != nullptr; f = f->next) {
+      if (f->is_bit_field || !f->type) continue;
+      llvm::MDNode* tag = nullptr;
+      LLVM_GEN_BE_ASSERT_OK(llvm_get_tbaa_access_tag(f->type, f->type, 0, &tag));
+      uint64_t fsz = (f->type->size > 0) ? static_cast<uint64_t>(f->type->size) : 1;
+      fields.push_back({static_cast<uint64_t>(f->offset), fsz, tag});
+    }
+  }
+  llvm::MDBuilder mdb(*be_state->context);
+  *out_node = mdb.createTBAAStructNode(fields);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Resolves a symbolic GPU/target address-space name (`shared`, `constant`, `global`, `local`, `generic`) to an LLVM address space ID.
+ * @details Maps address-space names for `nvptx64`, `amdgcn`, and `spirv64` target triples (or generic targets).
+ * @param[in] space_name Null-terminated address-space name (`"shared"`, `"constant"`, `"global"`, `"local"`, `"generic"`).
+ * @param[out] out_addr_space Receives the target-specific LLVM address space integer.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_addr_space` is null.
+ */
+llvm_gen_be_error_t llvm_resolve_target_address_space(
+    const char* space_name,
+    unsigned* out_addr_space) noexcept {
+  LLVM_GEN_BE_CHECK_NOT_NULL(out_addr_space);
+  *out_addr_space = 0;
+  if (!space_name || space_name[0] == '\0') {
+    return llvm_gen_be_error_t::ok;
+  }
+  llvm::StringRef sname(space_name);
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  bool is_nvptx = triple.isNVPTX();
+  bool is_amdgpu = triple.isAMDGPU();
+  bool is_spirv = triple.isSPIRV();
+
+  if (sname == "global") {
+    *out_addr_space = 1;
+  } else if (sname == "shared") {
+    *out_addr_space = 3;
+  } else if (sname == "constant") {
+    *out_addr_space = is_spirv ? 2 : 4;
+  } else if (sname == "local") {
+    *out_addr_space = is_nvptx ? 5 : (is_amdgpu ? 3 : 0);
+  }
   return llvm_gen_be_error_t::ok;
 }
 

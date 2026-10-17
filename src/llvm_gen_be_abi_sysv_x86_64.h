@@ -85,6 +85,21 @@ llvm_gen_be_error_t compute_sysv_return_info(
     bool* out_sret) noexcept;
 
 /**
+ * @brief Constructs the LLVM register-coerced type for a System V AMD64 aggregate or scalar.
+ * @details Maps 1-eightbyte and 2-eightbyte INTEGER, SSE, SSEUP, X87, and COMPLEX_X87
+ *          classifications into their psABI-mandated LLVM IR representation
+ *          (e.g., `i64`, `double`, `{i64, double}`, `fp128`, `x86_fp80`, `{x86_fp80, x86_fp80}`).
+ * @param[in] ty The EDG type being coerced.
+ * @param[in] info Pointer to the computed System V classification info.
+ * @param[out] out_coerced_ty Receives the coerced `llvm::Type*`.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t build_sysv_coerced_type(
+    a_type_ptr ty,
+    const x86_64_abi_arg_info_t* info,
+    llvm::Type** out_coerced_ty) noexcept;
+
+/**
  * @brief Constructs an LLVM FunctionType and AttributeList matching System V AMD64 ABI.
  * @details Evaluates function parameters and return type against the classification engine.
  * Determines sret, byval, and register allocation. Tracks available integer and SSE
@@ -159,6 +174,60 @@ llvm_gen_be_error_t lower_sysv_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,
     llvm::Value** out_val) noexcept;
+
+/**
+ * @enum llvm_abi_passing_kind_t
+ * @brief Target-agnostic ABI argument/return passing mechanism classification.
+ * @details Summarizes how a return value or parameter is lowered in an LLVM FunctionType.
+ */
+enum class llvm_abi_passing_kind_t {
+  ignore_void,      ///< Void or zero-sized empty type omitted from register/stack passing.
+  direct,           ///< Passed directly as its natural LLVM scalar, pointer, or vector type.
+  coerced_register, ///< Coerced into one or more target integer/SSE/HFA register types.
+  indirect_sret,    ///< Returned indirectly via a hidden caller-allocated `sret(T)` pointer parameter.
+  indirect_byval,   ///< Passed on the stack via a `byval(T)` pointer parameter.
+  indirect_pointer  ///< Passed by pointer to caller-allocated temporary memory.
+};
+
+/**
+ * @struct llvm_target_abi_reg_state_t
+ * @brief Tracks cumulative general-purpose and floating-point/vector register usage across a call or function signature.
+ * @details Used across target ABI classifiers and call/prologue lowering to determine when
+ *          register arguments overflow into memory (`byval` or stack slots).
+ */
+struct llvm_target_abi_reg_state_t {
+  uint32_t gpr_used; ///< Number of general-purpose argument registers consumed so far.
+  uint32_t fpr_used; ///< Number of floating-point or vector argument registers consumed so far.
+  uint32_t gpr_max;  ///< Maximum available general-purpose argument registers on the target ABI.
+  uint32_t fpr_max;  ///< Maximum available floating-point or vector argument registers on the target ABI.
+};
+
+/**
+ * @struct llvm_abi_function_info_t
+ * @brief Target-agnostic summary of a lowered function's ABI signature and attributes.
+ * @details Holds the lowered `llvm::FunctionType*`, `llvm::AttributeList`, return passing
+ *          kind, and hidden `sret` flag computed by the target ABI dispatcher.
+ */
+struct llvm_abi_function_info_t {
+  llvm::FunctionType* fn_type;        ///< Lowered target ABI LLVM FunctionType.
+  llvm::AttributeList attrs;          ///< Parameter, return, and function ABI attributes.
+  llvm_abi_passing_kind_t return_kind; ///< Classification of the function return value.
+  bool has_sret;                      ///< True if parameter 0 carries `StructRet`.
+};
+
+/**
+ * @brief Dispatches to the active target architecture's ABI classifier to compute lowered function ABI metadata.
+ * @details Supports System V x86_64, Windows x64, AArch64 AAPCS64, x86-32, ARM32,
+ *          RISC-V 32/64, LoongArch64, MIPS, PowerPC 32/64, SystemZ (s390x), SPARC, and WebAssembly.
+ * @param[in] routine_ty Pointer to the EDG `tk_routine` type descriptor.
+ * @param[in] triple_str Target triple string identifying architecture and OS ABI.
+ * @param[out] out_abi_info Receives the populated `llvm_abi_function_info_t` descriptor.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_compute_function_abi_info(
+    a_type_ptr routine_ty,
+    const std::string& triple_str,
+    llvm_abi_function_info_t* out_abi_info) noexcept;
 
 END_EDG_NAMESPACE
 

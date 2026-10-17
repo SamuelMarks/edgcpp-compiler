@@ -16,6 +16,14 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief Classifies a single EDG argument type according to SPARC / SPARC V9 ABI rules.
+ * @details Determines whether the argument is passed in registers, coerced, or passed indirectly.
+ * @param[in] ty The EDG type to classify.
+ * @param[in] is_v9 True if targeting 64-bit SPARC V9; false for 32-bit SPARC V8.
+ * @param[out] out_info Pointer to the sparc_arg_info_t structure receiving classification results.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t classify_sparc_argument(
     a_type_ptr ty,
     bool is_v9,
@@ -35,7 +43,7 @@ llvm_gen_be_error_t classify_sparc_argument(
     return llvm_gen_be_error_t::ok;
   }
 
-  if (ty->kind == tk_integer || ty->kind == tk_enum || ty->kind == tk_pointer) {
+  if (ty->kind == tk_integer || ty->kind == tk_pointer) {
     out_info->abi_class = sparc_abi_class_t::integer;
     return llvm_type_from_edg_type(ty, &out_info->coerced_type);
   }
@@ -60,6 +68,15 @@ llvm_gen_be_error_t classify_sparc_argument(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Computes return value classification and sret requirement for SPARC / SPARC V9.
+ * @details Determines whether the return value is returned in registers or via sret pointer.
+ * @param[in] ret_ty The EDG return type.
+ * @param[in] is_v9 True if targeting 64-bit SPARC V9; false for 32-bit SPARC V8.
+ * @param[out] out_info Pointer to store the return classification info.
+ * @param[out] out_sret Pointer to boolean set to true if sret is required.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t compute_sparc_return_info(
     a_type_ptr ret_ty,
     bool is_v9,
@@ -75,14 +92,19 @@ llvm_gen_be_error_t compute_sparc_return_info(
   if (out_info->abi_class == sparc_abi_class_t::struct_byval || out_info->abi_class == sparc_abi_class_t::memory) {
     out_info->requires_sret = true;
     *out_sret = true;
-  } else if (is_v9 && out_info->abi_class == sparc_abi_class_t::struct_coerced && ret_ty->size > 32) {
-    out_info->requires_sret = true;
-    *out_sret = true;
   }
 
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Builds the LLVM FunctionType and AttributeList for a SPARC / SPARC V9 routine.
+ * @details Applies SPARC V8 or V9 ABI coercion and sret/byval attributes.
+ * @param[in] routine_ty The EDG routine type.
+ * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
+ * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t build_sparc_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
@@ -121,11 +143,8 @@ llvm_gen_be_error_t build_sparc_function_type(
   } else {
     if (ret_info.abi_class == sparc_abi_class_t::no_class) {
       llvm_ret_ty = llvm::Type::getVoidTy(*be_state->context);
-    } else if (ret_info.coerced_type) {
-      llvm_ret_ty = ret_info.coerced_type;
     } else {
-      err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
-      if (err != llvm_gen_be_error_t::ok) return err;
+      llvm_ret_ty = ret_info.coerced_type;
     }
   }
 
@@ -146,13 +165,8 @@ llvm_gen_be_error_t build_sparc_function_type(
         err = llvm_type_from_edg_type(param->type, &pointee_ty);
         if (err != llvm_gen_be_error_t::ok) return err;
         ab.addByValAttr(pointee_ty);
-      } else if (arg_info.coerced_type) {
-        llvm_param_types.push_back(arg_info.coerced_type);
       } else {
-        llvm::Type* pty = nullptr;
-        err = llvm_type_from_edg_type(param->type, &pty);
-        if (err != llvm_gen_be_error_t::ok) return err;
-        llvm_param_types.push_back(pty);
+        llvm_param_types.push_back(arg_info.coerced_type);
       }
       
       param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
@@ -172,6 +186,13 @@ llvm_gen_be_error_t build_sparc_function_type(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_start intrinsic for the SPARC ABI.
+ * @details Invokes the llvm.va_start intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_sparc_va_start(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -185,6 +206,14 @@ llvm_gen_be_error_t lower_sparc_va_start(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_arg operation for the SPARC ABI.
+ * @details Emits an LLVM VAArgInst for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Pointer to store the extracted LLVM value.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_sparc_va_arg(
     llvm::Value* va_list_ptr,
     a_type_ptr ty,
@@ -194,10 +223,27 @@ llvm_gen_be_error_t lower_sparc_va_arg(
   llvm::Type* llvm_ty = nullptr;
   llvm_gen_be_error_t err = get_llvm_type(ty, &llvm_ty);
   if (err != llvm_gen_be_error_t::ok) return err;
+
+  sparc_arg_info_t info = {};
+  LLVM_GEN_BE_ASSERT_OK(classify_sparc_argument(ty, targ_sizeof_pointer == 8, &info));
+  if (info.is_indirect || info.abi_class == sparc_abi_class_t::struct_byval) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+
   *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_end intrinsic for the SPARC ABI.
+ * @details Invokes the llvm.va_end intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_sparc_va_end(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -211,6 +257,14 @@ llvm_gen_be_error_t lower_sparc_va_end(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_copy intrinsic for the SPARC ABI.
+ * @details Invokes the llvm.va_copy intrinsic on destination and source va_list pointers.
+ * @param[in] dest_va_list_ptr Pointer to the destination va_list object.
+ * @param[in] src_va_list_ptr Pointer to the source va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_sparc_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,

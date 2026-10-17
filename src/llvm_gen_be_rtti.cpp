@@ -81,8 +81,7 @@ llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_co
       init_elements.push_back(name_ptr);
 
       llvm::Constant* base_ti = nullptr;
-      llvm_gen_be_error_t err = get_typeinfo_global(extra->direct_base_classes->type, &base_ti);
-      if (err != llvm_gen_be_error_t::ok) return err;
+      LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(extra->direct_base_classes->type, &base_ti));
       init_elements.push_back(base_ti);
     } else {
       vtable_name = "_ZTVN10__cxxabiv121__vmi_class_type_infoE";
@@ -92,7 +91,7 @@ llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_co
       llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
 
       long vmi_flags = 0;
-      base = extra ? extra->direct_base_classes : nullptr;
+      base = extra->direct_base_classes;
       while (base) {
         if (base->has_public_derivation) vmi_flags |= 2;
         base = base->next_direct;
@@ -102,11 +101,10 @@ llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_co
       init_elements.push_back(llvm::ConstantInt::get(int32_ty, vmi_flags));
       init_elements.push_back(llvm::ConstantInt::get(int32_ty, base_count));
 
-      base = extra ? extra->direct_base_classes : nullptr;
+      base = extra->direct_base_classes;
       while (base) {
         llvm::Constant* base_ti = nullptr;
-        llvm_gen_be_error_t err = get_typeinfo_global(base->type, &base_ti);
-        if (err != llvm_gen_be_error_t::ok) return err;
+        LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(base->type, &base_ti));
         init_elements.push_back(base_ti);
 
         long offset_flags = base->offset << 8;
@@ -123,8 +121,7 @@ llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_co
     init_elements.push_back(name_ptr);
 
     llvm::Constant* pointee_ti = nullptr;
-    llvm_gen_be_error_t err = get_typeinfo_global(type->variant.pointer.type, &pointee_ti);
-    if (err != llvm_gen_be_error_t::ok) return err;
+    LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(type->variant.pointer.type, &pointee_ti));
 
     init_elements.push_back(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*be_state->context), 0));
     init_elements.push_back(pointee_ti);
@@ -134,21 +131,23 @@ llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_co
     init_elements.push_back(name_ptr);
 
     llvm::Constant* pointee_ti = nullptr;
-    llvm_gen_be_error_t err = get_typeinfo_global(type->variant.ptr_to_member.type, &pointee_ti);
-    if (err != llvm_gen_be_error_t::ok) return err;
+    LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(type->variant.ptr_to_member.type, &pointee_ti));
 
     init_elements.push_back(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*be_state->context), 0));
     init_elements.push_back(pointee_ti);
 
     llvm::Constant* class_ti = nullptr;
-    err = get_typeinfo_global(type->variant.ptr_to_member.class_of_which_a_member, &class_ti);
-    if (err != llvm_gen_be_error_t::ok) return err;
+    LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(type->variant.ptr_to_member.class_of_which_a_member, &class_ti));
     init_elements.push_back(class_ti);
   } else if (type->kind == tk_routine) {
     vtable_name = "_ZTVN10__cxxabiv120__function_type_infoE";
     init_elements.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(i8_ptr_ty)));
     init_elements.push_back(name_ptr);
-  } else if (type->kind == tk_enum) {
+  } else if (type->kind == tk_array) {
+    vtable_name = "_ZTVN10__cxxabiv117__array_type_infoE";
+    init_elements.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(i8_ptr_ty)));
+    init_elements.push_back(name_ptr);
+  } else if (type->kind == tk_integer && type->variant.integer.enum_type) {
     vtable_name = "_ZTVN10__cxxabiv116__enum_type_infoE";
     init_elements.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(i8_ptr_ty)));
     init_elements.push_back(name_ptr);
@@ -182,120 +181,183 @@ llvm_gen_be_error_t get_typeinfo_global(a_type_ptr type, llvm::Constant** out_co
       typeinfo_init,
       name_ref);
 
+#if DO_IL_LOWERING
+  llvm::Triple rtti_triple(be_state->module->getTargetTriple());
+  if (!rtti_triple.isOSBinFormatMachO()) {
+    llvm::Comdat* comdat = be_state->module->getOrInsertComdat(name_ref);
+    comdat->setSelectionKind(rtti_triple.isOSBinFormatCOFF() ? llvm::Comdat::Largest : llvm::Comdat::Any);
+    gv->setComdat(comdat);
+  } else {
+    gv->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  }
+#endif
+
   *out_const = gv;
   return llvm_gen_be_error_t::ok;
 }
 
 
-static std::string msvc_mangle_number(int64_t n) {
-    if (n == 0) return "A@";
-    std::string res = "";
-    if (n < 0) {
-        res += "?";
-        n = -n;
-    }
-    if (n >= 1 && n <= 10) {
-        res += std::to_string(n - 1);
-        return res;
-    }
-    
-    std::string hex_digits = "";
-    while (n > 0) {
-        hex_digits = (char)('A' + (n % 16)) + hex_digits;
-        n /= 16;
-    }
-    res += hex_digits + "@";
-    return res;
+/**
+ * @brief Mangles a signed 64-bit integer according to Microsoft Visual C++ ABI rules.
+ * @details Encodes 0 as "A@", 1..10 as single digits '0'..'9', and larger values as
+ *          hexadecimal 'A'..'P' digits terminated by '@', prefixed with '?' if negative.
+ * @param[in] n The signed 64-bit integer value to mangle.
+ * @param[out] out_mangled Receives the mangled string representation.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if out_mangled is null.
+ */
+static llvm_gen_be_error_t msvc_mangle_number(int64_t n, std::string* out_mangled) noexcept {
+  if (n == 0) {
+    *out_mangled = "A@";
+    return llvm_gen_be_error_t::ok;
+  }
+  std::string res = "";
+  uint64_t abs_n = 0;
+  if (n < 0) {
+    res += "?";
+    abs_n = static_cast<uint64_t>(-(n + 1)) + 1ULL;
+  } else {
+    abs_n = static_cast<uint64_t>(n);
+  }
+  if (abs_n <= 10) {
+    res += std::to_string(abs_n - 1);
+    *out_mangled = res;
+    return llvm_gen_be_error_t::ok;
+  }
+
+  std::string hex_digits = "";
+  while (abs_n > 0) {
+    hex_digits = static_cast<char>('A' + (abs_n % 16)) + hex_digits;
+    abs_n /= 16;
+  }
+  res += hex_digits + "@";
+  *out_mangled = res;
+  return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Emits an MSVC RTTI Base Class Descriptor (`_RTTIBaseClassDescriptor`).
+ * @details Generates the global descriptor encoding the base class `TypeDescriptor`,
+ *          contained base count, pointer-to-member displacement (`mdisp`, `pdisp`, `vdisp`),
+ *          and hierarchy attributes (including virtual base displacement calculation).
+ * @param[in] class_type The complete derived EDG class type.
+ * @param[in] base Pointer to the EDG base class entry (or nullptr for the self descriptor).
+ * @param[out] out_const Receives the generated LLVM Constant global variable.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 static llvm_gen_be_error_t llvm_emit_msvc_rtti_base_class_descriptor(
     a_type_ptr class_type,
     a_base_class_ptr base,
     llvm::Constant** out_const) noexcept {
-    if (!class_type || !out_const) return llvm_gen_be_error_t::invalid_argument;
+  int64_t mdisp = 0;
+  int64_t pdisp = -1;
+  int64_t vdisp = 0;
+  int64_t attributes = 0x40; // BCD_HASPCHD
 
-    int64_t mdisp = base ? base->offset : 0;
-    int64_t pdisp = -1; // Not yet handling virtual bases
-    int64_t vdisp = 0;
-    int64_t attributes = 0; // Or other attributes, typically 0 for direct base
-    if (base == nullptr) attributes = 0;
-
-    std::string bcd_name = "??_R1";
-    bcd_name += msvc_mangle_number(mdisp);
-    bcd_name += msvc_mangle_number(pdisp);
-    bcd_name += msvc_mangle_number(vdisp);
-    bcd_name += msvc_mangle_number(attributes);
-    
-    char* mangled = mangled_typeinfo_name(base ? base->type : class_type);
-    if (mangled) {
-        // mangled_typeinfo_name usually returns .?AU...@@ for MSVC. 
-        // BCD name requires the name without .?
-        if (mangled[0] == '.' && mangled[1] == '?') bcd_name += (mangled + 2);
-        else bcd_name += mangled;
+  if (base) {
+    if (base->is_virtual) {
+      mdisp = 0;
+      pdisp = 0;
+      a_class_type_supplement_ptr extra = class_type->variant.class_struct_union.extra_info;
+      int32_t vb_idx = 1;
+      for (a_base_class_ptr b = extra->base_classes; b != base; b = b->next) {
+        if (b->is_virtual) {
+          vb_idx++;
+        }
+      }
+      vdisp = static_cast<int64_t>(vb_idx) * 4;
+      attributes |= 0x04; // BCD_VBOFCONTOBJ
+    } else {
+      mdisp = static_cast<int64_t>(base->offset);
+      pdisp = -1;
+      vdisp = 0;
     }
-    bcd_name += "8";
-
-    llvm::GlobalVariable* gv = be_state->module->getNamedGlobal(bcd_name);
-    if (gv) {
-        *out_const = gv;
-        return llvm_gen_be_error_t::ok;
+    if (!base->has_public_derivation) {
+      attributes |= 0x01; // BCD_NOTVISIBLE
     }
+  }
 
-    llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
-    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+  std::string m_mdisp;
+  std::string m_pdisp;
+  std::string m_vdisp;
+  std::string m_attr;
+  LLVM_GEN_BE_ASSERT_OK(msvc_mangle_number(mdisp, &m_mdisp));
+  LLVM_GEN_BE_ASSERT_OK(msvc_mangle_number(pdisp, &m_pdisp));
+  LLVM_GEN_BE_ASSERT_OK(msvc_mangle_number(vdisp, &m_vdisp));
+  LLVM_GEN_BE_ASSERT_OK(msvc_mangle_number(attributes, &m_attr));
 
-    llvm::Constant* ti = nullptr;
-    llvm_gen_be_error_t err = get_typeinfo_global(base ? base->type : class_type, &ti);
-    if (err != llvm_gen_be_error_t::ok) return err;
+  std::string bcd_name = "??_R1" + m_mdisp + m_pdisp + m_vdisp + m_attr;
 
-    std::vector<llvm::Constant*> fields;
-    fields.push_back(ti ? ti : llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty))); // TypeDescriptor
-    
-    // num bases
-    int num_bases = 0;
-    a_type_ptr tgt_type = base ? base->type : class_type;
-    if (tgt_type->variant.class_struct_union.extra_info) {
-        a_base_class_ptr b = tgt_type->variant.class_struct_union.extra_info->direct_base_classes;
-        while(b) { num_bases++; b = b->next_direct; }
+  char* mangled = mangled_typeinfo_name(base ? base->type : class_type);
+  if (mangled) {
+    if (mangled[0] == '.' && mangled[1] == '?') {
+      bcd_name += (mangled + 2);
+    } else {
+      bcd_name += mangled;
     }
-    fields.push_back(llvm::ConstantInt::get(i32_ty, num_bases));
-    
-    // PMD
-    fields.push_back(llvm::ConstantInt::get(i32_ty, base ? base->offset : 0)); // mdisp
-    fields.push_back(llvm::ConstantInt::get(i32_ty, -1)); // pdisp
-    fields.push_back(llvm::ConstantInt::get(i32_ty, 0));  // vdisp
-    
-    // attributes
-    fields.push_back(llvm::ConstantInt::get(i32_ty, 0));
+  }
+  bcd_name += "8";
 
-    std::vector<llvm::Type*> field_types;
-    for (auto* f : fields) field_types.push_back(f->getType());
-
-    llvm::StructType* bcd_ty = llvm::StructType::get(*be_state->context, field_types);
-    llvm::Constant* init = llvm::ConstantStruct::get(bcd_ty, fields);
-
-    gv = new llvm::GlobalVariable(
-        *be_state->module, bcd_ty, true,
-        llvm::GlobalValue::LinkOnceODRLinkage, init, bcd_name);
+  llvm::GlobalVariable* gv = be_state->module->getNamedGlobal(bcd_name);
+  if (gv) {
     *out_const = gv;
     return llvm_gen_be_error_t::ok;
+  }
+
+  llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
+
+  llvm::Constant* ti = nullptr;
+  LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(base ? base->type : class_type, &ti));
+
+  std::vector<llvm::Constant*> fields;
+  fields.push_back(ti);
+
+  int num_bases = 0;
+  a_type_ptr tgt_type = base ? base->type : class_type;
+  if (tgt_type->variant.class_struct_union.extra_info) {
+    a_base_class_ptr b = tgt_type->variant.class_struct_union.extra_info->direct_base_classes;
+    while (b) {
+      num_bases++;
+      b = b->next_direct;
+    }
+  }
+  fields.push_back(llvm::ConstantInt::get(i32_ty, num_bases));
+
+  // PMD: mdisp, pdisp, vdisp
+  fields.push_back(llvm::ConstantInt::get(i32_ty, mdisp));
+  fields.push_back(llvm::ConstantInt::get(i32_ty, pdisp));
+  fields.push_back(llvm::ConstantInt::get(i32_ty, vdisp));
+
+  // attributes
+  fields.push_back(llvm::ConstantInt::get(i32_ty, attributes));
+
+  std::vector<llvm::Type*> field_types;
+  for (auto* f : fields) field_types.push_back(f->getType());
+
+  llvm::StructType* bcd_ty = llvm::StructType::get(*be_state->context, field_types);
+  llvm::Constant* init = llvm::ConstantStruct::get(bcd_ty, fields);
+
+  gv = new llvm::GlobalVariable(
+      *be_state->module, bcd_ty, true,
+      llvm::GlobalValue::LinkOnceODRLinkage, init, bcd_name);
+  *out_const = gv;
+  return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Emits an MSVC RTTI Class Hierarchy Descriptor (`_RTTIClassHierarchyDescriptor`).
+ * @details Generates the base class array (`??_R2`) and class hierarchy descriptor (`??_R3`)
+ *          for the specified class type.
+ * @param[in] type The EDG class AST type pointer.
+ * @param[out] out_const Receives the generated LLVM Constant global variable.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 static llvm_gen_be_error_t llvm_emit_msvc_rtti_class_hierarchy_descriptor(
     a_type_ptr type,
     llvm::Constant** out_const) noexcept {
-    if (!type || !out_const) return llvm_gen_be_error_t::invalid_argument;
-
     std::string chd_name = "??_R3";
     char* mangled = mangled_typeinfo_name(type);
     chd_name += (mangled ? mangled : "class");
     chd_name += "8";
-
-    llvm::GlobalVariable* gv = be_state->module->getNamedGlobal(chd_name);
-    if (gv) {
-        *out_const = gv;
-        return llvm_gen_be_error_t::ok;
-    }
 
     llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
     llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
@@ -310,14 +372,12 @@ static llvm_gen_be_error_t llvm_emit_msvc_rtti_class_hierarchy_descriptor(
     
     // BaseClassDescriptor for the class itself
     llvm::Constant* bcd_self = nullptr;
-    llvm_gen_be_error_t err = llvm_emit_msvc_rtti_base_class_descriptor(type, nullptr, &bcd_self);
-    if (err != llvm_gen_be_error_t::ok) return err;
+    LLVM_GEN_BE_ASSERT_OK(llvm_emit_msvc_rtti_base_class_descriptor(type, nullptr, &bcd_self));
     bca_elements.push_back(bcd_self);
 
     for (auto base : all_bases) {
         llvm::Constant* bcd = nullptr;
-        err = llvm_emit_msvc_rtti_base_class_descriptor(type, base, &bcd);
-        if (err != llvm_gen_be_error_t::ok) return err;
+        LLVM_GEN_BE_ASSERT_OK(llvm_emit_msvc_rtti_base_class_descriptor(type, base, &bcd));
         bca_elements.push_back(bcd);
     }
 
@@ -344,7 +404,7 @@ static llvm_gen_be_error_t llvm_emit_msvc_rtti_class_hierarchy_descriptor(
     llvm::StructType* chd_ty = llvm::StructType::get(*be_state->context, field_types);
     llvm::Constant* init = llvm::ConstantStruct::get(chd_ty, fields);
 
-    gv = new llvm::GlobalVariable(
+    llvm::GlobalVariable* gv = new llvm::GlobalVariable(
         *be_state->module, chd_ty, true,
         llvm::GlobalValue::LinkOnceODRLinkage, init, chd_name);
 
@@ -384,22 +444,19 @@ llvm_gen_be_error_t llvm_emit_msvc_rtti_complete_object_locator(
   }
 
   llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
-  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
 
   llvm::Constant* ti = nullptr;
-  llvm_gen_be_error_t err = get_typeinfo_global(type, &ti);
-  if (err != llvm_gen_be_error_t::ok) return err;
+  LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(type, &ti));
   
   llvm::Constant* chd = nullptr;
-  err = llvm_emit_msvc_rtti_class_hierarchy_descriptor(type, &chd);
-  if (err != llvm_gen_be_error_t::ok) return err;
+  LLVM_GEN_BE_ASSERT_OK(llvm_emit_msvc_rtti_class_hierarchy_descriptor(type, &chd));
 
   // Layout: { i32 signature, i32 offset, i32 cdOffset, ptr typeDescriptor, ptr classDescriptor }
   std::vector<llvm::Constant*> fields;
   fields.push_back(llvm::ConstantInt::get(i32_ty, 0)); // signature
   fields.push_back(llvm::ConstantInt::get(i32_ty, 0)); // offset
   fields.push_back(llvm::ConstantInt::get(i32_ty, 0)); // cdOffset
-  fields.push_back(ti ? ti : llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty)));
+  fields.push_back(ti);
   fields.push_back(chd); // classDescriptor
 
   std::vector<llvm::Type*> field_types;
@@ -417,6 +474,59 @@ llvm_gen_be_error_t llvm_emit_msvc_rtti_complete_object_locator(
       name_ref);
 
   *out_const = gv;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Emits an MSVC RTTI Type Descriptor (`_TypeDescriptor`, `??_R0?AV...`).
+ * @details Generates the global `_TypeDescriptor` structure containing the `??_7type_info@@6B@`
+ *          vftable pointer, spare runtime data pointer, and decorated type name string.
+ * @param[in] class_ty The EDG class or fundamental AST type pointer.
+ * @param[out] out_r0 Receives the resulting `llvm::GlobalVariable*` for the `_R0` descriptor.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if pointers are null.
+ */
+llvm_gen_be_error_t llvm_emit_msvc_rtti_type_descriptor(
+    a_type_ptr class_ty,
+    llvm::GlobalVariable** out_r0) noexcept {
+  if (!class_ty || !out_r0) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  a_type_ptr resolved = skip_typerefs(class_ty);
+  char* mangled = mangled_typeinfo_name(resolved);
+  std::string r0_name = "??_R0";
+  if (mangled && mangled[0] == '.') {
+    r0_name += (mangled + 1);
+  } else {
+    r0_name += "?AV";
+    r0_name += (mangled ? mangled : "class");
+    r0_name += "@@";
+  }
+  r0_name += "@8";
+
+  if (llvm::GlobalVariable* existing = be_state->module->getNamedGlobal(r0_name)) {
+    *out_r0 = existing;
+    return llvm_gen_be_error_t::ok;
+  }
+
+  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+  llvm::GlobalVariable* ti_vtbl = be_state->module->getNamedGlobal("??_7type_info@@6B@");
+  if (!ti_vtbl) {
+    ti_vtbl = new llvm::GlobalVariable(
+        *be_state->module, ptr_ty, true,
+        llvm::GlobalValue::ExternalLinkage, nullptr, "??_7type_info@@6B@");
+  }
+  llvm::Constant* spare_null = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty));
+  llvm::Constant* decorated_str = llvm::ConstantDataArray::getString(
+      *be_state->context, mangled ? mangled : ".?AVclass@@");
+
+  llvm::StructType* r0_ty = llvm::StructType::get(
+      *be_state->context, {ptr_ty, ptr_ty, decorated_str->getType()});
+  llvm::Constant* r0_init = llvm::ConstantStruct::get(
+      r0_ty, {ti_vtbl, spare_null, decorated_str});
+
+  *out_r0 = new llvm::GlobalVariable(
+      *be_state->module, r0_ty, false,
+      llvm::GlobalValue::LinkOnceODRLinkage, r0_init, r0_name);
   return llvm_gen_be_error_t::ok;
 }
 
@@ -451,12 +561,10 @@ llvm_gen_be_error_t llvm_lower_dynamic_cast(
   }
 
   llvm::Constant* src_ti = nullptr;
-  err = get_typeinfo_global(src_type, &src_ti);
-  if (err != llvm_gen_be_error_t::ok) return err;
+  LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(src_type, &src_ti));
 
   llvm::Constant* dst_ti = nullptr;
-  err = get_typeinfo_global(dst_type, &dst_ti);
-  if (err != llvm_gen_be_error_t::ok) return err;
+  LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(dst_type, &dst_ti));
 
   llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
@@ -477,13 +585,57 @@ llvm_gen_be_error_t llvm_lower_dynamic_cast(
         {sub_val, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*be_state->context), 0), src_ti, dst_ti,
          llvm::ConstantInt::get(llvm::Type::getInt32Ty(*be_state->context), is_ref)},
         "dyn_cast_msvc");
+  } else if (dst_type && skip_typerefs(dst_type)->kind == tk_void) {
+    // Itanium ABI dynamic_cast<void*>(sub_val): load offset_to_top at vptr[-2]
+    llvm::Value* vptr = be_state->builder->CreateLoad(ptr_ty, sub_val, "vptr.void_cast");
+    llvm::Value* minus_two = llvm::ConstantInt::get(i64_ty, -2, true);
+    llvm::Value* top_slot = be_state->builder->CreateInBoundsGEP(i64_ty, vptr, minus_two, "off_to_top.slot");
+    llvm::Value* off_to_top = be_state->builder->CreateLoad(i64_ty, top_slot, "off_to_top");
+    cast_result = be_state->builder->CreateInBoundsGEP(
+        llvm::Type::getInt8Ty(*be_state->context), sub_val, off_to_top, "dyn_cast.void");
   } else {
     // Itanium ABI __dynamic_cast(sub, src_ti, dst_ti, offset_hint)
     llvm::FunctionType* dyn_ty = llvm::FunctionType::get(
         ptr_ty, {ptr_ty, ptr_ty, ptr_ty, i64_ty}, false);
     llvm::FunctionCallee dyn_fn = be_state->module->getOrInsertFunction("__dynamic_cast", dyn_ty);
 
-    int64_t offset_hint = -1; // -1: no hint
+    int64_t offset_hint = -1; // -1: no hint / virtual base
+    if (src_type && dst_type) {
+      a_type_ptr s_cls = skip_typerefs(src_type);
+      a_type_ptr d_cls = skip_typerefs(dst_type);
+      if ((s_cls->kind == tk_class || s_cls->kind == tk_struct) &&
+          (d_cls->kind == tk_class || d_cls->kind == tk_struct)) {
+        a_class_type_supplement_ptr d_supp = d_cls->variant.class_struct_union.extra_info;
+        a_base_class_ptr list = d_supp ? (d_supp->base_classes ? d_supp->base_classes : d_supp->direct_base_classes) : nullptr;
+        if (list) {
+          int pub_nonvirt_matches = 0;
+          int priv_matches = 0;
+          int virt_matches = 0;
+          int64_t pub_off = 0;
+          for (a_base_class_ptr b = list; b != nullptr; b = (d_supp->base_classes ? b->next : b->next_direct)) {
+            if (skip_typerefs(b->type) == s_cls) {
+              if (b->is_virtual) {
+                virt_matches++;
+              } else if (b->has_public_derivation) {
+                pub_nonvirt_matches++;
+                pub_off = static_cast<int64_t>(b->offset);
+              } else {
+                priv_matches++;
+              }
+            }
+          }
+          if (virt_matches > 0) {
+            offset_hint = -1;
+          } else if (pub_nonvirt_matches == 1 && priv_matches == 0) {
+            offset_hint = pub_off;
+          } else if (pub_nonvirt_matches > 1) {
+            offset_hint = -3;
+          } else if (priv_matches > 0) {
+            offset_hint = -2;
+          }
+        }
+      }
+    }
     cast_result = be_state->builder->CreateCall(
         dyn_fn,
         {sub_val, src_ti, dst_ti, llvm::ConstantInt::get(i64_ty, offset_hint)},
@@ -509,13 +661,7 @@ llvm_gen_be_error_t llvm_lower_dynamic_cast(
     }
   }
 
-  llvm::Type* dest_llvm_ty = nullptr;
-  err = get_llvm_type(expr->type, &dest_llvm_ty);
-  if (err == llvm_gen_be_error_t::ok && dest_llvm_ty && dest_llvm_ty->isPointerTy()) {
-    *out_val = cast_result;
-  } else {
-    *out_val = cast_result;
-  }
+  *out_val = cast_result;
   return llvm_gen_be_error_t::ok;
 }
 
@@ -582,8 +728,7 @@ llvm_gen_be_error_t llvm_lower_typeid(
 
   // Non-polymorphic / static typeid(T)
   llvm::Constant* ti = nullptr;
-  llvm_gen_be_error_t err = get_typeinfo_global(static_ty, &ti);
-  if (err != llvm_gen_be_error_t::ok) return err;
+  LLVM_GEN_BE_ASSERT_OK(get_typeinfo_global(static_ty, &ti));
 
   *out_val = ti;
   return llvm_gen_be_error_t::ok;

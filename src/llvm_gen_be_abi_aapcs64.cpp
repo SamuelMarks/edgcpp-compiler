@@ -159,6 +159,14 @@ llvm_gen_be_error_t classify_aapcs64_argument(
   llvm::Triple triple(be_state->module->getTargetTriple());
   bool is_apple = triple.isOSDarwin();
 
+#if GNU_VECTOR_TYPES_ALLOWED
+  if (ty->kind == tk_scalable_vector || ty->kind == tk_scalable_vector_count) {
+    out_info->abi_class = aapcs64_abi_class_t::float_vector;
+    out_info->num_elements = 1;
+    return llvm_gen_be_error_t::ok;
+  }
+#endif
+
   bool is_empty = false;
   if (size == 0) {
     is_empty = true;
@@ -242,14 +250,19 @@ llvm_gen_be_error_t compute_aapcs64_return_info(
     aapcs64_arg_info_t* out_info,
     bool* out_sret) noexcept {
 
-  if (!out_info || !out_sret) return llvm_gen_be_error_t::invalid_argument;
+  if (!ret_ty || !out_info || !out_sret) return llvm_gen_be_error_t::invalid_argument;
 
-  if (ret_ty != nullptr && ret_ty->kind != tk_void) {
+  a_type_ptr raw_ret = skip_typerefs(ret_ty);
+  if (raw_ret->kind != tk_void
+#if GNU_VECTOR_TYPES_ALLOWED
+      && raw_ret->kind != tk_scalable_vector && raw_ret->kind != tk_scalable_vector_count
+#endif
+      ) {
     bool is_empty = false;
-    if (ret_ty->size == 0) {
+    if (raw_ret->size == 0) {
       is_empty = true;
-    } else if (ret_ty->kind == tk_class || ret_ty->kind == tk_struct) {
-      if (is_empty_class_type(ret_ty)) {
+    } else if (raw_ret->kind == tk_class || raw_ret->kind == tk_struct) {
+      if (is_empty_class_type(raw_ret)) {
         is_empty = true;
       }
     }
@@ -315,6 +328,14 @@ llvm_gen_be_error_t build_aapcs64_function_type(
   llvm_gen_be_error_t err = compute_aapcs64_return_info(ret_ty, &ret_info, &sret);
   if (err != llvm_gen_be_error_t::ok) return err;
 
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  bool is_apple = triple.isOSDarwin();
+  bool is_windows = triple.isOSWindows();
+  bool is_vararg = (routine_ty->variant.routine.extra_info != nullptr)
+                       ? routine_ty->variant.routine.extra_info->has_ellipsis
+                       : false;
+  bool is_win_vararg = is_windows && is_vararg;
+
   llvm::Type* llvm_ret_ty = nullptr;
 
   if (sret) {
@@ -327,29 +348,38 @@ llvm_gen_be_error_t build_aapcs64_function_type(
     err = llvm_type_from_edg_type(ret_ty, &sret_pointee_ty);
     if (err != llvm_gen_be_error_t::ok) return err;
     sret_ab.addStructRetAttr(sret_pointee_ty);
-    x_regs++; // XR8 is used for sret
+    // On AAPCS64, XR8 holds the indirect result location and does NOT consume x0-x7,
+    // except on Windows ARM64 instance methods where sret is passed in x1 (consuming 1 GPR).
+    a_routine_type_supplement_ptr r_extra = routine_ty->variant.routine.extra_info;
+    if (is_windows && r_extra->this_class != nullptr) {
+      x_regs++;
+      sret_ab.addAttribute(llvm::Attribute::InReg);
+    }
     param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, sret_ab));
   } else if (ret_info.abi_class == aapcs64_abi_class_t::no_class) {
     llvm_ret_ty = llvm::Type::getVoidTy(*be_state->context);
   } else {
     err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
     if (err != llvm_gen_be_error_t::ok) return err;
-    
-    llvm::Triple triple(be_state->module->getTargetTriple());
-    if (triple.isOSDarwin() && ret_info.abi_class == aapcs64_abi_class_t::integer) {
-      if (ret_ty->size < 4) {
-         if (int_type_is_signed(ret_ty)) ret_attr.addAttribute(llvm::Attribute::SExt);
+
+    a_type_ptr raw_ret_ty = skip_typerefs(ret_ty);
+    bool ret_is_agg = is_class_struct_union_type(raw_ret_ty) || raw_ret_ty->kind == tk_array;
+    if (ret_info.abi_class == aapcs64_abi_class_t::hfa_hva && !is_win_vararg) {
+      llvm_ret_ty = llvm::ArrayType::get(ret_info.hfa_hva_elem_ty, ret_info.num_elements);
+    } else if (ret_is_agg) {
+      uint32_t num_i64 = static_cast<uint32_t>((raw_ret_ty->size + 7) / 8);
+      llvm_ret_ty = (num_i64 <= 1)
+          ? static_cast<llvm::Type*>(llvm::Type::getInt64Ty(*be_state->context))
+          : static_cast<llvm::Type*>(llvm::ArrayType::get(llvm::Type::getInt64Ty(*be_state->context), num_i64));
+    }
+
+    if (is_apple && !ret_is_agg && ret_info.abi_class == aapcs64_abi_class_t::integer) {
+      if (raw_ret_ty->size < 4) {
+         if (int_type_is_signed(raw_ret_ty)) ret_attr.addAttribute(llvm::Attribute::SExt);
          else ret_attr.addAttribute(llvm::Attribute::ZExt);
       }
     }
   }
-
-  bool is_vararg = (routine_ty->variant.routine.extra_info != nullptr)
-                       ? routine_ty->variant.routine.extra_info->has_ellipsis
-                       : false;
-
-  llvm::Triple triple(be_state->module->getTargetTriple());
-  bool is_apple = triple.isOSDarwin();
 
   if (routine_ty->variant.routine.extra_info != nullptr) {
     for (a_param_type_ptr param = routine_ty->variant.routine.extra_info->param_type_list;
@@ -364,9 +394,20 @@ llvm_gen_be_error_t build_aapcs64_function_type(
       if (err != llvm_gen_be_error_t::ok) return err;
 
       llvm::AttrBuilder ab(*be_state->context);
+      a_type_ptr raw_param_ty = skip_typerefs(param->type);
+      bool param_is_agg = is_class_struct_union_type(raw_param_ty) || raw_param_ty->kind == tk_array;
 
-      if (is_apple && arg_info.abi_class == aapcs64_abi_class_t::integer && param->type->size < 4) {
-         if (int_type_is_signed(param->type)) ab.addAttribute(llvm::Attribute::SExt);
+      if (is_win_vararg && arg_info.abi_class == aapcs64_abi_class_t::hfa_hva) {
+        if (raw_param_ty->size > 16) {
+          arg_info.abi_class = aapcs64_abi_class_t::reference;
+        } else {
+          arg_info.abi_class = aapcs64_abi_class_t::integer;
+          arg_info.num_elements = static_cast<uint32_t>((raw_param_ty->size + 7) / 8);
+        }
+      }
+
+      if (is_apple && !param_is_agg && arg_info.abi_class == aapcs64_abi_class_t::integer && raw_param_ty->size < 4) {
+         if (int_type_is_signed(raw_param_ty)) ab.addAttribute(llvm::Attribute::SExt);
          else ab.addAttribute(llvm::Attribute::ZExt);
       }
 
@@ -377,11 +418,6 @@ llvm_gen_be_error_t build_aapcs64_function_type(
       } else if (arg_info.abi_class == aapcs64_abi_class_t::reference) {
         // Passed indirectly by address (caller allocated)
         llvm_param_types.push_back(llvm::PointerType::getUnqual(*be_state->context));
-        // We typically don't mark it `byval` on ARM64 if it's passed as an opaque indirect pointer,
-        // but clang sometimes uses `byval` depending on the exact C/C++ frontend semantics.
-        // For simplicity and matching typical AAPCS64 copy-on-call, we add byval.
-        // Actually AAPCS64 specifies it's passed by pointer to a caller-allocated copy.
-        // We can use the ByVal attribute to let LLVM handle the copy, or we can explicitly copy.
         if (!arg_info.pass_by_invisible_reference) {
           ab.addByValAttr(pty);
         }
@@ -390,19 +426,34 @@ llvm_gen_be_error_t build_aapcs64_function_type(
       } else if (arg_info.abi_class == aapcs64_abi_class_t::hfa_hva) {
         if (v_regs + arg_info.num_elements <= 8) {
           v_regs += arg_info.num_elements;
+        } else {
+          v_regs = 8;
         }
-        // HFA/HVA are mapped to LLVM IR as arrays or structs.
-        llvm_param_types.push_back(pty);
+        llvm::Type* hfa_pty = llvm::ArrayType::get(arg_info.hfa_hva_elem_ty, arg_info.num_elements);
+        llvm_param_types.push_back(hfa_pty);
         param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
       } else if (arg_info.abi_class == aapcs64_abi_class_t::float_vector) {
-        if (v_regs < 8) v_regs++;
-        llvm_param_types.push_back(pty);
+        if (is_win_vararg) {
+          if (x_regs < 8) x_regs++;
+          llvm_param_types.push_back(llvm::Type::getInt64Ty(*be_state->context));
+        } else {
+          if (v_regs < 8) v_regs++;
+          llvm_param_types.push_back(pty);
+        }
         param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
       } else { // integer
         if (x_regs + arg_info.num_elements <= 8) {
           x_regs += arg_info.num_elements;
+        } else {
+          x_regs = 8;
         }
-        llvm_param_types.push_back(pty);
+        llvm::Type* int_pty = pty;
+        if (param_is_agg) {
+          int_pty = (arg_info.num_elements == 1)
+              ? static_cast<llvm::Type*>(llvm::Type::getInt64Ty(*be_state->context))
+              : static_cast<llvm::Type*>(llvm::ArrayType::get(llvm::Type::getInt64Ty(*be_state->context), arg_info.num_elements));
+        }
+        llvm_param_types.push_back(int_pty);
         param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
       }
     }
@@ -433,7 +484,7 @@ llvm_gen_be_error_t build_aapcs64_va_list_type(
   if (out_ty == nullptr) return llvm_gen_be_error_t::invalid_argument;
   
   llvm::Triple triple(be_state->module->getTargetTriple());
-  if (triple.isOSDarwin()) {
+  if (triple.isOSDarwin() || triple.isOSWindows()) {
     *out_ty = llvm::PointerType::getUnqual(*be_state->context);
   } else {
     llvm::Type* i8_ptr = llvm::PointerType::getUnqual(*be_state->context);
@@ -478,11 +529,107 @@ llvm_gen_be_error_t lower_aapcs64_va_arg(
     llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !ty || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
-  llvm::Type* llvm_ty = nullptr;
-  llvm_gen_be_error_t err = llvm_type_from_edg_type(ty, &llvm_ty);
+  aapcs64_arg_info_t arg_info;
+  llvm_gen_be_error_t err = classify_aapcs64_argument(ty, &arg_info);
   if (err != llvm_gen_be_error_t::ok) return err;
 
-  *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
+  llvm::Type* llvm_ty = nullptr;
+  err = llvm_type_from_edg_type(ty, &llvm_ty);
+  if (err != llvm_gen_be_error_t::ok) return err;
+
+  if (arg_info.abi_class == aapcs64_abi_class_t::reference) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+
+  a_type_ptr raw_ty = skip_typerefs(ty);
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  llvm::BasicBlock* cur_bb = be_state->builder->GetInsertBlock();
+  llvm::Function* cur_fn = cur_bb->getParent();
+
+  if (!cur_fn || triple.isOSDarwin() || triple.isOSWindows()) {
+    if (raw_ty->alignment > 16) {
+      *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty, "vaarg.aligned");
+      return llvm_gen_be_error_t::ok;
+    }
+    *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
+    return llvm_gen_be_error_t::ok;
+  }
+
+  llvm::Type* i8_ty = llvm::Type::getInt8Ty(*be_state->context);
+  llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
+  llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
+  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+  llvm::StructType* va_tag_ty = llvm::StructType::get(*be_state->context, {ptr_ty, ptr_ty, ptr_ty, i32_ty, i32_ty});
+
+  bool is_fp_reg = (arg_info.abi_class == aapcs64_abi_class_t::float_vector ||
+                    arg_info.abi_class == aapcs64_abi_class_t::hfa_hva);
+  uint32_t num_regs = (arg_info.num_elements > 0) ? arg_info.num_elements : 1;
+  uint32_t reg_slot_size = is_fp_reg ? 16 : 8;
+  uint32_t total_reg_bytes = num_regs * reg_slot_size;
+
+  llvm::Value* stack_gep = be_state->builder->CreateStructGEP(va_tag_ty, va_list_ptr, 0, "vaarg.stack_ptr");
+  llvm::Value* top_gep = be_state->builder->CreateStructGEP(va_tag_ty, va_list_ptr, is_fp_reg ? 2 : 1, "vaarg.top_ptr");
+  llvm::Value* offs_gep = be_state->builder->CreateStructGEP(va_tag_ty, va_list_ptr, is_fp_reg ? 4 : 3, "vaarg.offs_ptr");
+
+  llvm::Value* cur_offs = be_state->builder->CreateLoad(i32_ty, offs_gep, "vaarg.offs");
+  llvm::Value* next_offs = be_state->builder->CreateAdd(
+      cur_offs, llvm::ConstantInt::get(i32_ty, total_reg_bytes), "vaarg.next_offs");
+  be_state->builder->CreateStore(next_offs, offs_gep);
+  llvm::Value* fits_reg = be_state->builder->CreateICmpSLE(
+      next_offs, llvm::ConstantInt::get(i32_ty, 0), "vaarg.fits_reg");
+
+  llvm::BasicBlock* in_reg_bb = llvm::BasicBlock::Create(*be_state->context, "vaarg.in_reg", cur_fn);
+  llvm::BasicBlock* in_mem_bb = llvm::BasicBlock::Create(*be_state->context, "vaarg.in_mem", cur_fn);
+  llvm::BasicBlock* end_bb = llvm::BasicBlock::Create(*be_state->context, "vaarg.end", cur_fn);
+  be_state->builder->CreateCondBr(fits_reg, in_reg_bb, in_mem_bb);
+
+  // 1. Register save area path
+  be_state->builder->SetInsertPoint(in_reg_bb);
+  llvm::Value* top_ptr = be_state->builder->CreateLoad(ptr_ty, top_gep, "vaarg.top");
+  llvm::Value* offs_sext = be_state->builder->CreateSExt(cur_offs, i64_ty);
+  llvm::Value* reg_addr = be_state->builder->CreateGEP(i8_ty, top_ptr, offs_sext, "vaarg.reg_addr");
+  if (arg_info.abi_class == aapcs64_abi_class_t::hfa_hva) {
+    llvm::AllocaInst* hfa_tmp = be_state->builder->CreateAlloca(llvm_ty, nullptr, "vaarg.hfa.tmp");
+    uint64_t elem_sz = be_state->module->getDataLayout().getTypeAllocSize(arg_info.hfa_hva_elem_ty);
+    for (uint32_t i = 0; i < num_regs; ++i) {
+      llvm::Value* src_slot = be_state->builder->CreateGEP(
+          i8_ty, reg_addr, llvm::ConstantInt::get(i64_ty, i * 16));
+      llvm::Value* dst_slot = be_state->builder->CreateGEP(
+          i8_ty, hfa_tmp, llvm::ConstantInt::get(i64_ty, i * elem_sz));
+      llvm::Value* el_val = be_state->builder->CreateLoad(arg_info.hfa_hva_elem_ty, src_slot);
+      be_state->builder->CreateStore(el_val, dst_slot);
+    }
+    reg_addr = hfa_tmp;
+  }
+  be_state->builder->CreateBr(end_bb);
+
+  // 2. Stack overflow path
+  be_state->builder->SetInsertPoint(in_mem_bb);
+  llvm::Value* stack_cur = be_state->builder->CreateLoad(ptr_ty, stack_gep, "vaarg.stack");
+  if (raw_ty->alignment > 8) {
+    llvm::Value* int_ptr = be_state->builder->CreatePtrToInt(stack_cur, i64_ty);
+    uint64_t align_mask = static_cast<uint64_t>(raw_ty->alignment) - 1ULL;
+    llvm::Value* aligned_int = be_state->builder->CreateAnd(
+        be_state->builder->CreateAdd(int_ptr, llvm::ConstantInt::get(i64_ty, align_mask)),
+        llvm::ConstantInt::get(i64_ty, ~align_mask));
+    stack_cur = be_state->builder->CreateIntToPtr(aligned_int, ptr_ty, "vaarg.stack.aligned");
+  }
+  uint64_t step = ((static_cast<uint64_t>(raw_ty->size) + 7ULL) & ~7ULL);
+  if (step == 0) step = 8;
+  llvm::Value* stack_next = be_state->builder->CreateGEP(
+      i8_ty, stack_cur, llvm::ConstantInt::get(i64_ty, step), "vaarg.stack.next");
+  be_state->builder->CreateStore(stack_next, stack_gep);
+  be_state->builder->CreateBr(end_bb);
+
+  // 3. Merge & load
+  be_state->builder->SetInsertPoint(end_bb);
+  llvm::PHINode* addr_phi = be_state->builder->CreatePHI(ptr_ty, 2, "vaarg.addr");
+  addr_phi->addIncoming(reg_addr, in_reg_bb);
+  addr_phi->addIncoming(stack_cur, in_mem_bb);
+  *out_val = be_state->builder->CreateLoad(llvm_ty, addr_phi, "vaarg.val");
   return llvm_gen_be_error_t::ok;
 }
 
@@ -527,25 +674,65 @@ llvm_gen_be_error_t lower_aapcs64_va_end(
   return llvm_gen_be_error_t::ok;
 }
 
-llvm_gen_be_error_t build_arm64ec_thunk_signature(
-    a_type_ptr ty,
-    llvm::FunctionType** out_fn_ty,
-    llvm::AttributeList* out_attrs) noexcept {
-  if (out_fn_ty == nullptr || out_attrs == nullptr) {
-    return llvm_gen_be_error_t::invalid_argument;
-  }
-  // Windows ARM64EC specific thunk generation mapping x64 structures and
-  // calling conventions onto AAPCS64 entrypoints.
-  return llvm_gen_be_error_t::not_implemented;
-}
-END_EDG_NAMESPACE
-#endif
-
 /**
  * @brief Builds Windows ARM64EC calling convention thunk signatures and entrypoints.
  * @details Emulation Compatible ARM64EC thunks mapping AAPCS64 to x64 conventions.
+ * Constructs the LLVM FunctionType and AttributeList for an ARM64EC guest-to-host
+ * or host-to-guest thunk, handling sret (mapped via x8/RCX adjustment) and variadic
+ * parameter array forwarding (via x4/x9).
  * @param[in] ty The EDG routine type.
  * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
+llvm_gen_be_error_t build_arm64ec_thunk_signature(
+    a_type_ptr ty,
+    llvm::FunctionType** out_fn_ty,
+    llvm::AttributeList* out_attrs) noexcept {
+  if (ty == nullptr || out_fn_ty == nullptr || out_attrs == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+
+  llvm::FunctionType* base_fn_ty = nullptr;
+  llvm::AttributeList base_attrs;
+  llvm_gen_be_error_t err = build_aapcs64_function_type(ty, &base_fn_ty, &base_attrs);
+  if (err != llvm_gen_be_error_t::ok) {
+    return err;
+  }
+
+  bool is_vararg = (ty->variant.routine.extra_info != nullptr)
+                       ? (ty->variant.routine.extra_info->has_ellipsis != FALSE)
+                       : false;
+
+  if (is_vararg) {
+    // ARM64EC variadic routines pass a pointer to the variadic argument array
+    // in x4 and the total byte size in x5, modeled as an explicit pointer parameter
+    // followed by the variadic ellipsis.
+    std::vector<llvm::Type*> thunk_params(
+        base_fn_ty->param_begin(), base_fn_ty->param_end());
+    thunk_params.push_back(llvm::PointerType::getUnqual(*be_state->context));
+    *out_fn_ty = llvm::FunctionType::get(
+        base_fn_ty->getReturnType(), thunk_params, /*isVarArg=*/true);
+  } else {
+    *out_fn_ty = base_fn_ty;
+  }
+
+  llvm::AttrBuilder fn_ab(*be_state->context);
+  fn_ab.addAttribute("arm64ec-thunk", "true");
+  llvm::AttributeSet fn_set = llvm::AttributeSet::get(*be_state->context, fn_ab);
+
+  std::vector<llvm::AttributeSet> param_sets;
+  unsigned num_base_params = base_fn_ty->getNumParams();
+  for (unsigned i = 0; i < num_base_params; ++i) {
+    param_sets.push_back(base_attrs.getParamAttrs(i));
+  }
+  if (is_vararg) {
+    param_sets.push_back(llvm::AttributeSet());
+  }
+
+  *out_attrs = llvm::AttributeList::get(
+      *be_state->context, fn_set, base_attrs.getRetAttrs(), param_sets);
+  return llvm_gen_be_error_t::ok;
+}
+END_EDG_NAMESPACE
+#endif

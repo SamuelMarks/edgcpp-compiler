@@ -61,7 +61,7 @@ struct llvm_vtable_builder_t {
  * @param[in] class_type Pointer to the EDG class AST type.
  * @param[in] offset_to_top Offset from the subobject to the top of the complete class.
  * @param[in] is_primary True if this is the primary vtable for the class.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if pointers are null.
  */
 llvm_gen_be_error_t llvm_vtable_builder_init(
     llvm_vtable_builder_t* builder,
@@ -73,7 +73,7 @@ llvm_gen_be_error_t llvm_vtable_builder_init(
  * @brief Computes the virtual method table layout for a class.
  * @details Populates the vcall offsets, vbase offsets, and method slots for the class.
  * @param[in,out] builder Pointer to the initialized vtable builder instance.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
  */
 llvm_gen_be_error_t llvm_vtable_builder_compute(
     llvm_vtable_builder_t* builder) noexcept;
@@ -87,6 +87,42 @@ llvm_gen_be_error_t llvm_vtable_builder_compute(
  */
 llvm_gen_be_error_t llvm_emit_thunk(
     const llvm_thunk_info_t* thunk,
+    llvm::Function** out_thunk_fn) noexcept;
+
+/**
+ * @brief Emits a virtual or covariant return adjustment thunk for a target routine and offset parameters.
+ * @details Populates an `llvm_thunk_info_t` descriptor from @p target_routine, @p this_nv_offset,
+ *          @p vcall_offset, @p ret_nv_offset, and @p vbase_ret_offset, and delegates to `llvm_emit_thunk`.
+ * @param[in] target_routine Target overriding virtual method routine.
+ * @param[in] this_nv_offset Non-virtual `this` pointer byte offset adjustment.
+ * @param[in] vcall_offset Virtual base `vcall` offset slot index (`-1` if non-virtual).
+ * @param[in] ret_nv_offset Non-virtual covariant return pointer byte offset adjustment.
+ * @param[in] vbase_ret_offset Virtual base covariant return offset slot index (`-1` if non-virtual).
+ * @param[out] out_thunk_fn Receives the generated or cached `llvm::Function*` for the thunk.
+ * @return llvm_gen_be_error_t::ok on success, or an error code from `llvm_emit_thunk`.
+ */
+llvm_gen_be_error_t llvm_emit_virtual_thunk(
+    a_routine_ptr target_routine,
+    int64_t this_nv_offset,
+    int64_t vcall_offset,
+    int64_t ret_nv_offset,
+    int64_t vbase_ret_offset,
+    llvm::Function** out_thunk_fn) noexcept;
+
+/**
+ * @brief Emits a Microsoft MSVC `vtordisp` virtual base adjustment thunk.
+ * @details Loads the 32-bit `vtordisp` displacement stored at `[this - 4]`, subtracts both
+ *          `vtordisp` and @p this_nv_offset from `this`, and tail-calls @p target_routine.
+ * @param[in] target_routine Target overriding virtual method routine.
+ * @param[in] vtordisp_offset Virtual base `vtordisp` slot offset.
+ * @param[in] this_nv_offset Additional non-virtual `this` byte adjustment.
+ * @param[out] out_thunk_fn Receives the generated or cached `llvm::Function*` for the `vtordisp` thunk.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if pointers are null.
+ */
+llvm_gen_be_error_t llvm_emit_msvc_vtordisp_thunk(
+    a_routine_ptr target_routine,
+    int32_t vtordisp_offset,
+    int32_t this_nv_offset,
     llvm::Function** out_thunk_fn) noexcept;
 
 /**
@@ -110,6 +146,21 @@ llvm_gen_be_error_t llvm_emit_vtable(
 llvm_gen_be_error_t llvm_emit_vtt(
     a_type_ptr type,
     llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Emits a construction virtual table for a base subobject descriptor.
+ * @details Mangles `_ZTC<derived><offset>_<base>`, computes `offset-to-top`, `vbase_offset`, and
+ *          `vcall_offset` entries relative to @p subobject_base within @p most_derived_class, and
+ *          populates virtual function pointers overridden within @p subobject_base's inheritance subgraph.
+ * @param[in] most_derived_class The complete derived class type.
+ * @param[in] subobject_base The base class subobject descriptor (`a_base_class_ptr`).
+ * @param[out] out_ctbl Receives the resulting LLVM Constant pointer for the construction vtable global.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t llvm_emit_construction_vtable(
+    a_type_ptr most_derived_class,
+    a_base_class_ptr subobject_base,
+    llvm::Constant** out_ctbl) noexcept;
 
 /**
  * @brief Emits a construction virtual table for a subobject.

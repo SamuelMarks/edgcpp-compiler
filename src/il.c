@@ -16664,6 +16664,8 @@ otherwise.  Otherwise, set *tqs to TQ_NONE and *is_move to FALSE.
 
   result = special_kind_is(rp, sfk_operator) &&
            rp->variant.opname_kind == (an_opname_kind)onk_assign &&
+           rp->source_corresp.is_class_member &&
+           parent_class_of(rp) != NULL &&
            is_copy_assignment_operator_type(rp->type, parent_class_of(rp),
                                             /*move_assign_okay=*/TRUE,
                                             /*is_ref_arg=*/(a_boolean *)NULL,

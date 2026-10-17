@@ -51,9 +51,10 @@ struct loongarch64_arg_info_t {
 };
 
 /**
- * @brief Classifies a single EDG type into LoongArch 64 ABI class.
+ * @brief Classifies a single EDG argument type according to LoongArch 64 ABI rules.
+ * @details Determines register classes (integer, float, pair, or memory) and coerced LLVM type.
  * @param[in] ty The EDG type to classify.
- * @param[out] out_info The classification result information structure.
+ * @param[out] out_info Pointer to the loongarch64_arg_info_t structure receiving classification results.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t classify_loongarch64_argument(
@@ -61,10 +62,11 @@ llvm_gen_be_error_t classify_loongarch64_argument(
     loongarch64_arg_info_t* out_info) noexcept;
 
 /**
- * @brief Computes LoongArch 64 return value passing information.
- * @param[in] ret_ty The EDG type representing the function return type.
- * @param[out] out_info The classification result information structure.
- * @param[out] out_sret Pointer to a boolean set to true if the return is via sret.
+ * @brief Computes the return value classification and sret requirement for LoongArch 64.
+ * @details Evaluates whether the return type is passed in registers or via sret pointer.
+ * @param[in] ret_ty The EDG return type.
+ * @param[out] out_info Pointer to store the return classification info.
+ * @param[out] out_sret Pointer to boolean set to true if sret is required.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t compute_loongarch64_return_info(
@@ -73,8 +75,9 @@ llvm_gen_be_error_t compute_loongarch64_return_info(
     bool* out_sret) noexcept;
 
 /**
- * @brief Constructs an LLVM FunctionType and AttributeList matching LoongArch 64 ABI.
- * @param[in] routine_ty The EDG routine type structure.
+ * @brief Builds the LLVM FunctionType and AttributeList for a LoongArch 64 routine.
+ * @details Applies LoongArch LP64D ABI coercion rules to return type and parameters.
+ * @param[in] routine_ty The EDG routine type.
  * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
  * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
@@ -86,8 +89,9 @@ llvm_gen_be_error_t build_loongarch64_function_type(
 
 /**
  * @brief Lowers a va_start intrinsic for the LoongArch 64 ABI.
- * @param[in] va_list_ptr Pointer to the va_list struct.
- * @param[out] out_val The resulting intrinsic call instruction.
+ * @details Invokes the llvm.va_start intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t lower_loongarch64_va_start(
@@ -95,10 +99,11 @@ llvm_gen_be_error_t lower_loongarch64_va_start(
     llvm::Value** out_val) noexcept;
 
 /**
- * @brief Lowers a va_arg macro expansion for the LoongArch 64 ABI.
- * @param[in] va_list_ptr Pointer to the va_list struct.
- * @param[in] ty The EDG type being requested.
- * @param[out] out_val The resulting loaded value.
+ * @brief Lowers a va_arg operation for the LoongArch 64 ABI.
+ * @details Emits an LLVM VAArgInst for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Pointer to store the extracted LLVM value.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t lower_loongarch64_va_arg(
@@ -108,8 +113,9 @@ llvm_gen_be_error_t lower_loongarch64_va_arg(
 
 /**
  * @brief Lowers a va_end intrinsic for the LoongArch 64 ABI.
- * @param[in] va_list_ptr Pointer to the va_list struct.
- * @param[out] out_val The resulting intrinsic call instruction.
+ * @details Invokes the llvm.va_end intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t lower_loongarch64_va_end(
@@ -118,9 +124,10 @@ llvm_gen_be_error_t lower_loongarch64_va_end(
 
 /**
  * @brief Lowers a va_copy intrinsic for the LoongArch 64 ABI.
- * @param[in] dest_va_list_ptr Pointer to the destination va_list struct.
- * @param[in] src_va_list_ptr Pointer to the source va_list struct.
- * @param[out] out_val The resulting intrinsic call instruction.
+ * @details Invokes the llvm.va_copy intrinsic on destination and source va_list pointers.
+ * @param[in] dest_va_list_ptr Pointer to the destination va_list object.
+ * @param[in] src_va_list_ptr Pointer to the source va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
 llvm_gen_be_error_t lower_loongarch64_va_copy(

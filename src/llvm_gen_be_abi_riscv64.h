@@ -26,11 +26,13 @@ BEGIN_EDG_NAMESPACE
 struct riscv64_arg_info_t {
     uint64_t size;           ///< Size of the argument.
     bool is_indirect;        ///< True if passed by reference (size > 16 bytes).
+    bool pass_by_invisible_reference; ///< True if non-trivially copyable C++ aggregate.
     llvm::Type* coerced_type; ///< LLVM type to coerce to (e.g. {double, double}).
 };
 
 /**
  * @brief Classifies a RISC-V 64 argument type.
+ * @details Implements or declares `classify_riscv64_argument` for the EDG LLVM backend.
  * @param[in] ty EDG type to classify.
  * @param[out] out_info Classification info output.
  * @return llvm_gen_be_error_t::ok on success.
@@ -39,6 +41,7 @@ llvm_gen_be_error_t classify_riscv64_argument(a_type_ptr ty, riscv64_arg_info_t*
 
 /**
  * @brief Computes the return info for RISC-V 64.
+ * @details Implements or declares `compute_riscv64_return_info` for the EDG LLVM backend.
  * @param[in] ret_ty EDG return type.
  * @param[out] out_info Classification info output.
  * @param[out] out_sret Set to true if an sret pointer is required.
@@ -61,6 +64,7 @@ llvm_gen_be_error_t build_riscv64_function_type(
 
 /**
  * @brief Builds a RISC-V va_list type.
+ * @details Implements or declares `build_riscv64_va_list_type` for the EDG LLVM backend.
  * @param[out] out_ty Output pointer.
  * @return llvm_gen_be_error_t::ok on success.
  */
@@ -68,6 +72,7 @@ llvm_gen_be_error_t build_riscv64_va_list_type(llvm::Type** out_ty) noexcept;
 
 /**
  * @brief Lowers a RISC-V va_start.
+ * @details Implements or declares `lower_riscv64_va_start` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer.
  * @param[out] out_val Output value.
  * @return llvm_gen_be_error_t::ok on success.
@@ -76,6 +81,7 @@ llvm_gen_be_error_t lower_riscv64_va_start(llvm::Value* va_list_ptr, llvm::Value
 
 /**
  * @brief Lowers a RISC-V va_arg.
+ * @details Implements or declares `lower_riscv64_va_arg` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer.
  * @param[in] ty Requested type.
  * @param[out] out_val Output value.
@@ -85,6 +91,7 @@ llvm_gen_be_error_t lower_riscv64_va_arg(llvm::Value* va_list_ptr, a_type_ptr ty
 
 /**
  * @brief Lowers a RISC-V va_copy.
+ * @details Implements or declares `lower_riscv64_va_copy` for the EDG LLVM backend.
  * @param[in] dest_va_list_ptr Destination pointer.
  * @param[in] src_va_list_ptr Source pointer.
  * @param[out] out_val Output value.
@@ -94,6 +101,7 @@ llvm_gen_be_error_t lower_riscv64_va_copy(llvm::Value* dest_va_list_ptr, llvm::V
 
 /**
  * @brief Lowers a RISC-V va_end.
+ * @details Implements or declares `lower_riscv64_va_end` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer.
  * @param[out] out_val Output value.
  * @return llvm_gen_be_error_t::ok on success.

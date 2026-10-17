@@ -16,6 +16,16 @@
 
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief Converts an EDG source sequence number to a file pointer and 1-based line number.
+ * @details Provided by the EDG front-end source sequence table subsystem.
+ * @param[in] seq_number The source sequence number.
+ * @param[out] file_name Receives the short file name string.
+ * @param[out] full_name Receives the full file path string.
+ * @param[out] line_number Receives the resolved 1-based line number.
+ * @param[out] at_end_of_source Receives TRUE if at end of source.
+ * @return Pointer to the corresponding `a_source_file` structure, or nullptr.
+ */
 extern a_source_file_ptr conv_seq_to_file_and_line(a_seq_number  seq_number,
                                             a_const_char  **file_name,
                                             a_const_char  **full_name,
@@ -49,6 +59,7 @@ llvm_gen_be_error_t llvm_gen_be_set_error(
     ctx->file_name = file_name;
     ctx->line_number = line;
     ctx->column_number = col;
+    ctx->seq_number = 0;
     if (format != nullptr) {
       va_list args;
       va_start(args, format);
@@ -93,6 +104,7 @@ llvm_gen_be_error_t llvm_gen_be_format_diagnostic(
     ctx->file_name = file_name;
     ctx->line_number = line;
     ctx->column_number = pos.column;
+    ctx->seq_number = pos.seq;
 
     if (format != nullptr) {
       va_list args;
@@ -179,6 +191,69 @@ llvm_gen_be_error_t llvm_gen_be_error_to_string(
     case llvm_gen_be_error_t::internal_inconsistency:
       *out_str = "internal_inconsistency";
       break;
+    case llvm_gen_be_error_t::not_implemented:
+      *out_str = "not_implemented";
+      break;
+    case llvm_gen_be_error_t::omp_lowering_failure:
+      *out_str = "omp_lowering_failure";
+      break;
+    case llvm_gen_be_error_t::offload_bundling_failed:
+      *out_str = "offload_bundling_failed";
+      break;
+    case llvm_gen_be_error_t::lto_indexing_failed:
+      *out_str = "lto_indexing_failed";
+      break;
+    case llvm_gen_be_error_t::module_bmi_corrupt:
+      *out_str = "module_bmi_corrupt";
+      break;
+    case llvm_gen_be_error_t::dwarf_macro_emission_failed:
+      *out_str = "dwarf_macro_emission_failed";
+      break;
+    case llvm_gen_be_error_t::coro_frame_layout_failed:
+      *out_str = "coro_frame_layout_failed";
+      break;
+    case llvm_gen_be_error_t::null_pointer:
+      *out_str = "null_pointer";
+      break;
+    case llvm_gen_be_error_t::type_lowering_failed:
+      *out_str = "type_lowering_failed";
+      break;
+    case llvm_gen_be_error_t::coro_lowering_failed:
+      *out_str = "coro_lowering_failed";
+      break;
+    case llvm_gen_be_error_t::omp_lowering_failed:
+      *out_str = "omp_lowering_failed";
+      break;
+    case llvm_gen_be_error_t::eh_lowering_failed:
+      *out_str = "eh_lowering_failed";
+      break;
+    case llvm_gen_be_error_t::rtti_vtable_failed:
+      *out_str = "rtti_vtable_failed";
+      break;
+    case llvm_gen_be_error_t::debug_info_failed:
+      *out_str = "debug_info_failed";
+      break;
+    case llvm_gen_be_error_t::opt_pipeline_failed:
+      *out_str = "opt_pipeline_failed";
+      break;
+    case llvm_gen_be_error_t::codegen_emit_failed:
+      *out_str = "codegen_emit_failed";
+      break;
+    case llvm_gen_be_error_t::linker_invocation_failed:
+      *out_str = "linker_invocation_failed";
+      break;
+    case llvm_gen_be_error_t::gpu_offload_failed:
+      *out_str = "gpu_offload_failed";
+      break;
+    case llvm_gen_be_error_t::module_io_failed:
+      *out_str = "module_io_failed";
+      break;
+    case llvm_gen_be_error_t::verification_failed:
+      *out_str = "verification_failed";
+      break;
+    case llvm_gen_be_error_t::internal_error:
+      *out_str = "internal_error";
+      break;
     default:
       *out_str = "unknown_error";
       break;
@@ -188,7 +263,7 @@ llvm_gen_be_error_t llvm_gen_be_error_to_string(
 
 /**
  * @brief Resets an error context structure to default success state.
- * @details Clears the error code to ok, resets line and column to 0, and clears the message buffer.
+ * @details Clears the error code to ok, resets line, column, and sequence number to 0, and clears the message buffer.
  * @param[in,out] ctx Pointer to the error context to reset.
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx is null.
  */
@@ -201,8 +276,74 @@ llvm_gen_be_error_t llvm_gen_be_error_context_reset(
   ctx->file_name = nullptr;
   ctx->line_number = 0;
   ctx->column_number = 0;
+  ctx->seq_number = 0;
   ctx->message[0] = '\0';
   return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Formats an LLVM backend error context into a diagnostic string for the EDG front end.
+ * @details Produces a structured human-readable diagnostic combining the file name, line,
+ *          column, symbolic error code name, and detail message from @p ctx into @p out_buf.
+ * @param[in] ctx Pointer to the populated error context structure to report.
+ * @param[out] out_buf Destination character buffer receiving the formatted diagnostic string.
+ * @param[in] buf_size Size of @p out_buf in bytes (must be greater than 0).
+ * @param[out] out_is_error Receives true if @p ctx contains a non-ok error status, or false if ok.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if pointers are null or buf_size is 0.
+ */
+llvm_gen_be_error_t llvm_gen_be_report_to_edg_fe(
+    const llvm_gen_be_error_context_t* ctx,
+    char* out_buf,
+    size_t buf_size,
+    bool* out_is_error) noexcept {
+  if (ctx == nullptr || out_buf == nullptr || buf_size == 0 || out_is_error == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  if (ctx->error_code == llvm_gen_be_error_t::ok) {
+    out_buf[0] = '\0';
+    *out_is_error = false;
+    return llvm_gen_be_error_t::ok;
+  }
+  *out_is_error = true;
+  const char* err_name = nullptr;
+  LLVM_GEN_BE_ASSERT_OK(llvm_gen_be_error_to_string(ctx->error_code, &err_name));
+  const char* file = (ctx->file_name != nullptr) ? ctx->file_name : "<unknown>";
+  if (ctx->message[0] != '\0') {
+    snprintf(out_buf, buf_size, "%s:%u:%u: error [%s]: %s",
+             file, ctx->line_number, ctx->column_number, err_name, ctx->message);
+  } else {
+    snprintf(out_buf, buf_size, "%s:%u:%u: error [%s]",
+             file, ctx->line_number, ctx->column_number, err_name);
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Retrieves the last recorded error code from an error context structure.
+ * @details Reads `ctx->error_code` and stores it into `*out_err`.
+ * @param[in] ctx Pointer to the error context structure to inspect.
+ * @param[out] out_err Receives the last `llvm_gen_be_error_t` stored in @p ctx.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx or out_err is null.
+ */
+llvm_gen_be_error_t llvm_gen_be_get_last_error(
+    const llvm_gen_be_error_context_t* ctx,
+    llvm_gen_be_error_t* out_err) noexcept {
+  if (ctx == nullptr || out_err == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  *out_err = ctx->error_code;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Clears the error state in the given error context structure.
+ * @details Delegates to `llvm_gen_be_error_context_reset(ctx)` to restore `ok` status.
+ * @param[in,out] ctx Pointer to the error context structure to clear.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx is null.
+ */
+llvm_gen_be_error_t llvm_gen_be_clear_error(
+    llvm_gen_be_error_context_t* ctx) noexcept {
+  return llvm_gen_be_error_context_reset(ctx);
 }
 
 END_EDG_NAMESPACE

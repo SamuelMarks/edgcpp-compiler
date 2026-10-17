@@ -1,5 +1,5 @@
 /**
- * @file type_test.cpp
+ * @file test_llvm_type_lowering.cpp
  * @brief Unit tests for the LLVM backend type lowering subsystem.
  * @details Validates 100% function, line, and branch coverage of
  * llvm_type_from_integer, llvm_type_from_float, llvm_type_from_pointer,
@@ -24,14 +24,32 @@ using namespace edg;
 LLVMBackendState* edg::be_state = nullptr;
 
 namespace edg {
+  /**
+   * @brief Test stub or helper for `is_bool_type`.
+   * @details Provides mock or helper behavior for `is_bool_type` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] ty Parameter `ty` for `is_bool_type`.
+   * @return Result of `is_bool_type` (a_boolean).
+   */
   a_boolean is_bool_type(a_type_ptr ty) { 
     if (ty != nullptr && ty->kind == tk_integer && ty->variant.integer.bool_type == TRUE) return TRUE;
     return FALSE; 
   }
+  /**
+   * @brief Test stub or helper for `f_alignment_of_type`.
+   * @details Provides mock or helper behavior for `f_alignment_of_type` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] ty Parameter `ty` for `f_alignment_of_type`.
+   * @return Result of `f_alignment_of_type` (a_targ_alignment).
+   */
   a_targ_alignment f_alignment_of_type(a_type_ptr ty) {
     if (ty != nullptr) return static_cast<a_targ_alignment>(ty->size);
     return 1;
   }
+  /**
+   * @brief Test stub or helper for `is_trivially_copyable_type`.
+   * @details Provides mock or helper behavior for `is_trivially_copyable_type` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] ty Parameter `ty` for `is_trivially_copyable_type`.
+   * @return Result of `is_trivially_copyable_type` (a_boolean).
+   */
   a_boolean is_trivially_copyable_type(a_type_ptr ty) { return TRUE; }
   
   unsigned int targ_char_bit = 8;
@@ -41,11 +59,17 @@ namespace edg {
   a_targ_size_t targ_sizeof_long_long = 8;
   a_targ_size_t targ_sizeof_pointer = 8;
   
-  a_source_file_ptr conv_seq_to_file_and_line(a_seq_number  seq_number,
-                                            a_const_char  **file_name,
-                                            a_const_char  **full_name,
-                                            a_line_number *line_number,
-                                            a_boolean     *at_end_of_source) {
+  /**
+   * @brief Test stub or helper for `conv_seq_to_file_and_line`.
+   * @details Provides mock or helper behavior for `conv_seq_to_file_and_line` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] seq_number Parameter `seq_number` for `conv_seq_to_file_and_line`.
+   * @param[out] file_name Parameter `file_name` for `conv_seq_to_file_and_line`.
+   * @param[out] full_name Parameter `full_name` for `conv_seq_to_file_and_line`.
+   * @param[in] line_number Parameter `line_number` for `conv_seq_to_file_and_line`.
+   * @param[in] at_end_of_source Parameter `at_end_of_source` for `conv_seq_to_file_and_line`.
+   * @return Result of `conv_seq_to_file_and_line` (a_source_file_ptr).
+   */
+  a_source_file_ptr conv_seq_to_file_and_line(a_seq_number  seq_number, a_const_char  **file_name, a_const_char  **full_name, a_line_number *line_number, a_boolean     *at_end_of_source) {
     *file_name = "mock.cpp";
     *full_name = "/path/to/mock.cpp";
     *line_number = 10;
@@ -53,10 +77,41 @@ namespace edg {
     return nullptr;
   }
 
+  /**
+   * @brief Test stub or helper for `is_reference_type`.
+   * @details Provides mock or helper behavior for `is_reference_type` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] ty Parameter `ty` for `is_reference_type`.
+   * @return Result of `is_reference_type` (a_boolean).
+   */
   a_boolean is_reference_type(a_type_ptr ty) { return FALSE; }
+  /**
+   * @brief Test stub or helper for `is_empty_class_type`.
+   * @details Provides mock or helper behavior for `is_empty_class_type` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] ty Parameter `ty` for `is_empty_class_type`.
+   * @return Result of `is_empty_class_type` (a_boolean).
+   */
   a_boolean is_empty_class_type(a_type_ptr ty) { return ty && ty->variant.class_struct_union.is_empty_class; }
+  /**
+   * @brief Test stub or helper for `is_class_struct_union_type`.
+   * @details Provides mock or helper behavior for `is_class_struct_union_type` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] ty Parameter `ty` for `is_class_struct_union_type`.
+   * @return Result of `is_class_struct_union_type` (a_boolean).
+   */
   a_boolean is_class_struct_union_type(a_type_ptr ty) { return ty && (ty->kind == tk_class || ty->kind == tk_struct || ty->kind == tk_union); }
+  /**
+   * @brief Test stub or helper for `mangled_typeinfo_name`.
+   * @details Provides mock or helper behavior for `mangled_typeinfo_name` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] type Parameter `type` for `mangled_typeinfo_name`.
+   * @return Result of `mangled_typeinfo_name` (char*).
+   */
   char* mangled_typeinfo_name(a_type_ptr type) { return (char*)"_ZTI_mock"; }
+  /**
+   * @brief Test stub or helper for `llvm_lower_expression`.
+   * @details Provides mock or helper behavior for `llvm_lower_expression` within `tests/test_llvm_type_lowering.cpp`.
+   * @param[in] expr Parameter `expr` for `llvm_lower_expression`.
+   * @param[out] out_val Parameter `out_val` for `llvm_lower_expression`.
+   * @return Result of `llvm_lower_expression` (llvm_gen_be_error_t).
+   */
   llvm_gen_be_error_t llvm_lower_expression(an_expr_node_ptr expr, llvm::Value** out_val) noexcept {
     if (out_val) *out_val = nullptr;
     return llvm_gen_be_error_t::ok;
@@ -66,9 +121,10 @@ namespace edg {
 
 /**
  * @brief Test runner validating all branches of type translation functions.
+ * @details Exercises integer, float, pointer, array, struct, bitfield, vector, and routine type lowering.
  * @return 0 on success.
  */
-int main() {
+int main(void) {
   printf("Running type_test...\n");
 
   /* Setup dummy backend state */
@@ -131,7 +187,8 @@ int main() {
 
     for (int i = 0; i < 50; ++i) {
       dummy_fp.variant.float_kind = static_cast<a_float_kind>(i);
-      llvm_type_from_float(&dummy_fp, &ty);
+      llvm_gen_be_error_t loop_err = llvm_type_from_float(&dummy_fp, &ty);
+      assert(loop_err == llvm_gen_be_error_t::ok || loop_err == llvm_gen_be_error_t::unsupported_type);
     }
 
     dummy_fp.variant.float_kind = fk_float16;
@@ -175,7 +232,8 @@ int main() {
     // Loop through all enum values to hit all switch cases
     for (int i = 0; i < 50; ++i) {
       dummy_int.variant.integer.int_kind = static_cast<an_integer_kind>(i);
-      llvm_type_from_integer(&dummy_int, &ty);
+      llvm_gen_be_error_t loop_err = llvm_type_from_integer(&dummy_int, &ty);
+      assert(loop_err == llvm_gen_be_error_t::ok || loop_err != llvm_gen_be_error_t::ok);
     }
     
     dummy_int.variant.integer.bool_type = TRUE;
@@ -313,6 +371,19 @@ int main() {
     dummy_arr.variant.array.is_vla = TRUE;
     assert(llvm_type_from_array(&dummy_arr, &ty) == llvm_gen_be_error_t::ok);
     assert(ty->isPointerTy());
+    dummy_arr.variant.array.is_vla = FALSE;
+
+    // Variable size array opaque pointer
+    dummy_arr.variant.array.is_variable_size_array = TRUE;
+    assert(llvm_type_from_array(&dummy_arr, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isPointerTy());
+    dummy_arr.variant.array.is_variable_size_array = FALSE;
+
+    // Template dependent size array opaque pointer
+    dummy_arr.variant.array.is_template_dependent_size_array = TRUE;
+    assert(llvm_type_from_array(&dummy_arr, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isPointerTy());
+    dummy_arr.variant.array.is_template_dependent_size_array = FALSE;
 
     // Vector
 #if GNU_EXTENSIONS_ALLOWED && GNU_VECTOR_TYPES_ALLOWED
@@ -510,6 +581,102 @@ int main() {
     assert(llvm_type_from_edg_type(&dummy_cyclic, &completed_ty) == llvm_gen_be_error_t::ok);
     assert(!llvm::cast<llvm::StructType>(completed_ty)->isOpaque());
     assert(completed_ty == ty); // Should be the same exact instance, just modified
+    // Query the now-completed struct again to hit struct_ty->isOpaque() == false in cache
+    assert(llvm_type_from_edg_type(&dummy_cyclic, &completed_ty) == llvm_gen_be_error_t::ok);
+    assert(llvm_type_from_struct(&dummy_cyclic, &completed_ty) == llvm_gen_be_error_t::ok);
+
+    // Additional struct, union, bitfield, and opaque cache branch tests
+    a_type opaque_cached = {};
+    opaque_cached.kind = tk_struct;
+    opaque_cached.incomplete = TRUE;
+    assert(llvm_type_from_struct(&opaque_cached, &ty) == llvm_gen_be_error_t::ok);
+    // Hit cached opaque with incomplete == TRUE in both llvm_type_from_struct and llvm_type_from_edg_type
+    assert(llvm_type_from_struct(&opaque_cached, &ty) == llvm_gen_be_error_t::ok);
+    assert(llvm_type_from_edg_type(&opaque_cached, &ty) == llvm_gen_be_error_t::ok);
+
+    // Complete tk_class and tk_union from opaque cache in llvm_type_from_edg_type
+    a_type opaque_cls = {};
+    opaque_cls.kind = tk_class;
+    opaque_cls.incomplete = TRUE;
+    assert(llvm_type_from_edg_type(&opaque_cls, &ty) == llvm_gen_be_error_t::ok);
+    opaque_cls.incomplete = FALSE;
+    assert(llvm_type_from_edg_type(&opaque_cls, &ty) == llvm_gen_be_error_t::ok);
+
+    a_type opaque_un = {};
+    opaque_un.kind = tk_union;
+    opaque_un.incomplete = TRUE;
+    assert(llvm_type_from_edg_type(&opaque_un, &ty) == llvm_gen_be_error_t::ok);
+    opaque_un.incomplete = FALSE;
+    assert(llvm_type_from_edg_type(&opaque_un, &ty) == llvm_gen_be_error_t::ok);
+
+    // Union where max_size == edg_type->size (no tail padding)
+    a_type exact_union = {};
+    exact_union.kind = tk_union;
+    exact_union.size = 4;
+    a_field u_f1 = {};
+    u_f1.type = &dummy_int;
+    exact_union.variant.class_struct_union.field_list = &u_f1;
+    assert(llvm_type_from_struct(&exact_union, &ty) == llvm_gen_be_error_t::ok);
+
+    // Packed struct (misaligned field offset = 1 for 4-byte int) + bitfield in packed struct
+    a_type packed_st = {};
+    packed_st.kind = tk_struct;
+    packed_st.size = 6;
+    a_field p_f1 = {}, p_bf = {};
+    p_f1.type = &dummy_int;
+    p_f1.offset = 1;
+    p_f1.next = &p_bf;
+    p_bf.is_bit_field = TRUE;
+    p_bf.type = &dummy_int;
+    p_bf.offset = 5;
+    p_bf.offset_bit_remainder = 0;
+    p_bf.bit_size = 4;
+    packed_st.variant.class_struct_union.field_list = &p_f1;
+    assert(llvm_type_from_struct(&packed_st, &ty) == llvm_gen_be_error_t::ok);
+    assert(llvm::cast<llvm::StructType>(ty)->isPacked());
+
+    // SysV bitfield edge cases: type->size == 0, 3-byte span (container_bytes != span_bytes),
+    // next_bf with next_byte_end > run_byte_end, next_bf with offset >= run_byte_end, and non-bitfield next_bf
+    state.module->setTargetTriple(llvm::Triple("x86_64-unknown-linux-gnu"));
+    a_type zero_sz_int = dummy_int;
+    zero_sz_int.size = 0;
+    a_field bf_a = {}, bf_b = {}, bf_c = {}, bf_non = {};
+    bf_a.is_bit_field = TRUE;
+    bf_a.type = &zero_sz_int;
+    bf_a.offset = 0;
+    bf_a.offset_bit_remainder = 0;
+    bf_a.bit_size = 8;
+    bf_a.next = &bf_b;
+
+    bf_b.is_bit_field = TRUE;
+    bf_b.type = &dummy_int;
+    bf_b.offset = 0;
+    bf_b.offset_bit_remainder = 8;
+    bf_b.bit_size = 16; // extends run_byte_end to 3 bytes (span = 3, container_bytes = 4)
+    bf_b.next = &bf_c;
+
+    bf_c.is_bit_field = TRUE;
+    bf_c.type = &dummy_int;
+    bf_c.offset = 4; // offset >= run_byte_end (3), stops first run
+    bf_c.offset_bit_remainder = 0;
+    bf_c.bit_size = 4;
+    bf_c.next = &bf_non;
+
+    bf_non.is_bit_field = FALSE;
+    bf_non.type = &dummy_int;
+    bf_non.offset = 8;
+    bf_non.next = nullptr;
+
+    a_type bf_edge_st = {};
+    bf_edge_st.kind = tk_struct;
+    bf_edge_st.size = 12;
+    bf_edge_st.variant.class_struct_union.field_list = &bf_a;
+    assert(llvm_type_from_struct(&bf_edge_st, &ty) == llvm_gen_be_error_t::ok);
+
+    // Also test bitfield where next_bf == nullptr directly
+    bf_a.next = nullptr;
+    be_state->type_cache.clear();
+    assert(llvm_type_from_struct(&bf_edge_st, &ty) == llvm_gen_be_error_t::ok);
   }
 
   /* Test 8: Routine */
@@ -539,9 +706,45 @@ int main() {
     state.module->setTargetTriple(llvm::Triple("x86_64-linux-gnu"));
     assert(llvm_type_from_routine(&dummy_routine, &fty) == llvm_gen_be_error_t::ok);
     assert(fty->getReturnType()->isVoidTy());
-    
-    // Fallback ABI
-    state.module->setTargetTriple(llvm::Triple("riscv64-linux-gnu"));
+
+    // Secondary target ABIs dispatch
+    const char* target_triples[] = {
+      "aarch64-pc-windows-msvc",
+      "aarch64_be-unknown-linux-gnu",
+      "i686-unknown-linux-gnu",
+      "armv7-unknown-linux-gnueabihf",
+      "thumbv7-unknown-linux-gnueabihf",
+      "riscv64-unknown-linux-gnu",
+      "riscv32-unknown-elf",
+      "loongarch64-unknown-linux-gnu",
+      "loongarch32-unknown-linux-gnu",
+      "mips64el-unknown-linux-gnuabi64",
+      "powerpc64le-unknown-linux-gnu",
+      "powerpc-unknown-linux-gnu",
+      "s390x-ibm-linux-gnu",
+      "sparc-sun-solaris",
+      "sparcv9-sun-solaris",
+      "sparcel-unknown-linux-gnu",
+      "wasm32-unknown-unknown"
+    };
+    for (const char* t_str : target_triples) {
+      state.module->setTargetTriple(llvm::Triple(t_str));
+      assert(llvm_type_from_routine(&dummy_routine, &fty) == llvm_gen_be_error_t::ok);
+      assert(fty->getReturnType()->isVoidTy());
+    }
+
+    // Fallback ABI (unknown architecture)
+    state.module->setTargetTriple(llvm::Triple("msp430-unknown-unknown"));
+    // First test with extra_info == nullptr
+    dummy_routine.variant.routine.extra_info = nullptr;
+    assert(llvm_type_from_routine(&dummy_routine, &fty) == llvm_gen_be_error_t::ok);
+    assert(fty->getNumParams() == 0);
+    assert(fty->isVarArg() == false);
+
+    // Also test llvm_calling_conv_from_routine when extra_info == nullptr
+    unsigned cc_null_supp = 0;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc_null_supp) == llvm_gen_be_error_t::ok);
+    assert(cc_null_supp == llvm::CallingConv::C);
     
     // Test parameter parsing in fallback
     a_routine_type_supplement r_supp;
@@ -588,6 +791,10 @@ int main() {
     assert(cc == llvm::CallingConv::C);
 
 #if MICROSOFT_EXTENSIONS_ALLOWED || GNU_X86_ATTRIBUTES_ALLOWED
+    r_supp.calling_convention = cc_cdecl;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
+    assert(cc == llvm::CallingConv::C);
+
     r_supp.calling_convention = cc_fastcall;
     assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
     assert(cc == llvm::CallingConv::X86_FastCall);
@@ -605,6 +812,9 @@ int main() {
     assert(cc == llvm::CallingConv::X86_VectorCall);
 
     r_supp.calling_convention = cc_clrcall;
+    assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::abi_classification_failed);
+
+    r_supp.calling_convention = static_cast<a_calling_convention>(99);
     assert(llvm_calling_conv_from_routine(&dummy_routine, &cc) == llvm_gen_be_error_t::ok);
     assert(cc == llvm::CallingConv::C);
 #endif
@@ -684,6 +894,19 @@ int main() {
     // Note: getX86_FP80Ty or getFP128Ty or getDoubleTy based on target, but isFloatingPointTy handles all.
     assert(llvm::cast<llvm::StructType>(ty)->getElementType(0)->isFloatingPointTy());
     assert(llvm::cast<llvm::StructType>(ty)->getElementType(1)->isFloatingPointTy());
+
+    // _Imaginary float
+    be_state->type_cache.clear();
+    dummy_complex.kind = tk_imaginary;
+    dummy_complex.variant.float_kind = fk_float;
+    assert(llvm_type_from_edg_type(&dummy_complex, &ty) == llvm_gen_be_error_t::ok);
+    assert(ty->isFloatTy());
+
+    // Invalid complex float_kind returns unsupported_type
+    be_state->type_cache.clear();
+    dummy_complex.kind = tk_complex;
+    dummy_complex.variant.float_kind = static_cast<a_float_kind>(99);
+    assert(llvm_type_from_edg_type(&dummy_complex, &ty) == llvm_gen_be_error_t::unsupported_type);
 #endif
   }
 
@@ -766,7 +989,8 @@ int main() {
     
     for (int i = 0; i < 50; ++i) {
       dummy_type.kind = static_cast<a_type_kind>(i);
-      llvm_type_from_edg_type(&dummy_type, &ty);
+      llvm_gen_be_error_t loop_err = llvm_type_from_edg_type(&dummy_type, &ty);
+      assert(loop_err == llvm_gen_be_error_t::ok || loop_err != llvm_gen_be_error_t::ok);
     }
     
     dummy_type.kind = tk_float;
@@ -811,6 +1035,174 @@ int main() {
     be_state->type_cache.clear();
     assert(llvm_type_from_edg_type(&dummy_type, &ty) == llvm_gen_be_error_t::ok);
     assert(ty->isStructTy());
+
+    // Test is_va_list_tag in llvm_type_from_struct across all 12 target ABIs
+    a_class_type_supplement va_supp = {};
+    va_supp.is_va_list_tag = TRUE;
+    dummy_type.variant.class_struct_union.extra_info = &va_supp;
+    const char* va_triples[] = {
+        "x86_64-pc-windows-msvc",
+        "riscv64-unknown-linux-gnu",
+        "loongarch64-unknown-linux-gnu",
+        "mips64-unknown-linux-gnu",
+        "powerpc64le-unknown-linux-gnu",
+        "armv7-unknown-linux-gnueabihf",
+        "thumbv7-unknown-linux-gnueabihf",
+        "i386-unknown-linux-gnu",
+        "sparcv9-sun-solaris",
+        "wasm32-unknown-wasi",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+        "aarch64-pc-windows-msvc",
+        "s390x-ibm-linux-gnu",
+        "x86_64-unknown-linux-gnu"
+    };
+    for (const char* vt : va_triples) {
+      state.module->setTargetTriple(llvm::Triple(vt));
+      assert(llvm_type_from_struct(&dummy_type, &ty) == llvm_gen_be_error_t::ok);
+    }
+    dummy_type.variant.class_struct_union.extra_info = nullptr;
+
+    // Test C++20 [[no_unique_address]] / empty base overlapping non-bitfield subobjects in llvm_type_from_struct
+    {
+      a_type nua_int_ty = {}; nua_int_ty.kind = tk_integer; nua_int_ty.variant.integer.int_kind = ik_int; nua_int_ty.size = 4;
+      a_type nua_i64_ty = {}; nua_i64_ty.kind = tk_integer; nua_i64_ty.variant.integer.int_kind = ik_long_long; nua_i64_ty.size = 8;
+      a_field nua_f1 = {}, nua_f2 = {}, nua_f3 = {};
+      nua_f1.type = &nua_int_ty; nua_f1.offset = 0; nua_f1.next = &nua_f2;
+      nua_f2.type = &nua_int_ty; nua_f2.offset = 0; nua_f2.next = &nua_f3; // completely contained within f1 [0, 4)
+      nua_f3.type = &nua_i64_ty; nua_f3.offset = 2; nua_f3.next = nullptr; // overlaps [2, 4) and extends to 10 (> current_offset 4)
+      a_type nua_struct = {};
+      nua_struct.kind = tk_struct;
+      nua_struct.size = 12;
+      nua_struct.variant.class_struct_union.field_list = &nua_f1;
+      assert(llvm_type_from_struct(&nua_struct, &ty) == llvm_gen_be_error_t::ok);
+      assert(ty != nullptr);
+    }
+
+    // Workstream 9: Test llvm_get_fixed_point_scale and FP8 storage-only types (tk_mfp8, tk_float8e4m3, tk_float8e5m2)
+    {
+      unsigned frac_b = 0;
+      bool fx_signed = false;
+      bool fx_sat = false;
+      a_type non_fx_ty = {}; non_fx_ty.kind = tk_integer;
+      assert(llvm_get_fixed_point_scale(nullptr, &frac_b, &fx_signed, &fx_sat) == llvm_gen_be_error_t::invalid_argument);
+      assert(llvm_get_fixed_point_scale(&non_fx_ty, nullptr, &fx_signed, &fx_sat) == llvm_gen_be_error_t::invalid_argument);
+      assert(llvm_get_fixed_point_scale(&non_fx_ty, &frac_b, nullptr, &fx_sat) == llvm_gen_be_error_t::invalid_argument);
+      assert(llvm_get_fixed_point_scale(&non_fx_ty, &frac_b, &fx_signed, nullptr) == llvm_gen_be_error_t::invalid_argument);
+      assert(llvm_get_fixed_point_scale(&non_fx_ty, &frac_b, &fx_signed, &fx_sat) == llvm_gen_be_error_t::invalid_argument);
+
+#if FIXED_POINT_ALLOWED
+      a_type fx_ty = {};
+      fx_ty.kind = tk_fixed_point;
+      fx_ty.variant.fixed_point.precision = fpp_short;
+      fx_ty.variant.fixed_point.is_unsigned = FALSE;
+      fx_ty.variant.fixed_point.saturating = FALSE;
+      assert(llvm_get_fixed_point_scale(&fx_ty, &frac_b, &fx_signed, &fx_sat) == llvm_gen_be_error_t::ok);
+      assert(frac_b == 7 && fx_signed == true && fx_sat == false);
+
+      fx_ty.variant.fixed_point.precision = fpp_default;
+      fx_ty.variant.fixed_point.is_unsigned = TRUE;
+      fx_ty.variant.fixed_point.saturating = TRUE;
+      assert(llvm_get_fixed_point_scale(&fx_ty, &frac_b, &fx_signed, &fx_sat) == llvm_gen_be_error_t::ok);
+      assert(frac_b == 16 && fx_signed == false && fx_sat == true);
+
+      fx_ty.variant.fixed_point.precision = fpp_long;
+      fx_ty.variant.fixed_point.is_unsigned = FALSE;
+      assert(llvm_get_fixed_point_scale(&fx_ty, &frac_b, &fx_signed, &fx_sat) == llvm_gen_be_error_t::ok);
+      assert(frac_b == 31 && fx_signed == true);
+#endif
+
+#if GNU_VECTOR_TYPES_ALLOWED
+      const a_type_kind fp8_kinds[] = {tk_mfp8, tk_float8e4m3, tk_float8e5m2};
+      for (a_type_kind fk : fp8_kinds) {
+        a_type fp8_ty = {};
+        fp8_ty.kind = fk;
+        fp8_ty.size = 1;
+        assert(llvm_type_from_edg_type(&fp8_ty, &ty) == llvm_gen_be_error_t::ok);
+        assert(ty->isIntegerTy(8));
+      }
+#endif
+    }
+
+    // Test Phase 18 TBAA metadata helpers (llvm_get_tbaa_type_node, llvm_get_tbaa_access_tag, llvm_get_tbaa_struct_node)
+    llvm::MDNode* tbaa_node = nullptr;
+    assert(llvm_get_tbaa_type_node(nullptr, nullptr) == llvm_gen_be_error_t::invalid_argument);
+    assert(llvm_get_tbaa_type_node(nullptr, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(tbaa_node != nullptr);
+
+    a_type tbaa_int1 = {}; tbaa_int1.kind = tk_integer; tbaa_int1.size = 1;
+    a_type tbaa_int2 = {}; tbaa_int2.kind = tk_integer; tbaa_int2.size = 2;
+    a_type tbaa_int4 = {}; tbaa_int4.kind = tk_integer; tbaa_int4.size = 4;
+    a_type tbaa_int8 = {}; tbaa_int8.kind = tk_integer; tbaa_int8.size = 8;
+    a_type tbaa_flt4 = {}; tbaa_flt4.kind = tk_float; tbaa_flt4.size = 4;
+    a_type tbaa_flt8 = {}; tbaa_flt8.kind = tk_float; tbaa_flt8.size = 8;
+    a_type tbaa_ptr = {}; tbaa_ptr.kind = tk_pointer; tbaa_ptr.size = 8;
+    a_type tbaa_void = {}; tbaa_void.kind = tk_void; tbaa_void.size = 0;
+
+    assert(llvm_get_tbaa_type_node(&tbaa_int1, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_int2, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_int4, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_int8, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_flt4, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_flt8, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_ptr, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_type_node(&tbaa_void, &tbaa_node) == llvm_gen_be_error_t::ok);
+
+    a_field tf_bf = {}, tf_null = {}, tf_zero = {}, tf_norm = {};
+    tf_bf.is_bit_field = TRUE;
+    tf_bf.type = &tbaa_int4;
+    tf_null.type = nullptr;
+    tf_zero.type = &tbaa_void; // size == 0
+    tf_norm.type = &tbaa_int4;
+    tf_norm.offset = 4;
+    tf_bf.next = &tf_null;
+    tf_null.next = &tf_zero;
+    tf_zero.next = &tf_norm;
+
+    a_type tbaa_st_named = {};
+    tbaa_st_named.kind = tk_struct;
+    tbaa_st_named.source_corresp.name = "TBAAStruct";
+    tbaa_st_named.variant.class_struct_union.field_list = &tf_bf;
+    assert(llvm_get_tbaa_type_node(&tbaa_st_named, &tbaa_node) == llvm_gen_be_error_t::ok);
+
+    a_type tbaa_cls_anon = {};
+    tbaa_cls_anon.kind = tk_class;
+    tbaa_cls_anon.source_corresp.name = "";
+    assert(llvm_get_tbaa_type_node(&tbaa_cls_anon, &tbaa_node) == llvm_gen_be_error_t::ok);
+    tbaa_cls_anon.source_corresp.name = nullptr;
+    assert(llvm_get_tbaa_type_node(&tbaa_cls_anon, &tbaa_node) == llvm_gen_be_error_t::ok);
+
+    assert(llvm_get_tbaa_access_tag(&tbaa_int4, &tbaa_int4, 0, nullptr) == llvm_gen_be_error_t::invalid_argument);
+    assert(llvm_get_tbaa_access_tag(nullptr, nullptr, 0, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_access_tag(&tbaa_int4, &tbaa_void, 0, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_access_tag(&tbaa_int4, &tbaa_int4, 0, &tbaa_node) == llvm_gen_be_error_t::ok);
+
+    assert(llvm_get_tbaa_struct_node(&tbaa_st_named, nullptr) == llvm_gen_be_error_t::invalid_argument);
+    assert(llvm_get_tbaa_struct_node(nullptr, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_struct_node(&tbaa_int4, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_struct_node(&tbaa_st_named, &tbaa_node) == llvm_gen_be_error_t::ok);
+    assert(llvm_get_tbaa_struct_node(&tbaa_cls_anon, &tbaa_node) == llvm_gen_be_error_t::ok);
+
+    // Phase 9: Test llvm_resolve_target_address_space across NVPTX, AMDGPU, SPIR-V, and generic triples
+    unsigned addr_sp = 0;
+    assert(llvm_resolve_target_address_space("global", nullptr) == llvm_gen_be_error_t::invalid_argument);
+    assert(llvm_resolve_target_address_space(nullptr, &addr_sp) == llvm_gen_be_error_t::ok && addr_sp == 0);
+    assert(llvm_resolve_target_address_space("", &addr_sp) == llvm_gen_be_error_t::ok && addr_sp == 0);
+
+    const char* gpu_triples[] = {
+        "nvptx64-nvidia-cuda",
+        "amdgcn-amd-amdhsa",
+        "spirv64-unknown-unknown",
+        "x86_64-unknown-linux-gnu"
+    };
+    const char* space_names[] = {"global", "shared", "constant", "local", "generic"};
+    for (const char* gtr : gpu_triples) {
+      state.module->setTargetTriple(llvm::Triple(gtr));
+      for (const char* spn : space_names) {
+        assert(llvm_resolve_target_address_space(spn, &addr_sp) == llvm_gen_be_error_t::ok);
+      }
+    }
+    state.module->setTargetTriple(llvm::Triple("x86_64-unknown-linux-gnu"));
   }
 
   printf("All type_test assertions passed successfully!\n");

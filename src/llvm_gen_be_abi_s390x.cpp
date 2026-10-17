@@ -16,6 +16,14 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief Classifies a single EDG argument type according to SystemZ (s390x) ABI rules.
+ * @details Determines whether the argument is passed in GPRs, FPRs, coerced into an integer,
+ * or passed indirectly in memory.
+ * @param[in] ty The EDG type to classify.
+ * @param[out] out_info Pointer to the s390x_arg_info_t structure receiving classification results.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t classify_s390x_argument(
     a_type_ptr ty,
     s390x_arg_info_t* out_info) noexcept {
@@ -34,7 +42,7 @@ llvm_gen_be_error_t classify_s390x_argument(
     return llvm_gen_be_error_t::ok;
   }
 
-  if (ty->kind == tk_integer || ty->kind == tk_enum || ty->kind == tk_pointer) {
+  if (ty->kind == tk_integer || ty->kind == tk_pointer) {
     out_info->abi_class = s390x_abi_class_t::integer;
     return llvm_type_from_edg_type(ty, &out_info->coerced_type);
   }
@@ -56,6 +64,14 @@ llvm_gen_be_error_t classify_s390x_argument(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Computes return value classification and sret requirement for SystemZ (s390x).
+ * @details Determines whether the return value is returned in registers or via sret pointer.
+ * @param[in] ret_ty The EDG return type.
+ * @param[out] out_info Pointer to store the return classification info.
+ * @param[out] out_sret Pointer to boolean set to true if sret is required.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t compute_s390x_return_info(
     a_type_ptr ret_ty,
     s390x_arg_info_t* out_info,
@@ -75,6 +91,14 @@ llvm_gen_be_error_t compute_s390x_return_info(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Builds the LLVM FunctionType and AttributeList for a SystemZ (s390x) routine.
+ * @details Applies SystemZ ABI coercion and sret/byval attributes.
+ * @param[in] routine_ty The EDG routine type.
+ * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
+ * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t build_s390x_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
@@ -108,11 +132,8 @@ llvm_gen_be_error_t build_s390x_function_type(
   } else {
     if (ret_info.abi_class == s390x_abi_class_t::no_class) {
       llvm_ret_ty = llvm::Type::getVoidTy(*be_state->context);
-    } else if (ret_info.coerced_type) {
-      llvm_ret_ty = ret_info.coerced_type;
     } else {
-      err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
-      if (err != llvm_gen_be_error_t::ok) return err;
+      llvm_ret_ty = ret_info.coerced_type;
     }
   }
 
@@ -133,13 +154,8 @@ llvm_gen_be_error_t build_s390x_function_type(
         err = llvm_type_from_edg_type(param->type, &pointee_ty);
         if (err != llvm_gen_be_error_t::ok) return err;
         ab.addByValAttr(pointee_ty);
-      } else if (arg_info.coerced_type) {
-        llvm_param_types.push_back(arg_info.coerced_type);
       } else {
-        llvm::Type* pty = nullptr;
-        err = llvm_type_from_edg_type(param->type, &pty);
-        if (err != llvm_gen_be_error_t::ok) return err;
-        llvm_param_types.push_back(pty);
+        llvm_param_types.push_back(arg_info.coerced_type);
       }
       
       param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
@@ -159,6 +175,30 @@ llvm_gen_be_error_t build_s390x_function_type(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Constructs the LLVM Type for a va_list under SystemZ (s390x) ABI.
+ * @details The s390x va_list type is `[1 x { i64, i64, ptr, ptr }]` representing
+ *          `__gpr`, `__fpr`, `__overflow_arg_area`, and `__reg_save_area`.
+ * @param[out] out_ty Pointer to store the resulting LLVM ArrayType.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_ty` is null.
+ */
+llvm_gen_be_error_t build_s390x_va_list_type(
+    llvm::Type** out_ty) noexcept {
+  if (!out_ty) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
+  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+  llvm::StructType* struct_ty = llvm::StructType::get(*be_state->context, {i64_ty, i64_ty, ptr_ty, ptr_ty});
+  *out_ty = llvm::ArrayType::get(struct_ty, 1);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_start intrinsic for the SystemZ (s390x) ABI.
+ * @details Invokes the llvm.va_start intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_s390x_va_start(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -172,6 +212,14 @@ llvm_gen_be_error_t lower_s390x_va_start(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_arg operation for the SystemZ (s390x) ABI.
+ * @details Emits an LLVM VAArgInst for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Pointer to store the extracted LLVM value.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_s390x_va_arg(
     llvm::Value* va_list_ptr,
     a_type_ptr ty,
@@ -181,10 +229,32 @@ llvm_gen_be_error_t lower_s390x_va_arg(
   llvm::Type* llvm_ty = nullptr;
   llvm_gen_be_error_t err = get_llvm_type(ty, &llvm_ty);
   if (err != llvm_gen_be_error_t::ok) return err;
+
+  s390x_arg_info_t info = {};
+  LLVM_GEN_BE_ASSERT_OK(classify_s390x_argument(ty, &info));
+  if (info.is_indirect) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+
+  if (skip_typerefs(ty)->alignment > 8) {
+    *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty, "vaarg.aligned");
+    return llvm_gen_be_error_t::ok;
+  }
+
   *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_end intrinsic for the SystemZ (s390x) ABI.
+ * @details Invokes the llvm.va_end intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_s390x_va_end(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -198,6 +268,14 @@ llvm_gen_be_error_t lower_s390x_va_end(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_copy intrinsic for the SystemZ (s390x) ABI.
+ * @details Invokes the llvm.va_copy intrinsic on destination and source va_list pointers.
+ * @param[in] dest_va_list_ptr Pointer to the destination va_list object.
+ * @param[in] src_va_list_ptr Pointer to the source va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_s390x_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,

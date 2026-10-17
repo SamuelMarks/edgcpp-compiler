@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Builds, runs, and verifies 100% function, line, region, and branch coverage on the EDG LLVM backend."""
+
+import glob
+import os
+import subprocess
+import sys
+
+
+def main() -> int:
+    """Runs all test_llvm_* binaries, merges profiles, and asserts 100% llvm-cov coverage."""
+    default_build = ".tmp/build_tests" if os.path.isdir(".tmp/build_tests/bin") else "build/coverage"
+    build_dir = os.environ.get("EDG_COVERAGE_BUILD_DIR", default_build)
+    bin_dir = os.path.join(build_dir, "bin")
+    profraw_dir = os.path.join(build_dir, "profraw")
+    merged_prof = os.path.join(build_dir, "merged.profdata")
+
+    test_bins = sorted(glob.glob(os.path.join(bin_dir, "test_llvm_*")))
+    if not test_bins:
+        print(f"Error: No test_llvm_* binaries found in {bin_dir}", file=sys.stderr)
+        return 1
+
+    os.makedirs(profraw_dir, exist_ok=True)
+    for old_prof in glob.glob(os.path.join(profraw_dir, "*.profraw")):
+        os.remove(old_prof)
+
+    for test_bin in test_bins:
+        name = os.path.basename(test_bin)
+        env = os.environ.copy()
+        env["LLVM_PROFILE_FILE"] = os.path.join(profraw_dir, f"{name}.profraw")
+        res = subprocess.run(
+            [test_bin],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if res.returncode != 0:
+            print(f"Error: Test binary failed: {test_bin}", file=sys.stderr)
+            return 1
+
+    profraw_files = sorted(glob.glob(os.path.join(profraw_dir, "*.profraw")))
+    subprocess.run(
+        ["xcrun", "llvm-profdata", "merge", "-sparse", *profraw_files, "-o", merged_prof],
+        check=True,
+    )
+
+    src_files = sorted(glob.glob("src/llvm_gen_be*.cpp") + glob.glob("src/llvm_gen_be*.h"))
+    cmd = ["xcrun", "llvm-cov", "report", test_bins[0]]
+    for tb in test_bins[1:]:
+        cmd.extend(["-object", tb])
+    cmd.extend([f"-instr-profile={merged_prof}", "--sources", *src_files])
+
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    print(proc.stdout)
+
+    for line in proc.stdout.splitlines():
+        if line.startswith("TOTAL"):
+            parts = line.split()
+            # TOTAL Regions Missed Cover Functions Missed Executed Lines Missed Cover Branches Missed Cover
+            missed_regions = int(parts[2])
+            missed_funcs = int(parts[5])
+            missed_lines = int(parts[8])
+            missed_branches = int(parts[11])
+            if (
+                missed_regions != 0
+                or missed_funcs != 0
+                or missed_lines != 0
+                or missed_branches != 0
+            ):
+                print(
+                    f"Coverage check failed: missed_funcs={missed_funcs}, "
+                    f"missed_lines={missed_lines}, missed_regions={missed_regions}, "
+                    f"missed_branches={missed_branches}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(
+                "100.00% Function, Line, Region, and Branch Coverage Verified across all LLVM backend files!"
+            )
+            return 0
+
+    print("Error: Could not parse TOTAL line from llvm-cov report", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

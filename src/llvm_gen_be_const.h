@@ -22,12 +22,12 @@
 BEGIN_EDG_NAMESPACE
 
 /**
- * @brief Evaluates an EDG constant expression into an LLVM Constant.
- * @details Delegates to specific constant lowering helpers based on the constant kind.
- * @param[in] con Pointer to the EDG constant structure.
- * @param[in] expected_ty The expected LLVM type for the constant.
- * @param[out] out_const Pointer to store the resulting llvm::Constant*.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @brief Dispatches an EDG constant node (`a_constant_ptr`) to the appropriate LLVM constant builder.
+ * @details Supports integer, float, string, address, aggregate, and pointer-to-member constants.
+ * @param[in] con Pointer to the EDG constant node (or nullptr for zero-initialization).
+ * @param[in] expected_ty The expected LLVM type of the resulting constant.
+ * @param[out] out_const Receives the evaluated `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t evaluate_constant(
     a_constant_ptr con,
@@ -35,12 +35,12 @@ llvm_gen_be_error_t evaluate_constant(
     llvm::Constant** out_const) noexcept;
 
 /**
- * @brief Lowers an EDG integral constant.
- * @details Handles signed and unsigned integer constants.
+ * @brief Translates an EDG integer constant (`ck_integer`) into an `llvm::ConstantInt`.
+ * @details Supports signed and unsigned integral values up to 128 bits (`APInt`).
  * @param[in] con Pointer to the EDG constant structure.
- * @param[in] expected_ty The expected LLVM type for the constant.
- * @param[out] out_const Pointer to store the resulting llvm::Constant*.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @param[in] expected_ty The target LLVM integer type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if inputs are null.
  */
 llvm_gen_be_error_t llvm_const_from_integer(
     a_constant_ptr con,
@@ -48,12 +48,12 @@ llvm_gen_be_error_t llvm_const_from_integer(
     llvm::Constant** out_const) noexcept;
 
 /**
- * @brief Lowers an EDG floating-point constant.
- * @details Handles regular floating-point numbers, infinities, and NaNs.
+ * @brief Translates an EDG floating-point constant (`ck_float`) into an `llvm::ConstantFP`.
+ * @details Handles normal values, positive/negative infinity, and quiet NaNs.
  * @param[in] con Pointer to the EDG constant structure.
- * @param[in] expected_ty The expected LLVM type for the constant.
- * @param[out] out_const Pointer to store the resulting llvm::Constant*.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @param[in] expected_ty The target LLVM floating-point type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if inputs are null.
  */
 llvm_gen_be_error_t llvm_const_from_float(
     a_constant_ptr con,
@@ -61,12 +61,96 @@ llvm_gen_be_error_t llvm_const_from_float(
     llvm::Constant** out_const) noexcept;
 
 /**
- * @brief Lowers an EDG string constant.
- * @details Handles character and wide character string literals.
+ * @brief Translates an EDG complex constant (`ck_complex`) into a two-element `llvm::ConstantStruct`.
+ * @details Extracts both real and imaginary components (`an_internal_complex_value`) using `fp_to_string`,
+ *          handling normal values, positive/negative infinity, and quiet NaNs independently.
+ * @param[in] con Pointer to the EDG complex constant structure.
+ * @param[in] expected_ty The target LLVM struct type `{ elem_ty, elem_ty }`.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if inputs are null.
+ */
+llvm_gen_be_error_t llvm_const_from_complex(
+    a_constant_ptr con,
+    llvm::Type* expected_ty,
+    llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Translates an EDG C99 imaginary constant (`ck_imaginary`) into an `llvm::ConstantFP` or `{0.0, imag}` struct.
+ * @details Evaluates `con->variant.float_value` and produces either a scalar floating-point constant
+ *          or a two-element `{ 0.0, imag }` `llvm::ConstantStruct` when `expected_ty` is a struct.
+ * @param[in] con Pointer to the EDG imaginary constant structure.
+ * @param[in] expected_ty The target LLVM floating-point or complex struct type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if inputs are null.
+ */
+llvm_gen_be_error_t llvm_const_from_imaginary(
+    a_constant_ptr con,
+    llvm::Type* expected_ty,
+    llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Translates a GNU label-difference constant (`ck_label_difference`, `&&to - &&from`) into an `llvm::Constant*`.
+ * @details Evaluates `to_address` and `from_address` as `llvm::BlockAddress*`, converts both via `getPtrToInt`,
+ *          and emits `llvm::ConstantExpr::getSub(to_int, from_int)`.
+ * @param[in] con Pointer to the EDG label-difference constant structure.
+ * @param[in] expected_ty The target LLVM integer type for the offset.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+llvm_gen_be_error_t llvm_const_from_label_difference(
+    a_constant_ptr con,
+    llvm::Type* expected_ty,
+    llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Translates a stack-offset constant (`ck_stack_offset`) into an `llvm::Constant*`.
+ * @details Evaluates the stack offset constant relative to a local variable for EH table lowering.
+ * @param[in] con Pointer to the EDG stack-offset constant structure.
+ * @param[in] expected_ty The target LLVM integer or pointer type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if inputs are null.
+ */
+llvm_gen_be_error_t llvm_const_from_stack_offset(
+    a_constant_ptr con,
+    llvm::Type* expected_ty,
+    llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Translates an embedded dynamic initialization constant (`ck_dynamic_init`) into an `llvm::Constant*`.
+ * @details Folds `dik_constant` or constant `dik_expression` entries to `llvm::Constant*`, and produces
+ *          a zero-initialized constant placeholder for runtime-initialized subobjects.
+ * @param[in] con Pointer to the EDG dynamic-init constant structure.
+ * @param[in] expected_ty The target LLVM type of the subobject.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+llvm_gen_be_error_t llvm_const_from_dynamic_init(
+    a_constant_ptr con,
+    llvm::Type* expected_ty,
+    llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Translates a C++ template-parameter constant (`ck_template_param`) into an `llvm::Constant*`.
+ * @details Resolves folded `tpck_dependent_constant`, `tpck_address`, `tpck_expression`, `tpck_sizeof`,
+ *          `tpck_datasizeof`, and `tpck_alignof` nodes, or returns `constant_eval_failure` for
+ *          uninstantiated dependent template parameters.
+ * @param[in] con Pointer to the EDG template-parameter constant structure.
+ * @param[in] expected_ty The target LLVM type of the constant.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+llvm_gen_be_error_t llvm_const_from_template_param(
+    a_constant_ptr con,
+    llvm::Type* expected_ty,
+    llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Translates an EDG string constant (`ck_string`) into an `llvm::ConstantDataArray` or global string pointer.
+ * @details Supports narrow (`i8`), UTF-16 (`i16`), and UTF-32/wide (`i32`) character arrays with deduplication.
  * @param[in] con Pointer to the EDG constant structure.
- * @param[in] expected_ty The expected LLVM type for the constant.
- * @param[out] out_const Pointer to store the resulting llvm::Constant*.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @param[in] expected_ty The target LLVM array or pointer type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t llvm_const_from_string(
     a_constant_ptr con,
@@ -74,12 +158,12 @@ llvm_gen_be_error_t llvm_const_from_string(
     llvm::Constant** out_const) noexcept;
 
 /**
- * @brief Lowers an EDG aggregate or struct constant.
- * @details Handles arrays and structs by evaluating elements recursively.
- * @param[in] con Pointer to the EDG constant structure.
- * @param[in] expected_ty The expected LLVM type for the constant.
- * @param[out] out_const Pointer to store the resulting llvm::Constant*.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @brief Translates an EDG aggregate constant (`ck_aggregate`) into an `llvm::ConstantArray` or `llvm::ConstantStruct`.
+ * @details Handles arrays, structs, and unions (including active member conversion and zero-padding).
+ * @param[in] con Pointer to the EDG aggregate constant structure.
+ * @param[in] expected_ty The target LLVM array or struct type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t llvm_const_from_aggregate(
     a_constant_ptr con,
@@ -87,17 +171,33 @@ llvm_gen_be_error_t llvm_const_from_aggregate(
     llvm::Constant** out_const) noexcept;
 
 /**
- * @brief Lowers an EDG address constant.
- * @details Handles block addresses for labels.
- * @param[in] con Pointer to the EDG constant structure.
- * @param[in] expected_ty The expected LLVM type for the constant.
- * @param[out] out_const Pointer to store the resulting llvm::Constant*.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ * @brief Translates an EDG address constant (`ck_address`) into an LLVM global, function, or `BlockAddress` constant.
+ * @details Applies byte offsets via constant `getelementptr` when `con->variant.address.offset != 0`.
+ * @param[in] con Pointer to the EDG address constant structure.
+ * @param[in] expected_ty The target LLVM pointer type.
+ * @param[out] out_const Receives the resulting `llvm::Constant*`.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
  */
 llvm_gen_be_error_t llvm_const_from_address(
     a_constant_ptr con,
     llvm::Type* expected_ty,
     llvm::Constant** out_const) noexcept;
+
+/**
+ * @brief Packs a consecutive run of constant bitfield initializers into a target-endian integer constant.
+ * @details Handles both little-endian (`LSB`-first) and big-endian (`MSB`-first) bitfield placement
+ *          within @p unit_ty and advances `*io_field` and `*io_con` past the packed bitfields.
+ * @param[in,out] io_field Pointer to the current `a_field_ptr` bitfield cursor.
+ * @param[in,out] io_con Pointer to the current `a_constant_ptr` initializer cursor.
+ * @param[in] unit_ty Target LLVM integer type representing the packed bitfield storage unit.
+ * @param[out] out_packed_const Receives the packed `llvm::Constant*` integer for the storage unit.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if required pointers are null.
+ */
+llvm_gen_be_error_t llvm_pack_constant_bitfield_bytes(
+    a_field_ptr* io_field,
+    a_constant_ptr* io_con,
+    llvm::Type* unit_ty,
+    llvm::Constant** out_packed_const) noexcept;
 
 END_EDG_NAMESPACE
 

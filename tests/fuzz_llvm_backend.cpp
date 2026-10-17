@@ -10,6 +10,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/**
+ * @brief LibFuzzer entry point for differential fuzzing of the EDG LLVM backend.
+ * @details Accepts raw input bytes representing source code and exercises the frontend/backend pipeline.
+ * @param[in] Data Pointer to the fuzz input buffer.
+ * @param[in] Size Length of the fuzz input buffer in bytes.
+ * @return 0 on completion.
+ */
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     // 1. Initialize EDG Frontend (stub)
     // 2. Parse Data as C++ Source into IL

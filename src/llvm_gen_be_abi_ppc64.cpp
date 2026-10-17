@@ -12,6 +12,7 @@
 #include "llvm_gen_be_abi_ppc64.h"
 #include "llvm_gen_be_internal.h"
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/TargetParser/Triple.h>
 #include <vector>
 
 #if BACK_END_IS_LLVM_GEN_BE
@@ -19,6 +20,7 @@ BEGIN_EDG_NAMESPACE
 
 /**
  * @brief Determines if a type is a Homogeneous Floating-point or Vector Aggregate (HFA/HVA).
+ * @details Implements or declares `is_hfa_hva` for the EDG LLVM backend.
  * @param[in] ty The EDG type to check.
  * @param[out] out_count Pointer to store the number of elements.
  * @param[out] out_ty Pointer to store the element LLVM type.
@@ -30,7 +32,7 @@ static llvm_gen_be_error_t is_hfa_hva(a_type_ptr ty, uint32_t* out_count, llvm::
   // Specification-accurate HFA/HVA detection
   while (ty->kind == tk_typeref) ty = ty->variant.typeref.type;
   
-  if (ty->kind == tk_float || is_vector_type(ty)) {
+  if (ty->kind == tk_float) {
     *out_count = 1;
     *out_is_hfa = true;
     return llvm_type_from_edg_type(ty, out_ty);
@@ -43,6 +45,9 @@ static llvm_gen_be_error_t is_hfa_hva(a_type_ptr ty, uint32_t* out_count, llvm::
     if (err != llvm_gen_be_error_t::ok) return err;
     if (*out_is_hfa) {
        *out_count *= count;
+       if (*out_count == 0 || *out_count > 8) {
+         *out_is_hfa = false;
+       }
     }
     return llvm_gen_be_error_t::ok;
   }
@@ -80,6 +85,14 @@ static llvm_gen_be_error_t is_hfa_hva(a_type_ptr ty, uint32_t* out_count, llvm::
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Classifies a single EDG argument type according to PowerPC 64 ABI rules.
+ * @details Determines register class (integer, float, HFA, or byval struct) and coerced LLVM type.
+ * @param[in] ty The EDG type to classify.
+ * @param[in] is_elfv2 True if targeting PowerPC 64 ELFv2 ABI; false for ELFv1.
+ * @param[out] out_info Pointer to the ppc64_arg_info_t structure receiving classification results.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t classify_ppc64_argument(
     a_type_ptr ty,
     bool is_elfv2,
@@ -99,7 +112,7 @@ llvm_gen_be_error_t classify_ppc64_argument(
     return llvm_gen_be_error_t::ok;
   }
 
-  if (ty->kind == tk_integer || ty->kind == tk_enum || ty->kind == tk_pointer) {
+  if (ty->kind == tk_integer || ty->kind == tk_pointer) {
     out_info->abi_class = ppc64_abi_class_t::integer;
     return llvm_type_from_edg_type(ty, &out_info->coerced_type);
   }
@@ -116,7 +129,7 @@ llvm_gen_be_error_t classify_ppc64_argument(
     llvm_gen_be_error_t err = is_hfa_hva(ty, &count, &hfa_ty, &is_hfa);
     if (err != llvm_gen_be_error_t::ok) return err;
 
-    if (is_hfa && count > 0 && count <= 8) {
+    if (is_hfa) {
       out_info->abi_class = ppc64_abi_class_t::hfa;
       out_info->coerced_type = llvm::ArrayType::get(hfa_ty, count);
       return llvm_gen_be_error_t::ok;
@@ -129,14 +142,21 @@ llvm_gen_be_error_t classify_ppc64_argument(
     out_info->coerced_type = llvm::ArrayType::get(llvm::Type::getInt64Ty(*be_state->context), (ty->size + 7) / 8);
   } else {
     out_info->abi_class = ppc64_abi_class_t::struct_byval;
-    if (!is_elfv2) {
-      out_info->is_indirect = (ty->size > 64);
-    }
+    out_info->is_indirect = true;
   }
 
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Computes return value classification and sret requirement for PowerPC 64.
+ * @details Determines whether the return value is returned in registers or via sret pointer.
+ * @param[in] ret_ty The EDG return type.
+ * @param[in] is_elfv2 True if targeting PowerPC 64 ELFv2 ABI; false for ELFv1.
+ * @param[out] out_info Pointer to store the return classification info.
+ * @param[out] out_sret Pointer to boolean set to true if sret is required.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t compute_ppc64_return_info(
     a_type_ptr ret_ty,
     bool is_elfv2,
@@ -159,6 +179,14 @@ llvm_gen_be_error_t compute_ppc64_return_info(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Builds the LLVM FunctionType and AttributeList for a PowerPC 64 routine.
+ * @details Applies PowerPC 64 ELFv2 coercion and sret/byval attributes.
+ * @param[in] routine_ty The EDG routine type.
+ * @param[out] out_fn_ty Pointer to store the resulting LLVM FunctionType.
+ * @param[out] out_attrs Pointer to store the resulting LLVM AttributeList.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t build_ppc64_function_type(
     a_type_ptr routine_ty,
     llvm::FunctionType** out_fn_ty,
@@ -170,7 +198,8 @@ llvm_gen_be_error_t build_ppc64_function_type(
   std::vector<llvm::AttributeSet> param_attrs;
   llvm::AttrBuilder ret_attr(*be_state->context);
 
-  bool is_elfv2 = true; // Assume ELFv2 for test purposes
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  bool is_elfv2 = (triple.getArch() != llvm::Triple::ppc64);
 
   a_type_ptr ret_ty = routine_ty->variant.routine.return_type;
   llvm::Type* llvm_ret_ty = nullptr;
@@ -219,13 +248,8 @@ llvm_gen_be_error_t build_ppc64_function_type(
         err = llvm_type_from_edg_type(param->type, &pointee_ty);
         if (err != llvm_gen_be_error_t::ok) return err;
         ab.addByValAttr(pointee_ty);
-      } else if (arg_info.coerced_type) {
-        llvm_param_types.push_back(arg_info.coerced_type);
       } else {
-        llvm::Type* pty = nullptr;
-        err = llvm_type_from_edg_type(param->type, &pty);
-        if (err != llvm_gen_be_error_t::ok) return err;
-        llvm_param_types.push_back(pty);
+        llvm_param_types.push_back(arg_info.coerced_type);
       }
       
       param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
@@ -245,6 +269,13 @@ llvm_gen_be_error_t build_ppc64_function_type(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_start intrinsic for the PowerPC 64 ABI.
+ * @details Invokes the llvm.va_start intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_ppc64_va_start(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -258,6 +289,14 @@ llvm_gen_be_error_t lower_ppc64_va_start(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_arg operation for the PowerPC 64 ABI.
+ * @details Emits an LLVM VAArgInst for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Pointer to store the extracted LLVM value.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_ppc64_va_arg(
     llvm::Value* va_list_ptr,
     a_type_ptr ty,
@@ -267,10 +306,32 @@ llvm_gen_be_error_t lower_ppc64_va_arg(
   llvm::Type* llvm_ty = nullptr;
   llvm_gen_be_error_t err = get_llvm_type(ty, &llvm_ty);
   if (err != llvm_gen_be_error_t::ok) return err;
+
+  ppc64_arg_info_t info = {};
+  LLVM_GEN_BE_ASSERT_OK(classify_ppc64_argument(ty, true, &info));
+  if (info.is_indirect) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+
+  if (skip_typerefs(ty)->alignment > 16) {
+    *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty, "vaarg.aligned");
+    return llvm_gen_be_error_t::ok;
+  }
+
   *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_end intrinsic for the PowerPC 64 ABI.
+ * @details Invokes the llvm.va_end intrinsic on the va_list pointer.
+ * @param[in] va_list_ptr Pointer to the va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_ppc64_va_end(
     llvm::Value* va_list_ptr,
     llvm::Value** out_val) noexcept {
@@ -284,6 +345,14 @@ llvm_gen_be_error_t lower_ppc64_va_end(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a va_copy intrinsic for the PowerPC 64 ABI.
+ * @details Invokes the llvm.va_copy intrinsic on destination and source va_list pointers.
+ * @param[in] dest_va_list_ptr Pointer to the destination va_list object.
+ * @param[in] src_va_list_ptr Pointer to the source va_list object.
+ * @param[out] out_val Pointer to store the resulting CallInst.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t lower_ppc64_va_copy(
     llvm::Value* dest_va_list_ptr,
     llvm::Value* src_va_list_ptr,

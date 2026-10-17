@@ -1,5 +1,6 @@
-# Use the C-generating back end.
-BACK_END_IS_C_GEN_BE=1
+# Select the C-generating or LLVM IR-generating back end.
+BACK_END_IS_C_GEN_BE=@EDG_C_GEN_BE_DEFAULT@
+BACK_END_IS_LLVM_GEN_BE=@EDG_LLVM_GEN_BE_DEFAULT@
 
-# The C-generating back end requires lowering.
+# Both the C-generating and LLVM IR-generating back ends require lowering.
 DO_IL_LOWERING=1

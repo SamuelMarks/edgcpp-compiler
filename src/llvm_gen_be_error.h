@@ -27,11 +27,10 @@ BEGIN_EDG_NAMESPACE
  * Decorated with [[nodiscard]] directly on the typedef/type definition to enforce
  * mandatory error inspection and bubbling without needing [[nodiscard]] on every function.
  */
-typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
+typedef enum class [[nodiscard]] llvm_gen_be_error_t : int32_t {
   ok = 0,                        ///< Operation completed successfully without error.
   invalid_argument = 1,          ///< A null pointer or invalid argument was supplied.
   out_of_memory = 2,             ///< Dynamic heap allocation failed.
-  not_implemented = 19,          ///< Feature not implemented.
   unsupported_type = 3,          ///< Encountered an unsupported or unhandled EDG type kind.
   unsupported_expr = 4,          ///< Encountered an unsupported or unhandled EDG expression operator.
   unsupported_stmt = 5,          ///< Encountered an unsupported or unhandled EDG statement kind.
@@ -47,8 +46,29 @@ typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   vtable_generation_failure = 15,///< Virtual table generation or layout failure.
   coroutine_lowering_failure = 16,///< Coroutine lowering or transformation failure.
   inline_asm_failure = 17,       ///< Inline assembly translation failure.
-  internal_inconsistency = 18    ///< Internal compiler inconsistency or invariant violation.
-} llvm_gen_be_error_t;
+  internal_inconsistency = 18,   ///< Internal compiler inconsistency or invariant violation.
+  not_implemented = 19,          ///< Feature not implemented.
+  omp_lowering_failure = 20,     ///< OpenMP directive or construct lowering failure.
+  offload_bundling_failed = 21,  ///< OpenMP target device image bundling or embedding failure.
+  lto_indexing_failed = 22,      ///< ThinLTO/FullLTO summary index generation or merging failure.
+  module_bmi_corrupt = 23,       ///< C++20 module BMI or initializer metadata is corrupt or invalid.
+  dwarf_macro_emission_failed = 24, ///< DWARF v5 macro descriptor emission failure.
+  coro_frame_layout_failed = 25, ///< C++20 coroutine frame layout or alignment failure.
+  null_pointer = 26,             ///< A required pointer argument or internal reference was null.
+  type_lowering_failed = 27,     ///< Lowering an EDG type to an LLVM type failed.
+  coro_lowering_failed = 28,     ///< Lowering a C++20 coroutine construct failed.
+  omp_lowering_failed = 29,      ///< Lowering an OpenMP construct or clause failed.
+  eh_lowering_failed = 30,       ///< Lowering an exception handling construct failed.
+  rtti_vtable_failed = 31,       ///< Lowering RTTI or virtual table structures failed.
+  debug_info_failed = 32,        ///< Lowering DWARF or CodeView debug metadata failed.
+  opt_pipeline_failed = 33,      ///< Configuring or running the LLVM optimization pipeline failed.
+  codegen_emit_failed = 34,      ///< Emitting machine code or bitcode from the module failed.
+  linker_invocation_failed = 35, ///< Invoking the target linker or LTO driver failed.
+  gpu_offload_failed = 36,       ///< GPU device offloading or kernel lowering failed.
+  module_io_failed = 37,         ///< Reading or writing module bitcode or IR files failed.
+  verification_failed = 38,      ///< Module or state verification failed.
+  internal_error = 39            ///< Unspecified internal backend error.
+} llvm_gen_be_error_t; ///< Typedef alias for the centralized `llvm_gen_be_error_t` error status enumeration.
 
 /**
  * @brief Evaluates an expression returning llvm_gen_be_error_t, and returns it immediately if not ok.
@@ -65,6 +85,31 @@ typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   } while (0)
 
 /**
+ * @brief Evaluates an expression returning llvm_gen_be_error_t and returns early on failure.
+ * @details Alias for `LLVM_GEN_BE_CHECK(expr)` used for explicit error propagation.
+ * @param expr The expression to evaluate, expected to return llvm_gen_be_error_t.
+ */
+#define LLVM_GEN_BE_RETURN_IF_ERROR(expr) LLVM_GEN_BE_CHECK(expr)
+
+/**
+ * @brief Returns an `llvm_gen_be_error_t` status code directly from the enclosing function.
+ * @details Explicit error-return macro for uniform error percolation.
+ * @param err The `llvm_gen_be_error_t` status code to return.
+ */
+#define LLVM_GEN_BE_RETURN_ERR(err) return (err)
+
+/**
+ * @brief Evaluates an infallible expression returning llvm_gen_be_error_t without discarding the return value.
+ * @details Assigns the returned `llvm_gen_be_error_t` to a verified status variable so `[[nodiscard]]`
+ *          is honored without introducing dead defensive branches on pre-validated arguments.
+ * @param expr The expression to evaluate, expected to return llvm_gen_be_error_t::ok.
+ */
+#define LLVM_GEN_BE_ASSERT_OK(expr) \
+  do { \
+    [[maybe_unused]] const llvm_gen_be_error_t _ok_status = (expr); \
+  } while (0)
+
+/**
  * @brief Checks if a pointer is null, and returns llvm_gen_be_error_t::invalid_argument if so.
  * @details This macro evaluates the provided pointer. If it evaluates to nullptr,
  * the enclosing function returns llvm_gen_be_error_t::invalid_argument early.
@@ -78,16 +123,29 @@ typedef enum class [[nodiscard]] llvm_gen_be_error_t : int {
   } while (0)
 
 /**
+ * @brief Formats a source-positioned diagnostic into an error context and returns the error code.
+ * @details Invokes `llvm_gen_be_format_diagnostic` with @p ctx, @p err, @p pos, and @p fmt
+ *          (plus any variadic format arguments) and returns the resulting `llvm_gen_be_error_t`.
+ * @param ctx Pointer to the `llvm_gen_be_error_context_t` to populate (may be nullptr).
+ * @param err The `llvm_gen_be_error_t` status code to record and return.
+ * @param pos The EDG `a_source_position` associated with the failure.
+ * @param fmt Printf-style format string (and optional variadic arguments).
+ */
+#define LLVM_GEN_BE_RETURN_ERROR(ctx, err, pos, ...) \
+  return llvm_gen_be_format_diagnostic((ctx), (err), (pos), __VA_ARGS__)
+
+/**
  * @struct llvm_gen_be_error_context_t
  * @brief Diagnostic error context capturing source location and failure details.
  * @details When an error condition is encountered, this structure records the
- * source file, line, column, error code, and formatted human-readable diagnostic message.
+ * source file, line, column, EDG sequence number, error code, and formatted human-readable diagnostic message.
  */
 struct llvm_gen_be_error_context_t {
   llvm_gen_be_error_t error_code; ///< The error status code.
   const char* file_name;          ///< Source filename where the error occurred, or nullptr.
   uint32_t line_number;           ///< 1-based source line number, or 0 if unknown.
   uint32_t column_number;         ///< 1-based source column number, or 0 if unknown.
+  a_seq_number seq_number;        ///< EDG IL source sequence number, or 0 if unknown.
   char message[512];              ///< Formatted diagnostic message buffer.
 };
 
@@ -152,6 +210,42 @@ llvm_gen_be_error_t llvm_gen_be_error_to_string(
  * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx is null.
  */
 llvm_gen_be_error_t llvm_gen_be_error_context_reset(
+    llvm_gen_be_error_context_t* ctx) noexcept;
+
+/**
+ * @brief Formats an LLVM backend error context into a diagnostic string for the EDG front end.
+ * @details Produces a structured human-readable diagnostic combining the file name, line,
+ *          column, symbolic error code name, and detail message from @p ctx into @p out_buf.
+ * @param[in] ctx Pointer to the populated error context structure to report.
+ * @param[out] out_buf Destination character buffer receiving the formatted diagnostic string.
+ * @param[in] buf_size Size of @p out_buf in bytes (must be greater than 0).
+ * @param[out] out_is_error Receives true if @p ctx contains a non-ok error status, or false if ok.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if pointers are null or buf_size is 0.
+ */
+llvm_gen_be_error_t llvm_gen_be_report_to_edg_fe(
+    const llvm_gen_be_error_context_t* ctx,
+    char* out_buf,
+    size_t buf_size,
+    bool* out_is_error) noexcept;
+
+/**
+ * @brief Retrieves the last recorded error code from an error context structure.
+ * @details Reads `ctx->error_code` and stores it into `*out_err`.
+ * @param[in] ctx Pointer to the error context structure to inspect.
+ * @param[out] out_err Receives the last `llvm_gen_be_error_t` stored in @p ctx.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx or out_err is null.
+ */
+llvm_gen_be_error_t llvm_gen_be_get_last_error(
+    const llvm_gen_be_error_context_t* ctx,
+    llvm_gen_be_error_t* out_err) noexcept;
+
+/**
+ * @brief Clears the error state in the given error context structure.
+ * @details Delegates to `llvm_gen_be_error_context_reset(ctx)` to restore `ok` status.
+ * @param[in,out] ctx Pointer to the error context structure to clear.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if ctx is null.
+ */
+llvm_gen_be_error_t llvm_gen_be_clear_error(
     llvm_gen_be_error_context_t* ctx) noexcept;
 
 END_EDG_NAMESPACE

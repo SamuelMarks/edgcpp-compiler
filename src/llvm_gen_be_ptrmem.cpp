@@ -55,15 +55,15 @@ llvm_gen_be_error_t llvm_type_from_ptr_to_member(
   if (is_msvc) {
     if (is_func) {
       a_type_ptr class_ty = skip_typerefs(type->variant.ptr_to_member.class_of_which_a_member);
-      a_class_type_supplement_ptr supp = class_ty ? class_ty->variant.class_struct_union.extra_info : nullptr;
+      a_class_type_supplement_ptr supp = class_ty->variant.class_struct_union.extra_info;
       int base_count = 0;
       for (a_base_class_ptr b = supp ? supp->direct_base_classes : nullptr; b != nullptr; b = b->next_direct) {
         base_count++;
       }
-      if (base_count <= 1 && (!class_ty || !class_ty->variant.class_struct_union.any_virtual_base_classes)) {
+      if (base_count <= 1 && !class_ty->variant.class_struct_union.any_virtual_base_classes) {
         // Single inheritance: 1 word
         *out_type = ptr_ty;
-      } else if (!class_ty || !class_ty->variant.class_struct_union.any_virtual_base_classes) {
+      } else if (!class_ty->variant.class_struct_union.any_virtual_base_classes) {
         // Multiple inheritance: 2 words { ptr, i32 }
         *out_type = llvm::StructType::get(*be_state->context, {ptr_ty, i32_ty});
       } else {
@@ -110,6 +110,37 @@ llvm_gen_be_error_t llvm_const_from_ptr_to_member(
   llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
 
   if (con->kind != ck_ptr_to_member) {
+    if (con->kind == ck_address && con->variant.address.kind == abk_routine &&
+        con->variant.address.variant.routine != nullptr) {
+      a_routine_ptr ar = con->variant.address.variant.routine;
+      const char* fname = ar->source_corresp.name ? ar->source_corresp.name : "routine";
+      llvm::FunctionCallee callee = be_state->module->getOrInsertFunction(
+          fname, llvm::FunctionType::get(ptr_ty, {}, false));
+      llvm::Constant* fn_ptr = llvm::cast<llvm::Constant>(callee.getCallee());
+      int64_t adj_off = static_cast<int64_t>(con->variant.address.offset);
+      if (expected_ty && expected_ty->isStructTy()) {
+        llvm::StructType* st = llvm::cast<llvm::StructType>(expected_ty);
+        std::vector<llvm::Constant*> fields = {fn_ptr, llvm::ConstantInt::get(st->getElementType(1), adj_off)};
+        if (st->getNumElements() == 3) {
+          fields.push_back(llvm::ConstantInt::get(st->getElementType(2), 0));
+        }
+        *out_const = llvm::ConstantStruct::get(st, fields);
+      } else {
+        *out_const = fn_ptr;
+      }
+      return llvm_gen_be_error_t::ok;
+    }
+    if (con->kind == ck_address && con->variant.address.kind == abk_variable) {
+      int64_t f_off = static_cast<int64_t>(con->variant.address.offset);
+      if (con->variant.address.subobject_path &&
+          !con->variant.address.subobject_path->is_offset &&
+          !con->variant.address.subobject_path->is_base_class &&
+          con->variant.address.subobject_path->variant.field != nullptr) {
+        f_off += static_cast<int64_t>(con->variant.address.subobject_path->variant.field->offset);
+      }
+      *out_const = llvm::ConstantInt::get(expected_ty ? expected_ty : i64_ty, f_off);
+      return llvm_gen_be_error_t::ok;
+    }
     // Null constant representation for member pointers
     if (expected_ty && expected_ty->isStructTy()) {
       llvm::StructType* st = llvm::cast<llvm::StructType>(expected_ty);
@@ -130,12 +161,18 @@ llvm_gen_be_error_t llvm_const_from_ptr_to_member(
   if (con->variant.ptr_to_member.is_function_ptr) {
     a_routine_ptr r = con->variant.ptr_to_member.variant.routine;
     if (!r) {
-      // Null member function pointer { 0, 0 }
+      // Null member function pointer
+      if (expected_ty && expected_ty->isPointerTy()) {
+        *out_const = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty));
+        return llvm_gen_be_error_t::ok;
+      }
       llvm::StructType* st = llvm::dyn_cast_or_null<llvm::StructType>(expected_ty);
       if (!st) st = llvm::StructType::get(*be_state->context, {ptr_ty, i64_ty});
-      *out_const = llvm::ConstantStruct::get(
-          st, {llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr_ty)),
-               llvm::ConstantInt::get(i64_ty, 0)});
+      std::vector<llvm::Constant*> null_elems;
+      for (unsigned i = 0; i < st->getNumElements(); ++i) {
+        null_elems.push_back(llvm::Constant::getNullValue(st->getElementType(i)));
+      }
+      *out_const = llvm::ConstantStruct::get(st, null_elems);
       return llvm_gen_be_error_t::ok;
     }
 
@@ -144,25 +181,50 @@ llvm_gen_be_error_t llvm_const_from_ptr_to_member(
       this_adj = con->variant.ptr_to_member.casting_base_class->offset;
     }
 
+    llvm::Triple triple(be_state->module->getTargetTriple());
+    bool is_arm_itanium = !triple.isWindowsMSVCEnvironment() &&
+                          (triple.isAArch64() || triple.isARM() || triple.isThumb());
+
     llvm::Constant* ptr_part = nullptr;
     if (r->number.virtual_function > 0) {
-      // Virtual method: Word 0 is (vtable_index * sizeof(ptr)) + 1
-      int64_t vtbl_byte_off = ((r->number.virtual_function - 1) * 8) + 1;
-      ptr_part = llvm::ConstantExpr::getIntToPtr(
-          llvm::ConstantInt::get(i64_ty, vtbl_byte_off), ptr_ty);
+      if (is_arm_itanium) {
+        // ARM64/ARM Itanium ABI: ptr is (vtable_index * sizeof(ptr)), bit 0 of adj is 1
+        int64_t vtbl_byte_off = (r->number.virtual_function - 1) * 8;
+        ptr_part = llvm::ConstantExpr::getIntToPtr(
+            llvm::ConstantInt::get(i64_ty, vtbl_byte_off), ptr_ty);
+        this_adj = (this_adj << 1) | 1;
+      } else {
+        // Standard Itanium ABI: Word 0 is (vtable_index * sizeof(ptr)) + 1
+        int64_t vtbl_byte_off = ((r->number.virtual_function - 1) * 8) + 1;
+        ptr_part = llvm::ConstantExpr::getIntToPtr(
+            llvm::ConstantInt::get(i64_ty, vtbl_byte_off), ptr_ty);
+      }
     } else {
       // Non-virtual method: Word 0 is function address
       const char* fname = r->source_corresp.name ? r->source_corresp.name : "routine";
       llvm::FunctionCallee callee = be_state->module->getOrInsertFunction(
           fname, llvm::FunctionType::get(ptr_ty, {}, false));
       ptr_part = llvm::cast<llvm::Constant>(callee.getCallee());
+      if (is_arm_itanium) {
+        this_adj = (this_adj << 1);
+      }
+    }
+
+    if (expected_ty && expected_ty->isPointerTy()) {
+      *out_const = ptr_part;
+      return llvm_gen_be_error_t::ok;
     }
 
     llvm::StructType* st = llvm::dyn_cast_or_null<llvm::StructType>(expected_ty);
     if (!st) st = llvm::StructType::get(*be_state->context, {ptr_ty, i64_ty});
 
-    *out_const = llvm::ConstantStruct::get(
-        st, {ptr_part, llvm::ConstantInt::get(i64_ty, this_adj)});
+    std::vector<llvm::Constant*> fields;
+    fields.push_back(ptr_part);
+    fields.push_back(llvm::ConstantInt::get(st->getElementType(1), this_adj));
+    if (st->getNumElements() == 3) {
+      fields.push_back(llvm::ConstantInt::get(st->getElementType(2), 0));
+    }
+    *out_const = llvm::ConstantStruct::get(st, fields);
     return llvm_gen_be_error_t::ok;
   }
 
@@ -216,19 +278,44 @@ llvm_gen_be_error_t llvm_lower_pm_call(
   llvm::Value* func_ptr = nullptr;
   llvm::Value* adj_this = this_val;
 
-  if (pm_val && pm_val->getType()->isStructTy()) {
-    // Itanium ABI { ptr, adj }
+  if (pm_val->getType()->isStructTy()) {
+    llvm::StructType* pm_st = llvm::cast<llvm::StructType>(pm_val->getType());
     llvm::Value* raw_ptr = be_state->builder->CreateExtractValue(pm_val, 0, "pm.ptr");
     llvm::Value* adj = be_state->builder->CreateExtractValue(pm_val, 1, "pm.adj");
 
-    // Adjust 'this' pointer: this + adj
-    adj_this = be_state->builder->CreateInBoundsGEP(i8_ty, this_val, adj, "pm.this_adj");
+    // If MSVC 3-word member pointer { ptr, mdisp, vdisp }, apply VBTable adjustment first
+    if (pm_st->getNumElements() == 3) {
+      llvm::Value* vdisp = be_state->builder->CreateExtractValue(pm_val, 2, "pm.vdisp");
+      llvm::Value* vbptr = be_state->builder->CreateLoad(ptr_ty, this_val, "pm.vbptr");
+      llvm::Value* vboff_slot = be_state->builder->CreateInBoundsGEP(i8_ty, vbptr, vdisp, "pm.vboff_slot");
+      llvm::Value* vboff = be_state->builder->CreateLoad(
+          llvm::Type::getInt32Ty(*be_state->context), vboff_slot, "pm.vboff");
+      adj = be_state->builder->CreateAdd(adj, vboff, "pm.total_adj");
+    }
 
-    // Test bit 0 of raw_ptr
+    llvm::Triple triple(be_state->module->getTargetTriple());
+    bool is_arm_itanium = !triple.isWindowsMSVCEnvironment() &&
+                          (triple.isAArch64() || triple.isARM() || triple.isThumb());
     llvm::Value* ptr_int = be_state->builder->CreatePtrToInt(raw_ptr, i64_ty, "pm.ptr_int");
     llvm::Value* one = llvm::ConstantInt::get(i64_ty, 1);
-    llvm::Value* is_virt = be_state->builder->CreateICmpNE(
-        be_state->builder->CreateAnd(ptr_int, one), llvm::ConstantInt::get(i64_ty, 0), "pm.is_virt");
+    llvm::Value* is_virt = nullptr;
+    llvm::Value* voff = nullptr;
+
+    if (is_arm_itanium) {
+      llvm::Value* adj_64 = be_state->builder->CreateSExtOrTrunc(adj, i64_ty);
+      llvm::Value* byte_adj = be_state->builder->CreateAShr(adj_64, one, "pm.arm_byte_adj");
+      adj_this = be_state->builder->CreateInBoundsGEP(i8_ty, this_val, byte_adj, "pm.this_adj");
+      is_virt = be_state->builder->CreateICmpNE(
+          be_state->builder->CreateAnd(adj_64, one), llvm::ConstantInt::get(i64_ty, 0), "pm.is_virt");
+      voff = ptr_int;
+    } else {
+      // Adjust 'this' pointer: this + adj
+      adj_this = be_state->builder->CreateInBoundsGEP(i8_ty, this_val, adj, "pm.this_adj");
+      // Test bit 0 of raw_ptr
+      is_virt = be_state->builder->CreateICmpNE(
+          be_state->builder->CreateAnd(ptr_int, one), llvm::ConstantInt::get(i64_ty, 0), "pm.is_virt");
+      voff = be_state->builder->CreateSub(ptr_int, one, "pm.voff");
+    }
 
     llvm::Function* parent = be_state->builder->GetInsertBlock()->getParent();
     llvm::BasicBlock* virt_bb = llvm::BasicBlock::Create(*be_state->context, "pm.virt", parent);
@@ -241,10 +328,9 @@ llvm_gen_be_error_t llvm_lower_pm_call(
     be_state->builder->SetInsertPoint(nonvirt_bb);
     be_state->builder->CreateBr(cont_bb);
 
-    // Virtual block: load vtable, load slot at (ptr_int - 1)
+    // Virtual block: load vtable, load slot at voff
     be_state->builder->SetInsertPoint(virt_bb);
     llvm::Value* vptr = be_state->builder->CreateLoad(ptr_ty, adj_this, "pm.vptr");
-    llvm::Value* voff = be_state->builder->CreateSub(ptr_int, one, "pm.voff");
     llvm::Value* vslot = be_state->builder->CreateInBoundsGEP(i8_ty, vptr, voff, "pm.vslot");
     llvm::Value* virt_fn = be_state->builder->CreateLoad(ptr_ty, vslot, "pm.virt_fn");
     be_state->builder->CreateBr(cont_bb);
@@ -261,15 +347,29 @@ llvm_gen_be_error_t llvm_lower_pm_call(
 
   // Build argument list: first argument is adj_this, followed by remaining args
   std::vector<llvm::Value*> call_args;
+  std::vector<llvm::Type*> call_arg_types;
   call_args.push_back(adj_this);
+  call_arg_types.push_back(adj_this->getType());
   for (an_expr_node_ptr arg = op2->next; arg != nullptr; arg = arg->next) {
     llvm::Value* arg_val = nullptr;
     err = llvm_lower_expression(arg, &arg_val);
     if (err != llvm_gen_be_error_t::ok) return err;
     call_args.push_back(arg_val);
+    call_arg_types.push_back(arg_val->getType());
   }
 
-  llvm::FunctionType* call_fn_ty = llvm::FunctionType::get(ptr_ty, {ptr_ty}, false);
+  llvm::FunctionType* call_fn_ty = llvm::FunctionType::get(ptr_ty, call_arg_types, false);
+  if (!be_state->current_landing_pads.empty()) {
+    llvm::Function* parent = be_state->builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* cont_bb = llvm::BasicBlock::Create(*be_state->context, "pm.invoke.cont", parent);
+    llvm::BasicBlock* lpad_bb = be_state->current_landing_pads.back();
+    llvm::InvokeInst* inv = be_state->builder->CreateInvoke(
+        call_fn_ty, func_ptr, cont_bb, lpad_bb, call_args, "pm.invoke");
+    be_state->builder->SetInsertPoint(cont_bb);
+    *out_val = inv;
+    return llvm_gen_be_error_t::ok;
+  }
+
   llvm::CallInst* call = be_state->builder->CreateCall(call_fn_ty, func_ptr, call_args, "pm.call");
   *out_val = call;
   return llvm_gen_be_error_t::ok;
@@ -321,6 +421,58 @@ llvm_gen_be_error_t llvm_lower_pm_field_access(
 }
 
 /**
+ * @brief Recursively computes the byte offset of `target_base` within `derived_cls`.
+ * @details Traverses `base_classes` and `direct_base_classes` hierarchies to resolve single
+ *          and multi-level base-to-derived byte displacements.
+ * @param[in] derived_cls The derived EDG class type.
+ * @param[in] target_base The target base EDG class type.
+ * @param[out] out_offset Receives the accumulated byte offset if found.
+ * @param[out] out_found Receives true if `target_base` is a base of `derived_cls`.
+ * @return llvm_gen_be_error_t::ok on success, or llvm_gen_be_error_t::invalid_argument if output pointers are null.
+ */
+static llvm_gen_be_error_t find_base_class_offset(
+    a_type_ptr derived_cls,
+    a_type_ptr target_base,
+    int64_t* out_offset,
+    bool* out_found) noexcept {
+  *out_offset = 0;
+  *out_found = false;
+  derived_cls = skip_typerefs(derived_cls);
+  target_base = skip_typerefs(target_base);
+  if (derived_cls == target_base) {
+    *out_found = true;
+    return llvm_gen_be_error_t::ok;
+  }
+  a_class_type_supplement_ptr supp = derived_cls->variant.class_struct_union.extra_info;
+  if (!supp) {
+    return llvm_gen_be_error_t::ok;
+  }
+  for (a_base_class_ptr b = supp->base_classes; b != nullptr; b = b->next) {
+    if (skip_typerefs(b->type) == target_base) {
+      *out_offset = static_cast<int64_t>(b->offset);
+      *out_found = true;
+      return llvm_gen_be_error_t::ok;
+    }
+  }
+  for (a_base_class_ptr b = supp->direct_base_classes; b != nullptr; b = b->next_direct) {
+    if (skip_typerefs(b->type) == target_base) {
+      *out_offset = static_cast<int64_t>(b->offset);
+      *out_found = true;
+      return llvm_gen_be_error_t::ok;
+    }
+    int64_t sub_off = 0;
+    bool sub_found = false;
+    LLVM_GEN_BE_ASSERT_OK(find_base_class_offset(b->type, target_base, &sub_off, &sub_found));
+    if (sub_found) {
+      *out_offset = static_cast<int64_t>(b->offset) + sub_off;
+      *out_found = true;
+      return llvm_gen_be_error_t::ok;
+    }
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
  * @brief Lowers pointer-to-member conversions between base and derived classes.
  * @details Adjusts the 'adj' displacement or data member offset across inheritance hierarchies.
  * @param[in] expr Pointer to the cast expression node (eok_pm_base_class_cast or eok_pm_derived_class_cast).
@@ -346,16 +498,12 @@ llvm_gen_be_error_t llvm_lower_pm_cast(
     if (dest_pm->kind == tk_ptr_to_member && src_pm->kind == tk_ptr_to_member) {
       a_type_ptr d_cls = skip_typerefs(dest_pm->variant.ptr_to_member.class_of_which_a_member);
       a_type_ptr s_cls = skip_typerefs(src_pm->variant.ptr_to_member.class_of_which_a_member);
-      if (d_cls && s_cls && (d_cls->kind == tk_class || d_cls->kind == tk_struct) &&
+      if ((d_cls->kind == tk_class || d_cls->kind == tk_struct) &&
           (s_cls->kind == tk_class || s_cls->kind == tk_struct)) {
-        a_class_type_supplement_ptr supp = s_cls->variant.class_struct_union.extra_info;
-        if (supp && supp->direct_base_classes) {
-          for (a_base_class_ptr b = supp->direct_base_classes; b != nullptr; b = b->next_direct) {
-            if (b->type == d_cls) {
-              delta = b->offset;
-              break;
-            }
-          }
+        bool found = false;
+        LLVM_GEN_BE_ASSERT_OK(find_base_class_offset(s_cls, d_cls, &delta, &found));
+        if (!found) {
+          LLVM_GEN_BE_ASSERT_OK(find_base_class_offset(d_cls, s_cls, &delta, &found));
         }
       }
     }
@@ -364,14 +512,12 @@ llvm_gen_be_error_t llvm_lower_pm_cast(
     delta = -delta;
   }
 
-  llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
-
   if (sub_val && sub_val->getType()->isStructTy()) {
-    // Pointer to member function { ptr, adj } -> adjust 'adj'
+    // Pointer to member function { ptr, adj[, vdisp] } -> adjust 'adj'
     llvm::Value* raw_ptr = be_state->builder->CreateExtractValue(sub_val, 0, "pm.cast_ptr");
     llvm::Value* raw_adj = be_state->builder->CreateExtractValue(sub_val, 1, "pm.cast_adj");
     llvm::Value* new_adj = be_state->builder->CreateAdd(
-        raw_adj, llvm::ConstantInt::get(i64_ty, delta), "pm.adj_delta");
+        raw_adj, llvm::ConstantInt::get(raw_adj->getType(), delta), "pm.adj_delta");
 
     llvm::Value* res = be_state->builder->CreateInsertValue(sub_val, raw_ptr, 0);
     res = be_state->builder->CreateInsertValue(res, new_adj, 1);
@@ -417,9 +563,13 @@ llvm_gen_be_error_t llvm_lower_pm_comparison(
   err = llvm_lower_expression(op2, &v2);
   if (err != llvm_gen_be_error_t::ok) return err;
 
+  if (!v1 || !v2) {
+    return llvm_gen_be_error_t::unsupported_expr;
+  }
+
   bool is_eq = (expr->variant.operation.kind == eok_eq);
 
-  if (v1 && v2 && v1->getType()->isStructTy() && v2->getType()->isStructTy()) {
+  if (v1->getType()->isStructTy()) {
     // Member function comparison: (p1 == p2) && (p1 == 0 || a1 == a2)
     llvm::Value* p1 = be_state->builder->CreateExtractValue(v1, 0, "pm.p1");
     llvm::Value* a1 = be_state->builder->CreateExtractValue(v1, 1, "pm.a1");
@@ -437,13 +587,9 @@ llvm_gen_be_error_t llvm_lower_pm_comparison(
   }
 
   // Data member integer offset comparison
-  if (v1 && v2) {
-    llvm::CmpInst::Predicate pred = is_eq ? llvm::CmpInst::ICMP_EQ : llvm::CmpInst::ICMP_NE;
-    *out_val = be_state->builder->CreateICmp(pred, v1, v2, "pm.cmp");
-    return llvm_gen_be_error_t::ok;
-  }
-
-  return llvm_gen_be_error_t::unsupported_expr;
+  llvm::CmpInst::Predicate pred = is_eq ? llvm::CmpInst::ICMP_EQ : llvm::CmpInst::ICMP_NE;
+  *out_val = be_state->builder->CreateICmp(pred, v1, v2, "pm.cmp");
+  return llvm_gen_be_error_t::ok;
 }
 
 END_EDG_NAMESPACE

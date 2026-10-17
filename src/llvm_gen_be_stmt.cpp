@@ -15,6 +15,7 @@
 #include "llvm_gen_be_coro.h"
 #include "llvm_gen_be_asm.h"
 #include "llvm_gen_be_eh.h"
+#include "llvm_gen_be_omp.h"
 #include "llvm_gen_be_debug.h"
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/InlineAsm.h>
@@ -22,12 +23,18 @@
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
-// Helper to emit cleanups for non-local exits
-static void llvm_emit_cleanups_until(size_t target_stack_size) {
+/**
+ * @brief Emits RAII cleanup calls for active scope cleanups down to a target stack depth.
+ * @details Invokes thread-safe static guard aborts, SEH `__finally` funclets, or C++ destructors
+ *          for each active cleanup entry above `target_stack_size`.
+ * @param[in] target_stack_size The cleanup stack depth to unwind down to.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+static llvm_gen_be_error_t llvm_emit_cleanups_until(size_t target_stack_size) noexcept {
     for (size_t i = be_state->cleanup_stack.cleanups.size(); i > target_stack_size; --i) {
         ScopeCleanup& cleanup = be_state->cleanup_stack.cleanups[i - 1];
         if (cleanup.is_active) {
-            if (cleanup.is_guard_abort && cleanup.guard_abort_ptr) {
+            if (cleanup.is_guard_abort) {
                 llvm::Triple triple(be_state->module->getTargetTriple());
                 bool is_msvc = triple.isWindowsMSVCEnvironment();
                 llvm::FunctionType* abort_ty = llvm::FunctionType::get(
@@ -44,23 +51,25 @@ static void llvm_emit_cleanups_until(size_t target_stack_size) {
                     llvm::ConstantInt::get(llvm::Type::getInt8Ty(*be_state->context), 0),
                     local_addr
                 });
+            } else if (cleanup.saved_stack_ptr) {
+                llvm::Function* stackrestore = llvm::Intrinsic::getOrInsertDeclaration(
+                    be_state->module.get(), llvm::Intrinsic::stackrestore,
+                    {llvm::PointerType::getUnqual(*be_state->context)});
+                be_state->builder->CreateCall(stackrestore, cleanup.saved_stack_ptr);
             } else if (cleanup.dtor_routine && cleanup.object_ptr) {
                 llvm::Function* dtor_func = be_state->module->getFunction(cleanup.dtor_routine->source_corresp.name ? cleanup.dtor_routine->source_corresp.name : "");
                 if (dtor_func) {
-                    llvm::Type* void_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
-                    llvm::Value* obj = cleanup.object_ptr;
-                    if (obj->getType() != void_ptr_ty) {
-                        obj = be_state->builder->CreateBitCast(obj, void_ptr_ty);
-                    }
-                    be_state->builder->CreateCall(dtor_func, {obj});
+                    be_state->builder->CreateCall(dtor_func, {cleanup.object_ptr});
                 }
             }
         }
     }
+    return llvm_gen_be_error_t::ok;
 }
 
 /**
  * @brief Helper for lowering expr statement.
+ * @details Implements or declares `llvm_lower_expr_stmt` for the EDG LLVM backend.
  * @param[in] stmt The EDG statement node.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
@@ -77,24 +86,30 @@ llvm_gen_be_error_t llvm_lower_expr_stmt(a_statement_ptr stmt) noexcept {
  */
 llvm_gen_be_error_t llvm_lower_return_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* ret_val = nullptr;
+  llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
+  bool has_sret = func->hasStructRetAttr();
   if (stmt->expr) {
     llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &ret_val);
     if (err != llvm_gen_be_error_t::ok) return err;
 
-    llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
     llvm::Type* func_ret_ty = func->getReturnType();
 
-    if (func_ret_ty != ret_val->getType() && !func_ret_ty->isVoidTy()) {
-      llvm::AllocaInst* alloca = be_state->builder->CreateAlloca(ret_val->getType(), nullptr, "ret_pack");
+    if (has_sret) {
+      llvm::Value* sret_ptr = func->getArg(0);
+      be_state->builder->CreateStore(ret_val, sret_ptr);
+      ret_val = nullptr;
+    } else if (ret_val && func_ret_ty != ret_val->getType() && !func_ret_ty->isVoidTy()) {
+      llvm::AllocaInst* alloca = be_state->builder->CreateAlloca(func_ret_ty, nullptr, "ret_pack");
+      be_state->builder->CreateStore(llvm::Constant::getNullValue(func_ret_ty), alloca);
       be_state->builder->CreateStore(ret_val, alloca);
       llvm::Value* cast_ptr = be_state->builder->CreatePointerCast(alloca, llvm::PointerType::getUnqual(*be_state->context));
       ret_val = be_state->builder->CreateLoad(func_ret_ty, cast_ptr, "ret_packed");
     }
   }
   
-  llvm_emit_cleanups_until(0); // non-local exit
+  LLVM_GEN_BE_ASSERT_OK(llvm_emit_cleanups_until(0)); // non-local exit
 
-  if (ret_val) be_state->builder->CreateRet(ret_val);
+  if (ret_val && !func->getReturnType()->isVoidTy()) be_state->builder->CreateRet(ret_val);
   else be_state->builder->CreateRetVoid();
   return llvm_gen_be_error_t::ok;
 }
@@ -109,7 +124,7 @@ llvm_gen_be_error_t llvm_lower_if_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* cond = nullptr;
   llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &cond);
   if (err != llvm_gen_be_error_t::ok) return err;
-  if (cond && !cond->getType()->isIntegerTy(1)) {
+  if (!cond->getType()->isIntegerTy(1)) {
     cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
   }
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
@@ -145,6 +160,51 @@ llvm_gen_be_error_t llvm_lower_if_stmt(a_statement_ptr stmt) noexcept {
 }
 
 /**
+ * @brief Recursively precomputes cleanup stack depths for all labels in a statement tree.
+ * @details Traverses nested blocks, `if`/`else`, loops, `switch`, and `try` bodies starting at
+ *          @p base_cleanup_depth, recording the active RAII/VLA cleanup depth at each `stmk_label`
+ *          in `be_state->label_cleanup_depths`.
+ * @param[in] root_stmt Root statement list or block to scan.
+ * @param[in] base_cleanup_depth Cleanup stack depth at entry to @p root_stmt.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t llvm_precompute_function_labels(
+    a_statement_ptr root_stmt,
+    size_t base_cleanup_depth) noexcept {
+  size_t projected_depth = base_cleanup_depth;
+  for (a_statement_ptr scan = root_stmt; scan != nullptr; scan = scan->next) {
+    if (scan->kind == stmk_init && scan->variant.dynamic_init &&
+        scan->variant.dynamic_init->destructor) {
+      projected_depth++;
+    } else if (scan->kind == stmk_vla_decl && !scan->variant.vla.is_typedef_decl) {
+      projected_depth++;
+    } else if (scan->kind == stmk_label && scan->variant.label.ptr) {
+      if (!be_state->label_cleanup_depths.count(scan->variant.label.ptr)) {
+        be_state->label_cleanup_depths[scan->variant.label.ptr] = projected_depth;
+      }
+    } else if (scan->kind == stmk_block) {
+      LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+          scan->variant.block.statements, projected_depth));
+    } else if (scan->kind == stmk_if) {
+      LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+          scan->variant.if_stmt.then_statement, projected_depth));
+      LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+          scan->variant.if_stmt.else_statement, projected_depth));
+    } else if (scan->kind == stmk_while || scan->kind == stmk_end_test_while) {
+      LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+          scan->variant.loop_statement, projected_depth));
+    } else if (scan->kind == stmk_for) {
+      LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+          scan->variant.for_loop.statement, projected_depth));
+    } else if (scan->kind == stmk_switch) {
+      LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+          scan->variant.switch_stmt.body_statement, projected_depth));
+    }
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
  * @brief Lowers a Block statement into LLVM IR.
  * @details Translates the EDG AST node for a Block statement into corresponding LLVM instructions, managing control flow and state.
  * @param[in] stmt Pointer to the EDG statement node.
@@ -156,8 +216,48 @@ llvm_gen_be_error_t llvm_lower_block_stmt(a_statement_ptr stmt) noexcept {
     llvm_gen_be_error_t err = push_lexical_block(be_state->dbg_state, stmt->position, &block);
     if (err != llvm_gen_be_error_t::ok) return err;
   }
-  
+
+  if (stmt->variant.block.extra_info && stmt->variant.block.extra_info->assoc_scope) {
+    a_scope_ptr bscope = stmt->variant.block.extra_info->assoc_scope;
+    llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
+    for (a_variable_ptr lvar = bscope->nonstatic_variables; lvar != nullptr; lvar = lvar->next) {
+      if (!be_state->local_vars.count(lvar)) {
+        llvm::Type* lvar_ty = nullptr;
+        llvm_gen_be_error_t ty_err = get_llvm_type(lvar->type, &lvar_ty);
+        if (ty_err != llvm_gen_be_error_t::ok) return ty_err;
+        llvm::IRBuilder<> entry_b(&func->getEntryBlock(), func->getEntryBlock().begin());
+        const char* vname = nullptr;
+        LLVM_GEN_BE_ASSERT_OK(llvm_get_variable_symbol_name(lvar, &vname));
+        llvm::AllocaInst* alloca = entry_b.CreateAlloca(lvar_ty, nullptr, vname);
+        be_state->local_vars[lvar] = alloca;
+      }
+    }
+    for (a_variable_ptr svar = bscope->variables; svar != nullptr; svar = svar->next) {
+      if (svar->storage_class == sc_static && !be_state->local_vars.count(svar)) {
+        llvm::Type* svar_ty = nullptr;
+        llvm_gen_be_error_t ty_err = get_llvm_type(svar->type, &svar_ty);
+        if (ty_err != llvm_gen_be_error_t::ok) return ty_err;
+        const char* sname = nullptr;
+        LLVM_GEN_BE_ASSERT_OK(llvm_get_variable_symbol_name(svar, &sname));
+        llvm::GlobalVariable* sgv = be_state->module->getNamedGlobal(sname);
+        if (!sgv) {
+          sgv = new llvm::GlobalVariable(
+              *be_state->module, svar_ty, false,
+              llvm::GlobalValue::InternalLinkage,
+              llvm::Constant::getNullValue(svar_ty),
+              sname);
+          if (svar->is_thread_local) {
+            sgv->setThreadLocal(true);
+          }
+        }
+        be_state->local_vars[svar] = sgv;
+      }
+    }
+  }
+
   size_t initial_cleanups = be_state->cleanup_stack.cleanups.size();
+  LLVM_GEN_BE_ASSERT_OK(llvm_precompute_function_labels(
+      stmt->variant.block.statements, initial_cleanups));
 
   for (a_statement_ptr s = stmt->variant.block.statements; s != nullptr; s = s->next) {
     llvm_gen_be_error_t err = llvm_lower_statement(s);
@@ -165,41 +265,8 @@ llvm_gen_be_error_t llvm_lower_block_stmt(a_statement_ptr stmt) noexcept {
   }
   
   // Cleanup automatic variables
-  while (be_state->cleanup_stack.cleanups.size() > initial_cleanups) {
-      ScopeCleanup cleanup = be_state->cleanup_stack.cleanups.back();
-      be_state->cleanup_stack.cleanups.pop_back();
-      if (cleanup.is_active) {
-          if (cleanup.is_guard_abort && cleanup.guard_abort_ptr) {
-              llvm::Triple triple(be_state->module->getTargetTriple());
-              bool is_msvc = triple.isWindowsMSVCEnvironment();
-              llvm::FunctionType* abort_ty = llvm::FunctionType::get(
-                  llvm::Type::getVoidTy(*be_state->context),
-                  {llvm::PointerType::getUnqual(*be_state->context)}, false);
-              const char* fn_name = is_msvc ? "_Init_thread_abort" : "__cxa_guard_abort";
-              llvm::FunctionCallee abort_func = be_state->module->getOrInsertFunction(fn_name, abort_ty);
-              be_state->builder->CreateCall(abort_func, {cleanup.guard_abort_ptr});
-          } else if (cleanup.finally_func) {
-              llvm::FunctionCallee localaddr_fn = be_state->module->getOrInsertFunction("llvm.localaddress",
-                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*be_state->context), {}, false));
-              llvm::Value* local_addr = be_state->builder->CreateCall(localaddr_fn, {});
-              be_state->builder->CreateCall(cleanup.finally_func, {
-                  llvm::ConstantInt::get(llvm::Type::getInt8Ty(*be_state->context), 0),
-                  local_addr
-              });
-          } else if (cleanup.dtor_routine && cleanup.object_ptr) {
-              // Call the destructor
-              llvm::Function* dtor_func = be_state->module->getFunction(cleanup.dtor_routine->source_corresp.name ? cleanup.dtor_routine->source_corresp.name : "");
-              if (dtor_func) {
-                  llvm::Type* void_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
-                  llvm::Value* obj = cleanup.object_ptr;
-                  if (obj->getType() != void_ptr_ty) {
-                      obj = be_state->builder->CreateBitCast(obj, void_ptr_ty);
-                  }
-                  be_state->builder->CreateCall(dtor_func, {obj});
-              }
-          }
-      }
-  }
+  LLVM_GEN_BE_ASSERT_OK(llvm_emit_cleanups_until(initial_cleanups));
+  be_state->cleanup_stack.cleanups.resize(initial_cleanups);
 
   if (be_state->dbg_state) {
     llvm_gen_be_error_t err = pop_lexical_block(be_state->dbg_state);
@@ -226,7 +293,7 @@ llvm_gen_be_error_t llvm_lower_while_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* cond = nullptr;
   llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &cond);
   if (err != llvm_gen_be_error_t::ok) return err;
-  if (cond && !cond->getType()->isIntegerTy(1)) {
+  if (!cond->getType()->isIntegerTy(1)) {
     cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
   }
   be_state->builder->CreateCondBr(cond, body_bb, end_bb);
@@ -236,12 +303,16 @@ llvm_gen_be_error_t llvm_lower_while_stmt(a_statement_ptr stmt) noexcept {
 
   be_state->break_blocks.push_back(end_bb);
   be_state->continue_blocks.push_back(cond_bb);
+  be_state->break_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
+  be_state->continue_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
 
   err = llvm_lower_statement(stmt->variant.loop_statement);
   if (err != llvm_gen_be_error_t::ok) return err;
 
   be_state->break_blocks.pop_back();
   be_state->continue_blocks.pop_back();
+  be_state->break_cleanup_depths.pop_back();
+  be_state->continue_cleanup_depths.pop_back();
 
   if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
     be_state->builder->CreateBr(cond_bb);
@@ -278,7 +349,7 @@ llvm_gen_be_error_t llvm_lower_for_stmt(a_statement_ptr stmt) noexcept {
     llvm::Value* cond = nullptr;
     llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &cond);
     if (err != llvm_gen_be_error_t::ok) return err;
-    if (cond && !cond->getType()->isIntegerTy(1)) {
+    if (!cond->getType()->isIntegerTy(1)) {
       cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
     }
     llvm::Value* cond_bool = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()));
@@ -292,12 +363,16 @@ llvm_gen_be_error_t llvm_lower_for_stmt(a_statement_ptr stmt) noexcept {
 
   be_state->break_blocks.push_back(end_bb);
   be_state->continue_blocks.push_back(inc_bb);
+  be_state->break_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
+  be_state->continue_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
 
   llvm_gen_be_error_t err = llvm_lower_statement(stmt->variant.for_loop.statement);
   if (err != llvm_gen_be_error_t::ok) return err;
 
   be_state->break_blocks.pop_back();
   be_state->continue_blocks.pop_back();
+  be_state->break_cleanup_depths.pop_back();
+  be_state->continue_cleanup_depths.pop_back();
 
   if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
     be_state->builder->CreateBr(inc_bb);
@@ -320,6 +395,7 @@ llvm_gen_be_error_t llvm_lower_for_stmt(a_statement_ptr stmt) noexcept {
 
 /**
  * @brief Lowers a Range-Based For statement into LLVM IR.
+ * @details Implements or declares `llvm_lower_range_based_for_stmt` for the EDG LLVM backend.
  * @param[in] stmt Pointer to the EDG statement node.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
@@ -331,11 +407,6 @@ llvm_gen_be_error_t llvm_lower_range_based_for_stmt(a_statement_ptr stmt) noexce
       if (err != llvm_gen_be_error_t::ok) return err;
   }
   
-  // Note: range, begin, end, iterator dynamic initializations are usually emitted as stmk_init
-  // inside the surrounding block scopes. The backend does not need to emit them manually
-  // from the variables unless they are not emitted as statements. In most C++ cases with
-  // IL lowering, these are handled by regular statements.
-
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   llvm::BasicBlock* cond_bb = llvm::BasicBlock::Create(*be_state->context, "rfor.cond", func);
   llvm::BasicBlock* body_bb = llvm::BasicBlock::Create(*be_state->context, "rfor.body");
@@ -349,7 +420,7 @@ llvm_gen_be_error_t llvm_lower_range_based_for_stmt(a_statement_ptr stmt) noexce
       llvm::Value* cond = nullptr;
       llvm_gen_be_error_t err = llvm_lower_expression(loop_info->ne_call_expr, &cond);
       if (err != llvm_gen_be_error_t::ok) return err;
-      if (cond && !cond->getType()->isIntegerTy(1)) {
+      if (!cond->getType()->isIntegerTy(1)) {
           cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
       }
       be_state->builder->CreateCondBr(cond, body_bb, end_bb);
@@ -362,12 +433,16 @@ llvm_gen_be_error_t llvm_lower_range_based_for_stmt(a_statement_ptr stmt) noexce
 
   be_state->break_blocks.push_back(end_bb);
   be_state->continue_blocks.push_back(inc_bb);
+  be_state->break_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
+  be_state->continue_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
 
   llvm_gen_be_error_t err = llvm_lower_statement(stmt->variant.range_based_for_loop.statement);
   if (err != llvm_gen_be_error_t::ok) return err;
 
   be_state->break_blocks.pop_back();
   be_state->continue_blocks.pop_back();
+  be_state->break_cleanup_depths.pop_back();
+  be_state->continue_cleanup_depths.pop_back();
 
   if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
       be_state->builder->CreateBr(inc_bb);
@@ -398,6 +473,7 @@ llvm_gen_be_error_t llvm_lower_range_based_for_stmt(a_statement_ptr stmt) noexce
 llvm_gen_be_error_t llvm_lower_label_stmt(a_statement_ptr stmt) noexcept {
   llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
   a_label_ptr label = stmt->variant.label.ptr;
+  be_state->label_cleanup_depths[label] = be_state->cleanup_stack.cleanups.size();
   llvm::BasicBlock* label_bb = nullptr;
   if (be_state->label_blocks.count(label)) {
     label_bb = be_state->label_blocks[label];
@@ -420,18 +496,21 @@ llvm_gen_be_error_t llvm_lower_label_stmt(a_statement_ptr stmt) noexcept {
 
 /**
  * @brief Lowers a Goto statement into LLVM IR.
- * @details Translates the EDG AST node for a Goto statement into corresponding LLVM instructions, managing control flow and state.
+ * @details Translates the EDG AST node for a Goto statement into corresponding LLVM instructions,
+ *          emitting destructors for active scope cleanups above the target label's scope depth.
  * @param[in] stmt Pointer to the EDG statement node.
  * @return llvm_gen_be_error_t::ok on success, or an appropriate error code if translation fails.
  */
 llvm_gen_be_error_t llvm_lower_goto_stmt(a_statement_ptr stmt) noexcept {
   a_label_ptr label = stmt->variant.label.ptr;
-  
-  // Note: IL doesn't natively expose the exact scope depth differences for goto directly 
-  // without inspecting the AST graph. For full fidelity we'd traverse the scope tree up to the lowest common ancestor.
-  // In a real implementation we track scope nesting, but for the completion test we will assume no cross-scope gotos 
-  // needing cleanup outside of normal blocks or we'd just emit cleanups up to the LCA.
-  
+  size_t target_depth = 0;
+  if (be_state->label_cleanup_depths.count(label)) {
+    target_depth = be_state->label_cleanup_depths[label];
+  }
+  if (be_state->cleanup_stack.cleanups.size() > target_depth) {
+    LLVM_GEN_BE_ASSERT_OK(llvm_emit_cleanups_until(target_depth));
+  }
+
   llvm::BasicBlock* label_bb = nullptr;
   if (be_state->label_blocks.count(label)) {
     label_bb = be_state->label_blocks[label];
@@ -514,7 +593,7 @@ llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) noexcept {
   llvm::SwitchInst* switch_inst = be_state->builder->CreateSwitch(cond, default_bb, num_cases);
   
   bool is_signed = false;
-  a_type_ptr expr_ty = stmt->expr ? stmt->expr->type : nullptr;
+  a_type_ptr expr_ty = stmt->expr->type;
   if (expr_ty) {
       expr_ty = skip_typerefs(expr_ty);
       if (expr_ty->kind == tk_integer) {
@@ -524,7 +603,7 @@ llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) noexcept {
   
   for (a_switch_case_entry_ptr c = descr->cases; c != nullptr; c = c->next) {
     if (c == descr->default_case) {
-       if (default_bb->getParent() == nullptr) func->insert(func->end(), default_bb);
+       func->insert(func->end(), default_bb);
        continue;
     }
     llvm::BasicBlock* case_bb = llvm::BasicBlock::Create(*be_state->context, "sw.case", func);
@@ -542,10 +621,22 @@ llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) noexcept {
         llvm::ConstantInt* end_val = llvm::cast<llvm::ConstantInt>(range_const);
         llvm::APInt cur = start_val->getValue();
         llvm::APInt end = end_val->getValue();
-        while (is_signed ? cur.sle(end) : cur.ule(end)) {
-            switch_inst->addCase(llvm::ConstantInt::get(*be_state->context, cur), case_bb);
-            if (cur == end) break;
-            ++cur;
+        llvm::APInt span = end - cur;
+        if (span.ugt(64)) {
+            llvm::BasicBlock* range_check_bb = llvm::BasicBlock::Create(*be_state->context, "sw.range.check", func);
+            llvm::BasicBlock* prev_default = switch_inst->getDefaultDest();
+            switch_inst->setDefaultDest(range_check_bb);
+            llvm::IRBuilder<>::InsertPointGuard ip_guard(*be_state->builder);
+            be_state->builder->SetInsertPoint(range_check_bb);
+            llvm::Value* diff = be_state->builder->CreateSub(cond, start_val);
+            llvm::Value* limit = llvm::ConstantInt::get(*be_state->context, span);
+            llvm::Value* in_range = be_state->builder->CreateICmpULE(diff, limit);
+            be_state->builder->CreateCondBr(in_range, case_bb, prev_default);
+        } else {
+            while (is_signed ? cur.sle(end) : cur.ule(end)) {
+                switch_inst->addCase(llvm::ConstantInt::get(*be_state->context, cur), case_bb);
+                ++cur;
+            }
         }
     } else {
         switch_inst->addCase(start_val, case_bb);
@@ -553,9 +644,11 @@ llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) noexcept {
   }
 
   be_state->break_blocks.push_back(end_bb);
+  be_state->break_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
   err = llvm_lower_statement(stmt->variant.switch_stmt.body_statement);
   if (err != llvm_gen_be_error_t::ok) return err;
   be_state->break_blocks.pop_back();
+  be_state->break_cleanup_depths.pop_back();
 
   if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
     be_state->builder->CreateBr(end_bb);
@@ -605,18 +698,22 @@ llvm_gen_be_error_t llvm_lower_vla_stmt(a_statement_ptr stmt) noexcept {
         if (err != llvm_gen_be_error_t::ok) return err;
         be_state->vla_dimension_values[dim] = size_val;
     }
-  } else if (stmt->kind == stmk_vla_decl) {
+  } else {
     if (!stmt->variant.vla.is_typedef_decl) {
         a_variable_ptr var = stmt->variant.vla.variant.variable;
         if (var && be_state->local_vars.count(var)) {
             llvm::Function* stacksave = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::stacksave, {llvm::PointerType::getUnqual(*be_state->context)});
             llvm::Value* saved_stack = be_state->builder->CreateCall(stacksave);
             be_state->vla_saved_stacks[var] = saved_stack;
+            ScopeCleanup vla_cleanup = {};
+            vla_cleanup.is_active = true;
+            vla_cleanup.saved_stack_ptr = saved_stack;
+            be_state->cleanup_stack.cleanups.push_back(vla_cleanup);
 
             a_type_ptr array_ty = skip_typerefs(var->type);
             llvm::Value* total_size = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*be_state->context), 1);
 
-            while (array_ty && array_ty->kind == tk_array) {
+            while (array_ty->kind == tk_array) {
                 llvm::Value* dim_size = nullptr;
                 if (array_ty->variant.array.is_vla && array_ty->variant.array.has_assoc_vla_dimension) {
                     a_vla_dimension_ptr dim = nullptr;
@@ -650,27 +747,6 @@ llvm_gen_be_error_t llvm_lower_vla_stmt(a_statement_ptr stmt) noexcept {
 }
 
 /**
- * @brief Lowers a Asm statement into LLVM IR.
- * @details Translates the EDG AST node for a Asm statement into corresponding LLVM instructions, managing control flow and state.
- * @param[in] stmt Pointer to the EDG statement node.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code if translation fails.
- */
-
-/**
- * @brief Lowers a Try block statement into LLVM IR.
- * @details Translates the EDG AST node for a Try block statement into corresponding LLVM instructions, managing control flow and state.
- * @param[in] stmt Pointer to the EDG statement node.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code if translation fails.
- */
-
-/**
- * @brief Lowers a Statement into LLVM IR.
- * @details Translates the EDG AST node for a Statement into corresponding LLVM instructions, managing control flow and state.
- * @param[in] stmt Pointer to the EDG statement node.
- * @return llvm_gen_be_error_t::ok on success, or an appropriate error code if translation fails.
- */
-
-/**
  * @brief Lowers an end test while (do-while) statement into LLVM IR.
  * @details Translates the EDG AST node for a do-while loop into LLVM blocks and conditional branches.
  * @param[in] stmt Pointer to the EDG statement node.
@@ -687,12 +763,16 @@ llvm_gen_be_error_t llvm_lower_end_test_while_stmt(a_statement_ptr stmt) noexcep
 
   be_state->break_blocks.push_back(end_bb);
   be_state->continue_blocks.push_back(cond_bb);
+  be_state->break_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
+  be_state->continue_cleanup_depths.push_back(be_state->cleanup_stack.cleanups.size());
 
   llvm_gen_be_error_t err = llvm_lower_statement(stmt->variant.loop_statement);
   if (err != llvm_gen_be_error_t::ok) return err;
 
   be_state->break_blocks.pop_back();
   be_state->continue_blocks.pop_back();
+  be_state->break_cleanup_depths.pop_back();
+  be_state->continue_cleanup_depths.pop_back();
 
   if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
     be_state->builder->CreateBr(cond_bb);
@@ -705,11 +785,10 @@ llvm_gen_be_error_t llvm_lower_end_test_while_stmt(a_statement_ptr stmt) noexcep
   err = llvm_lower_expression(stmt->expr, &cond);
   if (err != llvm_gen_be_error_t::ok) return err;
   
-  if (cond && !cond->getType()->isIntegerTy(1)) {
+  if (!cond->getType()->isIntegerTy(1)) {
     cond = be_state->builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()), "cond");
   }
   
-  // Also loop metadata could be attached here if available
   be_state->builder->CreateCondBr(cond, body_bb, end_bb);
 
   func->insert(func->end(), end_bb);
@@ -718,15 +797,107 @@ llvm_gen_be_error_t llvm_lower_end_test_while_stmt(a_statement_ptr stmt) noexcep
 }
 
 
+/**
+ * @brief Emits runtime subobject initializations for `ck_dynamic_init` entries embedded in an aggregate constant.
+ * @details Traverses `agg_con->variant.aggregate.first_constant`, projecting array and struct element addresses
+ *          and recursively invoking `llvm_emit_dynamic_init`.
+ * @param[in] agg_con Pointer to the EDG `ck_aggregate` constant node.
+ * @param[in] ptr Destination aggregate base pointer.
+ * @param[in] obj_type Lowered LLVM type of the aggregate.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+static llvm_gen_be_error_t emit_aggregate_dynamic_init_subobjects(
+    a_constant_ptr agg_con,
+    llvm::Value* ptr,
+    llvm::Type* obj_type) noexcept {
+  uint64_t elem_idx = 0;
+  for (a_constant_ptr c = agg_con->variant.aggregate.first_constant;
+       c != nullptr; c = c->next) {
+    if (c->kind == ck_designator) {
+      if (!c->variant.designator.is_field_designator) {
+        elem_idx = c->variant.designator.variant.array_element;
+      }
+      continue;
+    }
+    if (c->kind == ck_dynamic_init && c->variant.dynamic_init.ptr) {
+      llvm::Value* sub_ptr = ptr;
+      llvm::Type* sub_ty = obj_type;
+      if (obj_type->isArrayTy()) {
+        sub_ty = obj_type->getArrayElementType();
+        llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
+        sub_ptr = be_state->builder->CreateInBoundsGEP(
+            obj_type, ptr,
+            {llvm::ConstantInt::get(i64_ty, 0),
+             llvm::ConstantInt::get(i64_ty, elem_idx)});
+      } else if (obj_type->isStructTy() &&
+                 elem_idx < obj_type->getStructNumElements()) {
+        sub_ty = obj_type->getStructElementType(static_cast<unsigned>(elem_idx));
+        sub_ptr = be_state->builder->CreateStructGEP(
+            obj_type, ptr, static_cast<unsigned>(elem_idx));
+      }
+      LLVM_GEN_BE_CHECK(llvm_emit_dynamic_init(
+          c->variant.dynamic_init.ptr, sub_ptr, sub_ty));
+    }
+    elem_idx++;
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Emits LLVM IR for a dynamic initialization entry into a target memory pointer.
+ * @details Handles `dik_none`, `dik_zero`, `dik_constant`, `dik_expression`,
+ *          `dik_class_result_via_ctor`, `dik_nonconstant_aggregate`, `dik_bitwise_copy`,
+ *          and `dik_constructor` (including default argument evaluation and array element loops).
+ * @param[in] dip Pointer to the EDG dynamic initialization entry.
+ * @param[in] ptr Destination memory pointer where the initialized value is stored.
+ * @param[in] obj_type Lowered LLVM type of the object being initialized.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t llvm_emit_dynamic_init(a_dynamic_init_ptr dip, llvm::Value* ptr, llvm::Type* obj_type) noexcept {
     if (!dip || !ptr) return llvm_gen_be_error_t::invalid_argument;
-    if (dip->kind == dik_expression) {
+    if (dip->master_entry) {
+        be_state->reused_values[dip->master_entry] = ptr;
+    }
+    if (dip->kind == dik_none) {
+        return llvm_gen_be_error_t::ok;
+    } else if (dip->kind == dik_zero) {
+        if (obj_type) {
+            be_state->builder->CreateStore(llvm::Constant::getNullValue(obj_type), ptr);
+        }
+    } else if (dip->kind == dik_constant || dip->kind == dik_lambda) {
+        if (dip->variant.constant.ptr && obj_type) {
+            llvm::Constant* con_val = nullptr;
+            llvm_gen_be_error_t err = evaluate_constant(dip->variant.constant.ptr, obj_type, &con_val);
+            if (err != llvm_gen_be_error_t::ok) return err;
+            be_state->builder->CreateStore(con_val, ptr);
+            if (dip->variant.constant.non_constant &&
+                dip->variant.constant.ptr->kind == ck_aggregate) {
+                LLVM_GEN_BE_CHECK(emit_aggregate_dynamic_init_subobjects(
+                    dip->variant.constant.ptr, ptr, obj_type));
+            }
+        }
+    } else if (dip->kind == dik_expression || dip->kind == dik_class_result_via_ctor) {
         if (dip->variant.expression) {
             llvm::Value* init_val = nullptr;
             llvm_gen_be_error_t err = llvm_lower_expression(dip->variant.expression, &init_val);
             if (err != llvm_gen_be_error_t::ok) return err;
             if (init_val) {
                 be_state->builder->CreateStore(init_val, ptr);
+                if (dip->is_reused_value) {
+                    be_state->reused_values[dip] = init_val;
+                }
+            }
+        }
+    } else if (dip->kind == dik_bitwise_copy) {
+        if (dip->variant.bitwise_copy.source && obj_type) {
+            llvm::Value* src_val = nullptr;
+            llvm_gen_be_error_t err = llvm_lower_expression(dip->variant.bitwise_copy.source, &src_val);
+            if (err != llvm_gen_be_error_t::ok) return err;
+            if (src_val->getType()->isPointerTy()) {
+                uint64_t sz = be_state->module->getDataLayout().getTypeAllocSize(obj_type);
+                be_state->builder->CreateMemCpy(ptr, llvm::MaybeAlign(1), src_val, llvm::MaybeAlign(1), sz);
+            } else {
+                be_state->builder->CreateStore(src_val, ptr);
             }
         }
     } else if (dip->kind == dik_nonconstant_aggregate) {
@@ -737,37 +908,162 @@ llvm_gen_be_error_t llvm_emit_dynamic_init(a_dynamic_init_ptr dip, llvm::Value* 
                 be_state->module->getDataLayout().getTypeAllocSize(obj_type),
                 llvm::MaybeAlign(1)
             );
-            // Further sparse initializations would be processed from dip->variant.constant.ptr here
+            if (dip->variant.constant.ptr) {
+                llvm::Constant* agg_con = nullptr;
+                llvm_gen_be_error_t err = evaluate_constant(dip->variant.constant.ptr, obj_type, &agg_con);
+                if (err == llvm_gen_be_error_t::ok) {
+                    be_state->builder->CreateStore(agg_con, ptr);
+                }
+                if (dip->variant.constant.ptr->kind == ck_aggregate) {
+                    LLVM_GEN_BE_CHECK(emit_aggregate_dynamic_init_subobjects(
+                        dip->variant.constant.ptr, ptr, obj_type));
+                }
+            }
         }
     } else if (dip->kind == dik_constructor) {
+        if (dip->variant.constructor.value_initialization && obj_type) {
+            be_state->builder->CreateMemSet(
+                ptr,
+                be_state->builder->getInt8(0),
+                be_state->module->getDataLayout().getTypeAllocSize(obj_type),
+                llvm::MaybeAlign(1)
+            );
+        }
         if (dip->variant.constructor.ptr) {
             a_routine_ptr ctor = dip->variant.constructor.ptr;
             std::string ctor_name = ctor->source_corresp.name ? ctor->source_corresp.name : "";
             llvm::Function* ctor_func = be_state->module->getFunction(ctor_name);
             
-            std::vector<llvm::Value*> call_args;
-            call_args.push_back(ptr); // implicit this
-
+            std::vector<llvm::Value*> explicit_args;
             an_expr_node_ptr arg = dip->variant.constructor.args;
             while (arg) {
                 llvm::Value* arg_val = nullptr;
                 llvm_gen_be_error_t err = llvm_lower_expression(arg, &arg_val);
                 if (err != llvm_gen_be_error_t::ok) return err;
-                if (arg_val) call_args.push_back(arg_val);
+                explicit_args.push_back(arg_val);
                 arg = arg->next;
             }
 
-            // Lower default arguments (a_def_arg_ptr) in constructor calls.
-            // In EDG, default arguments are usually explicit in `args`, but if any are missing,
-            // we evaluate the default_arg_expr from the constructor's parameters.
-            // Placeholder for `a_def_arg_ptr` lowering as requested by the plan.
-            
-            if (ctor_func) {
-                be_state->builder->CreateCall(ctor_func, call_args);
+            // Evaluate missing constructor default arguments (default_arg_expr on routine parameters)
+            if (ctor->type && ctor->type->variant.routine.extra_info) {
+                a_param_type_ptr param = ctor->type->variant.routine.extra_info->param_type_list;
+                size_t param_idx = 0;
+                while (param) {
+                    if (param_idx >= explicit_args.size() && param->default_arg_expr) {
+                        llvm::Value* def_val = nullptr;
+                        llvm_gen_be_error_t err = llvm_lower_expression(param->default_arg_expr, &def_val);
+                        if (err != llvm_gen_be_error_t::ok) return err;
+                        explicit_args.push_back(def_val);
+                    }
+                    param = param->next;
+                    param_idx++;
+                }
+            }
+
+            if (obj_type && obj_type->isArrayTy()) {
+                uint64_t num_elts = 1;
+                llvm::Type* elt_ty = obj_type;
+                while (elt_ty->isArrayTy()) {
+                    num_elts *= elt_ty->getArrayNumElements();
+                    elt_ty = elt_ty->getArrayElementType();
+                }
+                llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
+                size_t arr_cleanup_depth = be_state->cleanup_stack.cleanups.size();
+                for (uint64_t i = 0; i < num_elts; ++i) {
+                    llvm::Value* elt_ptr = be_state->builder->CreateInBoundsGEP(
+                        elt_ty, ptr, llvm::ConstantInt::get(i64_ty, i));
+                    std::vector<llvm::Value*> call_args;
+                    call_args.push_back(elt_ptr);
+                    if (dip->variant.constructor.is_array_copy && !explicit_args.empty()) {
+                        llvm::Value* src_arr = explicit_args[0];
+                        llvm::Value* src_elt = be_state->builder->CreateInBoundsGEP(
+                            elt_ty, src_arr, llvm::ConstantInt::get(i64_ty, i));
+                        call_args.push_back(src_elt);
+                        for (size_t j = 1; j < explicit_args.size(); ++j) {
+                            call_args.push_back(explicit_args[j]);
+                        }
+                    } else {
+                        for (llvm::Value* v : explicit_args) call_args.push_back(v);
+                    }
+                    if (ctor_func) {
+                        llvm::BasicBlock* lpad_bb = nullptr;
+                        if (!ctor_func->doesNotThrow()) {
+                            LLVM_GEN_BE_ASSERT_OK(llvm_get_or_create_current_unwind_dest(&lpad_bb));
+                        }
+                        if (lpad_bb) {
+                            llvm::Function* parent_fn = be_state->builder->GetInsertBlock()->getParent();
+                            llvm::BasicBlock* cont_bb = llvm::BasicBlock::Create(*be_state->context, "ctor.cont", parent_fn);
+                            be_state->builder->CreateInvoke(ctor_func, cont_bb, lpad_bb, call_args);
+                            be_state->builder->SetInsertPoint(cont_bb);
+                        } else {
+                            be_state->builder->CreateCall(ctor_func, call_args);
+                        }
+                        if (dip->destructor && i + 1 < num_elts) {
+                            LLVM_GEN_BE_ASSERT_OK(llvm_emit_eh_cleanup(dip->destructor, elt_ptr));
+                        }
+                    }
+                }
+                while (be_state->cleanup_stack.cleanups.size() > arr_cleanup_depth) {
+                    be_state->cleanup_stack.cleanups.pop_back();
+                }
+            } else {
+                std::vector<llvm::Value*> call_args;
+                call_args.push_back(ptr); // implicit this
+                for (llvm::Value* v : explicit_args) call_args.push_back(v);
+                if (ctor_func) {
+                    llvm::BasicBlock* lpad_bb = nullptr;
+                    if (!ctor_func->doesNotThrow()) {
+                        LLVM_GEN_BE_ASSERT_OK(llvm_get_or_create_current_unwind_dest(&lpad_bb));
+                    }
+                    if (lpad_bb) {
+                        llvm::Function* parent_fn = be_state->builder->GetInsertBlock()->getParent();
+                        llvm::BasicBlock* cont_bb = llvm::BasicBlock::Create(*be_state->context, "ctor.cont", parent_fn);
+                        be_state->builder->CreateInvoke(ctor_func, cont_bb, lpad_bb, call_args);
+                        be_state->builder->SetInsertPoint(cont_bb);
+                    } else {
+                        be_state->builder->CreateCall(ctor_func, call_args);
+                    }
+                }
             }
         }
     }
     return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Computes the Itanium C++ ABI mangled guard variable name for a local static variable.
+ * @details Formats the guard name as `_ZGV` followed by the local encoding `Z<function-encoding>E<var-name>`
+ *          when the variable is not already mangled with `_Z`, or replaces the leading `_Z` with `_ZGV`.
+ * @param[in] var Pointer to the static local EDG variable.
+ * @param[out] out_guard_name Receives the mangled guard variable name string.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+static llvm_gen_be_error_t get_mangled_guard_variable_name(
+    a_variable_ptr var,
+    std::string* out_guard_name) noexcept {
+  std::string var_name = (var->source_corresp.name && var->source_corresp.name[0] != '\0') ?
+      var->source_corresp.name : "local";
+
+  // If the variable already has an Itanium mangled name ("_Z..."), replace "_Z" with "_ZGV"
+  if (llvm::StringRef(var_name).starts_with("_Z")) {
+    *out_guard_name = "_ZGV" + var_name.substr(2);
+    return llvm_gen_be_error_t::ok;
+  }
+
+  // Otherwise construct Itanium local scope encoding: _ZGVZ<func_encoding>E<len><var_name>_
+  std::string func_encoding = "4funcv";
+  llvm::Function* cur_fn = be_state->builder->GetInsertBlock()->getParent();
+  llvm::StringRef fn_name = cur_fn->getName();
+  if (!fn_name.empty()) {
+    if (fn_name.starts_with("_Z")) {
+      func_encoding = fn_name.substr(2).str();
+    } else {
+      func_encoding = std::to_string(fn_name.size()) + fn_name.str() + "v";
+    }
+  }
+
+  *out_guard_name = "_ZGVZ" + func_encoding + "E" + std::to_string(var_name.size()) + var_name;
+  return llvm_gen_be_error_t::ok;
 }
 
 /**
@@ -777,7 +1073,6 @@ llvm_gen_be_error_t llvm_emit_dynamic_init(a_dynamic_init_ptr dip, llvm::Value* 
  * @return llvm_gen_be_error_t::ok on success.
  */
 llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
-  if (!stmt || stmt->kind != stmk_init) return llvm_gen_be_error_t::invalid_argument;
   a_dynamic_init_ptr dip = stmt->variant.dynamic_init;
   if (!dip) return llvm_gen_be_error_t::ok;
 
@@ -791,8 +1086,8 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* guard_val = nullptr;
 
   if (needs_guard) {
-      std::string var_name = var->source_corresp.name ? var->source_corresp.name : "local";
-      std::string guard_name = "_ZGVZ" + var_name; // Simplified Itanium ABI guard name
+      std::string guard_name;
+      LLVM_GEN_BE_ASSERT_OK(get_mangled_guard_variable_name(var, &guard_name));
       
       // Determine guard type: 32-bit integer on 32-bit platform, else 64-bit
       llvm::Type* guard_ty;
@@ -802,7 +1097,7 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
           guard_ty = llvm::Type::getInt64Ty(*be_state->context);
       }
       
-      llvm::GlobalVariable* guard_gv = be_state->module->getGlobalVariable(guard_name);
+      llvm::GlobalVariable* guard_gv = be_state->module->getGlobalVariable(guard_name, true);
       if (!guard_gv) {
           guard_gv = new llvm::GlobalVariable(
               *be_state->module, guard_ty, false,
@@ -825,19 +1120,21 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
               {llvm::PointerType::getUnqual(*be_state->context)}, false);
           llvm::FunctionCallee acquire_func = be_state->module->getOrInsertFunction("_Init_thread_header", acquire_ty);
           
-          // MSVC thread-safe statics use a 32-bit integer guard variable. We check if (guard == 0) first,
-          // then call _Init_thread_header, then check if (guard == -1) to see if we should actually initialize.
-          // For simplicity in this LLVM backend, we just emulate the typical behavior by calling _Init_thread_header.
-          // Normally it returns void, and if we are supposed to initialize, the guard will be updated inside.
-          // Wait, the standard MSVC lowering is:
-          // if ((guard & 0x... ) == 0) { _Init_thread_header(&guard); if (guard == -1) { ... init ... _Init_thread_footer(&guard); } }
-          // We will simplify by always doing the init if _Init_thread_header is called, assuming the frontend wraps it in a check.
-          be_state->builder->CreateCall(acquire_func, {guard_val});
-          
+          llvm::BasicBlock* header_bb = llvm::BasicBlock::Create(*be_state->context, "init.header", func);
           init_bb = llvm::BasicBlock::Create(*be_state->context, "init.check", func);
           end_bb = llvm::BasicBlock::Create(*be_state->context, "init.end");
-          
-          be_state->builder->CreateBr(init_bb);
+
+          llvm::Value* guard_load0 = be_state->builder->CreateLoad(guard_ty, guard_val, "guard.init.load");
+          llvm::Value* uninit_cmp = be_state->builder->CreateICmpEQ(
+              guard_load0, llvm::ConstantInt::get(guard_ty, 0));
+          be_state->builder->CreateCondBr(uninit_cmp, header_bb, end_bb);
+
+          be_state->builder->SetInsertPoint(header_bb);
+          be_state->builder->CreateCall(acquire_func, {guard_val});
+          llvm::Value* guard_load1 = be_state->builder->CreateLoad(guard_ty, guard_val, "guard.state");
+          llvm::Value* need_init_cmp = be_state->builder->CreateICmpEQ(
+              guard_load1, llvm::ConstantInt::getSigned(guard_ty, -1));
+          be_state->builder->CreateCondBr(need_init_cmp, init_bb, end_bb);
           be_state->builder->SetInsertPoint(init_bb);
       } else {
           // Call __cxa_guard_acquire
@@ -868,10 +1165,29 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
 
   // Handle actual initialization
   llvm::Value* init_ptr = nullptr;
-  if (var && be_state->local_vars.count(var)) {
+  if (be_state->local_vars.count(var)) {
       init_ptr = be_state->local_vars[var];
-  } else if (var && var->storage_class == sc_static) {
-      init_ptr = be_state->module->getNamedGlobal(var->source_corresp.name ? var->source_corresp.name : "");
+  } else if (var->storage_class == sc_static) {
+      const char* sname = nullptr;
+      LLVM_GEN_BE_ASSERT_OK(llvm_get_variable_symbol_name(var, &sname));
+      llvm::GlobalVariable* sgv = be_state->module->getNamedGlobal(sname);
+      if (!sgv && var->type) {
+          llvm::Type* svar_ty = nullptr;
+          llvm_gen_be_error_t ty_err = get_llvm_type(var->type, &svar_ty);
+          if (ty_err != llvm_gen_be_error_t::ok) return ty_err;
+          if (!svar_ty->isVoidTy()) {
+              sgv = new llvm::GlobalVariable(
+                  *be_state->module, svar_ty, false,
+                  llvm::GlobalValue::InternalLinkage,
+                  llvm::Constant::getNullValue(svar_ty),
+                  sname);
+              if (var->is_thread_local) {
+                  sgv->setThreadLocal(true);
+              }
+              be_state->local_vars[var] = sgv;
+          }
+      }
+      init_ptr = sgv;
   }
 
   if (init_ptr) {
@@ -880,13 +1196,18 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
       if (ty_err != llvm_gen_be_error_t::ok) return ty_err;
       llvm_gen_be_error_t err = llvm_emit_dynamic_init(dip, init_ptr, var_llvm_ty);
       if (err != llvm_gen_be_error_t::ok) return err;
+      if (!needs_guard && dip->destructor) {
+          ScopeCleanup var_cleanup = {};
+          var_cleanup.is_active = true;
+          var_cleanup.dtor_routine = dip->destructor;
+          var_cleanup.object_ptr = init_ptr;
+          be_state->cleanup_stack.cleanups.push_back(var_cleanup);
+      }
   }
 
   if (needs_guard) {
       // Pop guard abort cleanup since initialization succeeded
-      if (!be_state->cleanup_stack.cleanups.empty()) {
-          be_state->cleanup_stack.cleanups.pop_back();
-      }
+      be_state->cleanup_stack.cleanups.pop_back();
       
       // Call __cxa_guard_release
       llvm::Triple triple(be_state->module->getTargetTriple());
@@ -915,21 +1236,36 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
           llvm::Value* dtor_val = dtor_func ? llvm::cast<llvm::Value>(dtor_func)
               : llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
           
-          llvm::Value* obj_val = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
-          if (var->storage_class == sc_static) {
-              obj_val = be_state->module->getNamedGlobal(
-                  var->source_corresp.name ? var->source_corresp.name : "");
-              if (!obj_val) obj_val = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
+          llvm::Value* obj_val = be_state->module->getNamedGlobal(
+              var->source_corresp.name ? var->source_corresp.name : "");
+          if (!obj_val) {
+              obj_val = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*be_state->context));
           }
           
           if (is_tls) {
               if (is_msvc) {
+                  llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+                  llvm::Value* callback_val = dtor_val;
+                  if (dtor_func) {
+                      std::string thunk_name = std::string("__tls_dtor_") +
+                          (var->source_corresp.name ? var->source_corresp.name : "anon");
+                      llvm::Function* thunk_fn = be_state->module->getFunction(thunk_name);
+                      if (!thunk_fn) {
+                          llvm::FunctionType* thunk_fty = llvm::FunctionType::get(
+                              llvm::Type::getVoidTy(*be_state->context), {}, false);
+                          thunk_fn = llvm::Function::Create(
+                              thunk_fty, llvm::GlobalValue::InternalLinkage, thunk_name, be_state->module.get());
+                          llvm::BasicBlock* t_bb = llvm::BasicBlock::Create(*be_state->context, "entry", thunk_fn);
+                          llvm::IRBuilder<> tb(t_bb);
+                          tb.CreateCall(dtor_func, {obj_val});
+                          tb.CreateRetVoid();
+                      }
+                      callback_val = thunk_fn;
+                  }
                   llvm::FunctionType* tlreg_ty = llvm::FunctionType::get(
-                      llvm::Type::getInt32Ty(*be_state->context),
-                      {llvm::PointerType::getUnqual(*be_state->context)}, false);
+                      llvm::Type::getInt32Ty(*be_state->context), {ptr_ty}, false);
                   llvm::FunctionCallee tlreg_func = be_state->module->getOrInsertFunction("_tlregdtor", tlreg_ty);
-                  // MSVC _tlregdtor expects a pointer to a callback, we mock the call
-                  be_state->builder->CreateCall(tlreg_func, {dtor_val});
+                  be_state->builder->CreateCall(tlreg_func, {callback_val});
               } else {
                   llvm::FunctionType* tlatexit_ty = llvm::FunctionType::get(
                       llvm::Type::getInt32Ty(*be_state->context),
@@ -978,6 +1314,53 @@ llvm_gen_be_error_t llvm_lower_init_stmt(a_statement_ptr stmt) noexcept {
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Lowers a Unified Parallel C (`UPC`) or dialect-specific statement node into LLVM IR.
+ * @details Handles `upc_fence` (`stmk_last + 1` -> `CreateFence(SequentiallyConsistent)`),
+ *          `upc_notify` (`__upc_notify`), `upc_wait` (`__upc_wait`), `upc_barrier` (`__upc_barrier`),
+ *          `upc_forall` (delegating to `llvm_lower_for_stmt`), and `for each` (delegating to `llvm_lower_range_based_for_stmt`).
+ * @param[in] stmt Pointer to the EDG statement node.
+ * @return llvm_gen_be_error_t::ok on success, or `unsupported_stmt` if unrecognized.
+ */
+static llvm_gen_be_error_t llvm_lower_dialect_stmt(a_statement_ptr stmt) noexcept {
+  unsigned raw_kind = static_cast<unsigned>(stmt->kind);
+  if (raw_kind == static_cast<unsigned>(stmk_last) + 1u) {
+    be_state->builder->CreateFence(llvm::AtomicOrdering::SequentiallyConsistent);
+    return llvm_gen_be_error_t::ok;
+  }
+  if (raw_kind <= static_cast<unsigned>(stmk_last) + 4u) {
+    const char* rt_name = (raw_kind == static_cast<unsigned>(stmk_last) + 2u)
+                              ? "__upc_notify"
+                              : ((raw_kind == static_cast<unsigned>(stmk_last) + 3u)
+                                     ? "__upc_wait"
+                                     : "__upc_barrier");
+    llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
+    llvm::Value* arg_val = llvm::ConstantInt::get(i32_ty, 0);
+    if (stmt->expr) {
+      LLVM_GEN_BE_CHECK(llvm_lower_expression(stmt->expr, &arg_val));
+    }
+    llvm::FunctionType* fty = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*be_state->context), {arg_val->getType()}, false);
+    llvm::FunctionCallee fn = be_state->module->getOrInsertFunction(rt_name, fty);
+    be_state->builder->CreateCall(fn, {arg_val});
+    return llvm_gen_be_error_t::ok;
+  }
+  if (raw_kind == static_cast<unsigned>(stmk_last) + 5u) {
+    return llvm_lower_for_stmt(stmt);
+  }
+  if (raw_kind == static_cast<unsigned>(stmk_last) + 6u) {
+    return llvm_lower_range_based_for_stmt(stmt);
+  }
+  return llvm_gen_be_error_t::unsupported_stmt;
+}
+
+/**
+ * @brief Dispatches an EDG statement node (`a_statement_ptr`) to the corresponding LLVM IR lowering routine.
+ * @details Attaches source debug location metadata when debug info is active and lowers control flow,
+ *          expressions, initializations, VLAs, exception blocks, coroutines, and inline assembly.
+ * @param[in] stmt Pointer to the EDG statement node to lower.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) noexcept {
   if (!stmt) return llvm_gen_be_error_t::ok;
 
@@ -989,6 +1372,13 @@ llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) noexcept {
     if (loc) {
       be_state->builder->SetCurrentDebugLocation(loc);
     }
+  }
+
+  if (stmt->has_associated_pragma) {
+    bool omp_handled = false;
+    llvm_gen_be_error_t omp_err = llvm_dispatch_omp_pragma_stmt(stmt, &omp_handled);
+    if (omp_err != llvm_gen_be_error_t::ok) return omp_err;
+    if (omp_handled) return llvm_gen_be_error_t::ok;
   }
 
   switch (stmt->kind) {
@@ -1006,21 +1396,28 @@ llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) noexcept {
     case stmk_empty:
       return llvm_gen_be_error_t::ok;
     case stmk_stmt_expr_result:
-      if (be_state->current_stmt_expr_result_ptr && stmt->expr) {
+      if (stmt->expr) {
         llvm::Value* val = nullptr;
         llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &val);
         if (err != llvm_gen_be_error_t::ok) return err;
-        if (val) be_state->builder->CreateStore(val, be_state->current_stmt_expr_result_ptr);
-      } else if (stmt->expr) {
-        // Void statement expression, just evaluate side effects
-        llvm::Value* val = nullptr;
-        llvm_gen_be_error_t err = llvm_lower_expression(stmt->expr, &val);
-        if (err != llvm_gen_be_error_t::ok) return err;
+        if (be_state->current_stmt_expr_result_ptr && val) {
+          be_state->builder->CreateStore(val, be_state->current_stmt_expr_result_ptr);
+        }
       }
       return llvm_gen_be_error_t::ok;
     case stmk_end_test_while:
       return llvm_lower_end_test_while_stmt(stmt);
     case stmk_constexpr_if:
+      if (stmt->variant.constexpr_if && stmt->variant.constexpr_if->value_known) {
+        a_statement_ptr taken = stmt->variant.constexpr_if->value
+                                    ? stmt->variant.constexpr_if->then_statement
+                                    : stmt->variant.constexpr_if->else_statement;
+        return llvm_lower_statement(taken);
+      }
+      if (stmt->variant.constexpr_if) {
+        return llvm_lower_if_stmt(stmt);
+      }
+      return llvm_gen_be_error_t::ok;
     case stmk_if_consteval:
     case stmk_if_not_consteval:
       return llvm_lower_if_stmt(stmt);
@@ -1051,16 +1448,14 @@ llvm_gen_be_error_t llvm_lower_statement(a_statement_ptr stmt) noexcept {
       return llvm_lower_asm_stmt(stmt);
     case stmk_try_block:
       return llvm_lower_try_block_stmt(stmt);
-#if MICROSOFT_EXTENSIONS_ALLOWED
     case stmk_microsoft_try:
       return llvm_lower_microsoft_try_stmt(stmt);
-#endif
     case stmk_decl:
       // stmk_decl statements act merely as position markers in the statement list.
       // Associated IL entities and declarations are already handled globally.
       return llvm_gen_be_error_t::ok;
     default:
-      return llvm_gen_be_error_t::unsupported_stmt;
+      return llvm_lower_dialect_stmt(stmt);
   }
 }
 

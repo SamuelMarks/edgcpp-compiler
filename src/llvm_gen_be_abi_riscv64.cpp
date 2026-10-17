@@ -10,88 +10,135 @@
 #include "basic_hdrs.h"
 #include "llvm_gen_be_internal.h"
 #include "llvm_gen_be_abi_riscv64.h"
+#include "llvm_gen_be_abi_sysv_x86_64.h"
 #include <llvm/IR/Intrinsics.h>
 
 #if BACK_END_IS_LLVM_GEN_BE
 BEGIN_EDG_NAMESPACE
 
 /**
- * @brief Detects if a struct can be flattened into up to 2 FP/INT registers.
- * @details Simplified heuristic for testing purposes.
- * @param[in] ty The EDG type.
- * @param[out] coerced_ty The coerced LLVM type.
- * @return true if flattened.
- */
-/**
  * @brief Recursively flattens a struct into primitive types for RISC-V ABI.
+ * @details Traverses nested structs and fixed-size arrays to collect scalar fields.
+ * Unions cannot be flattened into FP register pairs under LP64D.
  * @param[in] ty EDG type to flatten.
- * @param[out] fields Output vector of primitive fields.
- * @param[in] offset Current offset.
- * @param[out] offsets Output vector of offsets.
+ * @param[in,out] fields Output vector of primitive fields.
+ * @param[in] offset Current byte offset.
+ * @param[in,out] offsets Output vector of field byte offsets.
+ * @param[in,out] is_valid Set to false if a union or unflatten-able member is encountered.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
  */
-static void flatten_riscv_struct(a_type_ptr ty, std::vector<a_type_ptr>& fields, uint64_t offset, std::vector<uint64_t>& offsets) {
-    if (ty == nullptr) return;
-    ty = skip_typerefs(ty);
+static llvm_gen_be_error_t flatten_riscv_struct(
+    a_type_ptr ty,
+    std::vector<a_type_ptr>* fields,
+    uint64_t offset,
+    std::vector<uint64_t>* offsets,
+    bool* is_valid) noexcept {
+  if (ty == nullptr) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  ty = skip_typerefs(ty);
 
-    if (ty->kind == tk_class || ty->kind == tk_struct || ty->kind == tk_union) {
-        for (a_field_ptr f = ty->variant.class_struct_union.field_list; f; f = f->next) {
-            uint64_t f_offset = (ty->kind == tk_union) ? offset : offset + f->offset;
-            // Ignore zero-length bitfields
-            if (f->is_bit_field && f->bit_size == 0) continue;
-            flatten_riscv_struct(f->type, fields, f_offset, offsets);
-        }
-    } else if (ty->kind == tk_array) {
-        a_type_ptr elem_ty = ty->variant.array.element_type;
-        uint64_t num_elems = ty->variant.array.variant.number_of_elements;
-        for (uint64_t i = 0; i < num_elems; ++i) {
-            flatten_riscv_struct(elem_ty, fields, offset + i * elem_ty->size, offsets);
-        }
-    } else if (ty->kind == tk_integer || ty->kind == tk_float || ty->kind == tk_pointer || ty->kind == tk_ptr_to_member) {
-        fields.push_back(ty);
-        offsets.push_back(offset);
+  if (ty->kind == tk_union) {
+    *is_valid = false;
+    return llvm_gen_be_error_t::ok;
+  } else if (ty->kind == tk_class || ty->kind == tk_struct) {
+    for (a_field_ptr f = ty->variant.class_struct_union.field_list; f != nullptr; f = f->next) {
+      if (f->is_bit_field && f->bit_size == 0) continue;
+      if (f->is_bit_field) {
+        *is_valid = false;
+        return llvm_gen_be_error_t::ok;
+      }
+      llvm_gen_be_error_t err = flatten_riscv_struct(
+          f->type, fields, offset + f->offset, offsets, is_valid);
+      if (err != llvm_gen_be_error_t::ok || !*is_valid) return err;
     }
+    return llvm_gen_be_error_t::ok;
+  } else if (ty->kind == tk_array) {
+    a_type_ptr elem_ty = ty->variant.array.element_type;
+    uint64_t elem_sz = elem_ty ? elem_ty->size : 0;
+    uint64_t num_elems = ty->variant.array.variant.number_of_elements;
+    for (uint64_t i = 0; i < num_elems; ++i) {
+      llvm_gen_be_error_t err = flatten_riscv_struct(
+          elem_ty, fields, offset + i * elem_sz, offsets, is_valid);
+      if (err != llvm_gen_be_error_t::ok || !*is_valid) return err;
+    }
+    return llvm_gen_be_error_t::ok;
+  } else if (ty->kind == tk_integer || ty->kind == tk_float ||
+             ty->kind == tk_pointer || ty->kind == tk_ptr_to_member) {
+    fields->push_back(ty);
+    offsets->push_back(offset);
+    return llvm_gen_be_error_t::ok;
+  }
+
+  *is_valid = false;
+  return llvm_gen_be_error_t::ok;
 }
 
-static bool detect_riscv_flattening(a_type_ptr ty, llvm::Type** coerced_ty) {
-    if (!is_class_struct_union_type(ty)) return false;
-    
-    std::vector<a_type_ptr> fields;
-    std::vector<uint64_t> offsets;
-    flatten_riscv_struct(ty, fields, 0, offsets);
+/**
+ * @brief Detects if a struct can be flattened into up to 2 FP/INT registers under LP64D.
+ * @details Inspects flattened scalar fields for float, float+float, float+int, or int+float
+ * pairs fitting within FLEN/XLEN (8 bytes per register), falling back to integer array coercion
+ * for structs <= 16 bytes.
+ * @param[in] ty The EDG aggregate type to inspect.
+ * @param[out] coerced_ty Pointer to store the coerced LLVM type.
+ * @param[out] out_flattened Set to true if the aggregate was coerced/flattened.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+static llvm_gen_be_error_t detect_riscv_flattening(
+    a_type_ptr ty,
+    llvm::Type** coerced_ty,
+    bool* out_flattened) noexcept {
+  *out_flattened = false;
 
-    if (fields.size() > 0 && fields.size() <= 2) {
-        bool has_fp = false;
-        for (a_type_ptr f_ty : fields) {
-            if (f_ty->kind == tk_float) {
-                has_fp = true;
-                break;
-            }
-        }
-        if (has_fp) {
-            std::vector<llvm::Type*> llvm_fields;
-            for (a_type_ptr f_ty : fields) {
-                llvm::Type* lty = nullptr;
-                if (get_llvm_type(f_ty, &lty) == llvm_gen_be_error_t::ok) {
-                    llvm_fields.push_back(lty);
-                }
-            }
-            if (llvm_fields.size() == fields.size()) {
-                *coerced_ty = llvm::StructType::get(*be_state->context, llvm_fields, false);
-                return true;
-            }
-        }
-    }
+  std::vector<a_type_ptr> fields;
+  std::vector<uint64_t> offsets;
+  bool is_valid = true;
+  llvm_gen_be_error_t err = flatten_riscv_struct(ty, &fields, 0, &offsets, &is_valid);
+  if (err != llvm_gen_be_error_t::ok) return err;
 
-    if (ty->size > 0 && ty->size <= 16) {
-        uint32_t num_ints = (ty->size + 7) / 8;
-        *coerced_ty = llvm::ArrayType::get(llvm::Type::getInt64Ty(*be_state->context), num_ints);
-        return true;
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  uint64_t xlen = triple.isRISCV32() ? 4 : 8;
+
+  if (is_valid && !fields.empty() && fields.size() <= 2) {
+    bool has_fp = false;
+    bool sizes_valid = true;
+    for (a_type_ptr f_ty : fields) {
+      if (f_ty->kind == tk_float) {
+        has_fp = true;
+      }
+      if (static_cast<uint64_t>(f_ty->size) > xlen) {
+        sizes_valid = false;
+      }
     }
-    return false;
+    if (has_fp && sizes_valid) {
+      std::vector<llvm::Type*> llvm_fields;
+      for (a_type_ptr f_ty : fields) {
+        llvm::Type* lty = nullptr;
+        err = get_llvm_type(f_ty, &lty);
+        if (err != llvm_gen_be_error_t::ok) return err;
+        llvm_fields.push_back(lty);
+      }
+      *coerced_ty = llvm::StructType::get(*be_state->context, llvm_fields, false);
+      *out_flattened = true;
+      return llvm_gen_be_error_t::ok;
+    }
+  }
+
+  if (ty->size > 0) {
+    uint32_t num_ints = static_cast<uint32_t>((ty->size + xlen - 1) / xlen);
+    llvm::Type* word_ty = (xlen == 4)
+                              ? llvm::Type::getInt32Ty(*be_state->context)
+                              : llvm::Type::getInt64Ty(*be_state->context);
+    *coerced_ty = llvm::ArrayType::get(word_ty, num_ints);
+    *out_flattened = true;
+    return llvm_gen_be_error_t::ok;
+  }
+  return llvm_gen_be_error_t::ok;
 }
 
 /**
  * @brief Classifies a RISC-V 64 argument type.
+ * @details Implements or declares `classify_riscv64_argument` for the EDG LLVM backend.
  * @param[in] ty EDG type to classify.
  * @param[out] out_info Classification info output.
  * @return llvm_gen_be_error_t::ok on success.
@@ -102,13 +149,22 @@ llvm_gen_be_error_t classify_riscv64_argument(a_type_ptr ty, riscv64_arg_info_t*
   ty = skip_typerefs(ty);
   out_info->size = ty->size;
   out_info->is_indirect = false;
+  out_info->pass_by_invisible_reference = false;
   out_info->coerced_type = nullptr;
   
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  uint64_t max_reg_bytes = triple.isRISCV32() ? 8 : 16;
+
   if (is_class_struct_union_type(ty)) {
-      if (ty->size > 16) {
+      if ((ty->kind == tk_class || ty->kind == tk_struct) && !is_trivially_copyable_type(ty)) {
+          out_info->is_indirect = true;
+          out_info->pass_by_invisible_reference = true;
+      } else if (static_cast<uint64_t>(ty->size) > max_reg_bytes) {
           out_info->is_indirect = true;
       } else {
-          detect_riscv_flattening(ty, &out_info->coerced_type);
+          bool flattened = false;
+          llvm_gen_be_error_t err = detect_riscv_flattening(ty, &out_info->coerced_type, &flattened);
+          if (err != llvm_gen_be_error_t::ok) return err;
       }
   }
   return llvm_gen_be_error_t::ok;
@@ -116,6 +172,7 @@ llvm_gen_be_error_t classify_riscv64_argument(a_type_ptr ty, riscv64_arg_info_t*
 
 /**
  * @brief Computes the return info for RISC-V 64.
+ * @details Implements or declares `compute_riscv64_return_info` for the EDG LLVM backend.
  * @param[in] ret_ty EDG return type.
  * @param[out] out_info Classification info output.
  * @param[out] out_sret Set to true if an sret pointer is required.
@@ -177,7 +234,16 @@ llvm_gen_be_error_t build_riscv64_function_type(
   } else {
     err = llvm_type_from_edg_type(ret_ty, &llvm_ret_ty);
     if (err != llvm_gen_be_error_t::ok) return err;
+    a_type_ptr raw_ret_ty = skip_typerefs(ret_ty);
+    if (raw_ret_ty->kind == tk_integer && raw_ret_ty->size <= 4) {
+      if (int_type_is_signed(raw_ret_ty)) ret_attr.addAttribute(llvm::Attribute::SExt);
+      else ret_attr.addAttribute(llvm::Attribute::ZExt);
+    }
   }
+
+  llvm::Triple triple(be_state->module->getTargetTriple());
+  uint64_t xlen = triple.isRISCV32() ? 4 : 8;
+  llvm_target_abi_reg_state_t reg_state = {is_sret ? 1u : 0u, 0u, 8u, 8u};
 
   if (routine_ty->variant.routine.extra_info != nullptr) {
     for (a_param_type_ptr param = routine_ty->variant.routine.extra_info->param_type_list;
@@ -192,12 +258,48 @@ llvm_gen_be_error_t build_riscv64_function_type(
          if (err != llvm_gen_be_error_t::ok) return err;
          
          llvm::AttrBuilder ab(*be_state->context);
+         a_type_ptr raw_pty = skip_typerefs(param->type);
          if (p_info.is_indirect) {
+             if (reg_state.gpr_used < reg_state.gpr_max) reg_state.gpr_used++;
              llvm_param_types.push_back(llvm::PointerType::getUnqual(*be_state->context));
-             ab.addByValAttr(pty);
+             if (!p_info.pass_by_invisible_reference) {
+               ab.addByValAttr(pty);
+             }
          } else if (p_info.coerced_type) {
+             uint32_t needed_fpr = 0;
+             uint32_t needed_gpr = 0;
+             if (auto* st_ty = llvm::dyn_cast<llvm::StructType>(p_info.coerced_type)) {
+               for (llvm::Type* el : st_ty->elements()) {
+                 if (el->isFloatingPointTy()) needed_fpr++;
+                 else needed_gpr++;
+               }
+             } else {
+               needed_gpr = static_cast<uint32_t>(llvm::cast<llvm::ArrayType>(p_info.coerced_type)->getNumElements());
+             }
+             if (needed_fpr > 0 &&
+                 (reg_state.fpr_used + needed_fpr > reg_state.fpr_max ||
+                  reg_state.gpr_used + needed_gpr > reg_state.gpr_max)) {
+               uint32_t num_ints = static_cast<uint32_t>((raw_pty->size + xlen - 1) / xlen);
+               llvm::Type* word_ty = (xlen == 4)
+                                         ? llvm::Type::getInt32Ty(*be_state->context)
+                                         : llvm::Type::getInt64Ty(*be_state->context);
+               p_info.coerced_type = llvm::ArrayType::get(word_ty, num_ints);
+               reg_state.gpr_used = std::min(reg_state.gpr_max, reg_state.gpr_used + num_ints);
+             } else {
+               reg_state.fpr_used += needed_fpr;
+               reg_state.gpr_used = std::min(reg_state.gpr_max, reg_state.gpr_used + needed_gpr);
+             }
              llvm_param_types.push_back(p_info.coerced_type);
          } else {
+             if (raw_pty->kind == tk_float && reg_state.fpr_used < reg_state.fpr_max) {
+               reg_state.fpr_used++;
+             } else if (reg_state.gpr_used < reg_state.gpr_max) {
+               reg_state.gpr_used++;
+             }
+             if (raw_pty->kind == tk_integer && raw_pty->size <= 4) {
+               if (int_type_is_signed(raw_pty)) ab.addAttribute(llvm::Attribute::SExt);
+               else ab.addAttribute(llvm::Attribute::ZExt);
+             }
              llvm_param_types.push_back(pty);
          }
          param_attrs.push_back(llvm::AttributeSet::get(*be_state->context, ab));
@@ -215,6 +317,7 @@ llvm_gen_be_error_t build_riscv64_function_type(
 
 /**
  * @brief Builds a RISC-V va_list type.
+ * @details Implements or declares `build_riscv64_va_list_type` for the EDG LLVM backend.
  * @param[out] out_ty Output pointer.
  * @return llvm_gen_be_error_t::ok on success.
  */
@@ -226,6 +329,7 @@ llvm_gen_be_error_t build_riscv64_va_list_type(llvm::Type** out_ty) noexcept {
 
 /**
  * @brief Lowers a RISC-V va_start.
+ * @details Implements or declares `lower_riscv64_va_start` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer.
  * @param[out] out_val Output value.
  * @return llvm_gen_be_error_t::ok on success.
@@ -240,6 +344,7 @@ llvm_gen_be_error_t lower_riscv64_va_start(llvm::Value* va_list_ptr, llvm::Value
 
 /**
  * @brief Lowers a RISC-V va_arg.
+ * @details Implements or declares `lower_riscv64_va_arg` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer.
  * @param[in] ty Requested type.
  * @param[out] out_val Output value.
@@ -247,15 +352,29 @@ llvm_gen_be_error_t lower_riscv64_va_start(llvm::Value* va_list_ptr, llvm::Value
  */
 llvm_gen_be_error_t lower_riscv64_va_arg(llvm::Value* va_list_ptr, a_type_ptr ty, llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !ty || !out_val) return llvm_gen_be_error_t::invalid_argument;
-  llvm::Type* llvm_ty = nullptr;
-  llvm_gen_be_error_t err = llvm_type_from_edg_type(ty, &llvm_ty);
+  riscv64_arg_info_t info = {};
+  llvm_gen_be_error_t err = classify_riscv64_argument(ty, &info);
   if (err != llvm_gen_be_error_t::ok) return err;
+  llvm::Type* llvm_ty = nullptr;
+  err = llvm_type_from_edg_type(ty, &llvm_ty);
+  if (err != llvm_gen_be_error_t::ok) return err;
+  if (info.is_indirect) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+  if (skip_typerefs(ty)->alignment > 16) {
+    *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty, "vaarg.aligned");
+    return llvm_gen_be_error_t::ok;
+  }
   *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
   return llvm_gen_be_error_t::ok;
 }
 
 /**
  * @brief Lowers a RISC-V va_copy.
+ * @details Implements or declares `lower_riscv64_va_copy` for the EDG LLVM backend.
  * @param[in] dest_va_list_ptr Destination pointer.
  * @param[in] src_va_list_ptr Source pointer.
  * @param[out] out_val Output value.
@@ -272,6 +391,7 @@ llvm_gen_be_error_t lower_riscv64_va_copy(llvm::Value* dest_va_list_ptr, llvm::V
 
 /**
  * @brief Lowers a RISC-V va_end.
+ * @details Implements or declares `lower_riscv64_va_end` for the EDG LLVM backend.
  * @param[in] va_list_ptr Pointer.
  * @param[out] out_val Output value.
  * @return llvm_gen_be_error_t::ok on success.

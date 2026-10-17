@@ -171,7 +171,14 @@ MAKE_FRONT_END_CALLABLE is TRUE.
 #endif /* USING_KAI_INLINER */
       if (display_compilation_time) get_timer(&be_start_time);
 #if BACK_END_IS_LLVM_GEN_BE
-      llvm_gen_be();
+      llvm_gen_be_error_t be_err = llvm_gen_be();
+      if (be_err != llvm_gen_be_error_t::ok) {
+        const char *err_str = NULL;
+        (void)llvm_gen_be_error_to_string(be_err, &err_str);
+        fprintf(f_error, "error: LLVM backend failure (%s)\n",
+                err_str != NULL ? err_str : "unknown");
+        diagnostic_counters.total.errors++;
+      }  /* if */
 #else
       back_end();
 #endif
@@ -204,6 +211,19 @@ MAKE_FRONT_END_CALLABLE is TRUE.
     /* Keep compiling as long as there are more source files on the command
        line. */
   } while (get_next_source_file());
+#if BACK_END_IS_LLVM_GEN_BE
+  if (most_severe_diagnostic < es_error) {
+    llvm_gen_be_error_t link_err = llvm_finalize_multi_tu_link();
+    if (link_err != llvm_gen_be_error_t::ok) {
+      const char *err_str = NULL;
+      (void)llvm_gen_be_error_to_string(link_err, &err_str);
+      fprintf(f_error, "error: LLVM multi-TU link failure (%s)\n",
+              err_str != NULL ? err_str : "unknown");
+      diagnostic_counters.total.errors++;
+      most_severe_diagnostic = es_error;
+    }  /* if */
+  }  /* if */
+#endif /* BACK_END_IS_LLVM_GEN_BE */
 #else /* !COMPILE_MULTIPLE_SOURCE_FILES */
   most_severe_diagnostic = diagnostic_level;
 #endif /* COMPILE_MULTIPLE_SOURCE_FILES */

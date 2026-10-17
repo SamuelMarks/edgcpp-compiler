@@ -55,6 +55,15 @@ EDG_CBASE=${EDG_CBASE-/edg/cpfe}
 # The driver name to be used in diagnostics
 #
 driver_name=eccp
+
+# Direct LLVM backend mode (--llvm or EDG_USE_LLVM_BACKEND=1)
+if [ "${1-}" = "--llvm" ] || [ "${EDG_USE_LLVM_BACKEND-0}" = "1" ] ; then
+  if [ "${1-}" = "--llvm" ] ; then
+    shift
+  fi
+  cpfe_bin="${EDG_CPFE_PATH:-${EDG_BASE}/cpfe}"
+  exec "$cpfe_bin" --edg_base_dir "${EDG_BASE}/include_c++" "$@"
+fi
 #
 # EDG_DRIVER_VERSION is used to disable driver features that are incompatible
 # with earlier versions of the front end.

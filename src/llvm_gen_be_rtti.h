@@ -45,6 +45,18 @@ llvm_gen_be_error_t llvm_emit_msvc_rtti_complete_object_locator(
     llvm::Constant** out_const) noexcept;
 
 /**
+ * @brief Emits an MSVC RTTI Type Descriptor (`_TypeDescriptor`, `??_R0?AV...`).
+ * @details Generates the global `_TypeDescriptor` structure containing the `??_7type_info@@6B@`
+ *          vftable pointer, spare runtime data pointer, and decorated type name string.
+ * @param[in] class_ty The EDG class or fundamental AST type pointer.
+ * @param[out] out_r0 Receives the resulting `llvm::GlobalVariable*` for the `_R0` descriptor.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if pointers are null.
+ */
+llvm_gen_be_error_t llvm_emit_msvc_rtti_type_descriptor(
+    a_type_ptr class_ty,
+    llvm::GlobalVariable** out_r0) noexcept;
+
+/**
  * @brief Lowers a C++ dynamic_cast expression to LLVM IR.
  * @details Translates pointer and reference dynamic casts to `__dynamic_cast` runtime calls
  *          with offset hints and bad_cast branch checks.

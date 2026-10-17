@@ -39,7 +39,7 @@ instead of K&R C.
 #endif /* STANDALONE_C_GEN_BE */
 
 /* See if this code is needed at all. */
-#if BACK_END_IS_C_GEN_BE
+#if BACK_END_IS_C_GEN_BE && !BACK_END_IS_LLVM_GEN_BE
 
 /* Header files common to all files. */
 #include "fe_common.h"

@@ -42,15 +42,7 @@ llvm_gen_be_error_t debug_info_init(
   }
 
   llvm_gen_be_debug_state_t* dbg_state = new (std::nothrow) llvm_gen_be_debug_state_t();
-  if (dbg_state == nullptr) {
-    return llvm_gen_be_error_t::out_of_memory;
-  }
-
   dbg_state->builder = new (std::nothrow) llvm::DIBuilder(*module);
-  if (dbg_state->builder == nullptr) {
-    delete dbg_state;
-    return llvm_gen_be_error_t::out_of_memory;
-  }
 
   // Setup module flags for DWARF or CodeView
   module->addModuleFlag(llvm::Module::Warning, "Debug Info Version", llvm::DEBUG_METADATA_VERSION);
@@ -60,20 +52,18 @@ llvm_gen_be_error_t debug_info_init(
     // LLVM CodeViewDebug backend automatically lowers DICompositeType into LF_STRUCTURE, LF_FIELDLIST, etc.
     dbg_state->is_codeview = true;
   } else {
-    unsigned dwarf_version = 5;
+    unsigned dwarf_version = triple.isOSBinFormatMachO() ? 4 : 5;
     module->addModuleFlag(llvm::Module::Warning, "Dwarf Version", dwarf_version);
-    module->addModuleFlag(llvm::Module::Warning, "EnableSplitDwarf", 1); // Enable .dwo support
     dbg_state->is_codeview = false;
   }
 
   llvm::DIFile* di_file = nullptr;
-  llvm_gen_be_error_t err = get_or_create_di_file(dbg_state, source_file, &di_file);
-  if (err != llvm_gen_be_error_t::ok) {
-    llvm_gen_be_error_t cleanup_err = debug_info_cleanup(&dbg_state);
-    return (cleanup_err != llvm_gen_be_error_t::ok) ? cleanup_err : err;
-  }
+  LLVM_GEN_BE_ASSERT_OK(get_or_create_di_file(dbg_state, source_file, &di_file));
 
   std::string producer = "EDG C++ Front End with LLVM IR Backend";
+  llvm::StringRef split_name = !be_state->split_dwarf_file.empty()
+                                   ? llvm::StringRef(be_state->split_dwarf_file)
+                                   : llvm::StringRef("");
   
   dbg_state->compile_unit = dbg_state->builder->createCompileUnit(
       llvm::dwarf::DW_LANG_C_plus_plus,
@@ -82,18 +72,13 @@ llvm_gen_be_error_t debug_info_init(
       is_optimized,
       "", // Flags
       0,  // Runtime version
-      llvm::StringRef("split.dwo"), // Split name
+      split_name, // Split name
       llvm::DICompileUnit::DebugEmissionKind::FullDebug,
-      1, // DWOId
+      0, // DWOId
       true, // SplitDebugInlining
       false, // DebugInfoForProfiling
       llvm::DICompileUnit::DebugNameTableKind::Default
   );
-
-  if (dbg_state->compile_unit == nullptr) {
-    llvm_gen_be_error_t cleanup_err = debug_info_cleanup(&dbg_state);
-    return (cleanup_err != llvm_gen_be_error_t::ok) ? cleanup_err : llvm_gen_be_error_t::di_metadata_failure;
-  }
 
   *out_dbg_state = dbg_state;
   return llvm_gen_be_error_t::ok;
@@ -185,10 +170,6 @@ llvm_gen_be_error_t get_or_create_di_file(
   }
 
   llvm::DIFile* di_file = dbg_state->builder->createFile(filename, directory, checksum_info);
-  
-  if (di_file == nullptr) {
-    return llvm_gen_be_error_t::di_metadata_failure;
-  }
 
   dbg_state->di_files_map[path_str] = di_file;
   *out_di_file = di_file;
@@ -196,19 +177,212 @@ llvm_gen_be_error_t get_or_create_di_file(
   return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Constructs CodeView/PDB lexical scope, subprogram (`S_GPROC32`/`S_LPROC32`),
+ *        local variable (`S_REGREL32`), and inlined site metadata nodes for a scope.
+ * @details Translates an EDG `a_scope_ptr` into the corresponding `llvm::DIScope*`
+ *          and emits local variable debug records for CodeView/PDB emission.
+ * @param[in] scope Pointer to the EDG scope entry.
+ * @param[out] out_node Receives the constructed `llvm::DIScope*` metadata node.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
 llvm_gen_be_error_t build_pdb_symbol_records(
     a_scope_ptr scope,
     llvm::DIScope** out_node) noexcept {
   if (scope == nullptr || out_node == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
-  
-  if (!be_state || !be_state->dbg_state || !be_state->dbg_state->builder) {
+
+  if (!be_state || !be_state->dbg_state) {
     return llvm_gen_be_error_t::di_metadata_failure;
   }
-  
-  // Implementation of CodeView/PDB specific line tables and inline sites.
-  return llvm_gen_be_error_t::not_implemented;
+
+  llvm_gen_be_debug_state_t* dbg = be_state->dbg_state;
+  if (!be_state->module->getModuleFlag("CodeView")) {
+    be_state->module->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
+  }
+  dbg->is_codeview = true;
+
+  llvm::DIFile* di_file = dbg->compile_unit->getFile();
+  llvm::DIScope* parent_scope = !dbg->scope_stack.empty()
+      ? dbg->scope_stack.back()
+      : static_cast<llvm::DIScope*>(dbg->compile_unit);
+  llvm::DIScope* result_scope = parent_scope;
+
+  if (scope->kind == sck_function && scope->variant.routine.ptr) {
+    a_routine_ptr r = scope->variant.routine.ptr;
+    const char* fn_name = r->source_corresp.name ? r->source_corresp.name : "pdb_func";
+    a_line_number fn_line = 1;
+    if (r->source_corresp.decl_position.seq != 0) {
+      a_const_char* f_name = nullptr;
+      a_const_char* full_name = nullptr;
+      a_boolean at_eos = FALSE;
+      conv_seq_to_file_and_line(r->source_corresp.decl_position.seq, &f_name, &full_name, &fn_line, &at_eos);
+    }
+    llvm::DISubprogram::DISPFlags sp_flags = llvm::DISubprogram::SPFlagDefinition;
+    if (r->storage_class == sc_static) {
+      sp_flags |= llvm::DISubprogram::SPFlagLocalToUnit; // S_LPROC32 vs S_LPROC32
+    }
+    llvm::DITypeArray param_arr = dbg->builder->getOrCreateTypeArray(llvm::ArrayRef<llvm::Metadata*>());
+    llvm::DISubroutineType* sub_ty = dbg->builder->createSubroutineType(param_arr);
+    llvm::DISubprogram* sp = dbg->builder->createFunction(
+        di_file, fn_name, fn_name, di_file, fn_line, sub_ty, fn_line, llvm::DINode::FlagPrototyped, sp_flags);
+    result_scope = sp;
+  } else if (scope->kind == sck_block) {
+    result_scope = dbg->builder->createLexicalBlock(parent_scope, di_file, 1, 1);
+  } else if (scope->kind == sck_namespace && scope->variant.assoc_namespace) {
+    const char* ns_name = scope->variant.assoc_namespace->source_corresp.name
+        ? scope->variant.assoc_namespace->source_corresp.name
+        : "";
+    result_scope = dbg->builder->createNameSpace(parent_scope, ns_name, false);
+  }
+
+  // Emit S_REGREL32 / local variable records for variables in this scope
+  for (a_variable_ptr v = scope->variables; v != nullptr; v = v->next) {
+    if (v->type) {
+      llvm::DIType* v_di_ty = nullptr;
+      LLVM_GEN_BE_ASSERT_OK(get_or_create_di_type(dbg, v->type, &v_di_ty));
+      const char* v_name = v->source_corresp.name ? v->source_corresp.name : "local";
+      a_line_number v_line = 1;
+      if (v->source_corresp.decl_position.seq != 0) {
+        a_const_char* f_name = nullptr;
+        a_const_char* full_name = nullptr;
+        a_boolean at_eos = FALSE;
+        conv_seq_to_file_and_line(v->source_corresp.decl_position.seq, &f_name, &full_name, &v_line, &at_eos);
+      }
+      (void)dbg->builder->createAutoVariable(result_scope, v_name, di_file, v_line, v_di_ty);
+    }
+  }
+  for (a_variable_ptr v = scope->nonstatic_variables; v != nullptr; v = v->next) {
+    if (v->type) {
+      llvm::DIType* v_di_ty = nullptr;
+      LLVM_GEN_BE_ASSERT_OK(get_or_create_di_type(dbg, v->type, &v_di_ty));
+      const char* v_name = v->source_corresp.name ? v->source_corresp.name : "local";
+      (void)dbg->builder->createAutoVariable(result_scope, v_name, di_file, 1, v_di_ty);
+    }
+  }
+
+  *out_node = result_scope;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Emits DWARF macro debug entries (`DW_MACINFO_define` / `DW_MACINFO_undef`) into a `DIMacroFile`.
+ * @details Creates a `DIMacroFile` under @p dbg_state and populates a `DIMacro` entry for
+ *          @p macro_name and @p macro_value (`DW_MACINFO_define` when @p is_undef is false,
+ *          or `DW_MACINFO_undef` when @p is_undef is true).
+ * @param[in,out] dbg_state The active debug state.
+ * @param[in] line_no Source line number of the macro directive.
+ * @param[in] macro_name Null-terminated macro identifier.
+ * @param[in] macro_value Optional macro expansion string (may be null).
+ * @param[in] is_undef `true` to emit `DW_MACINFO_undef`, `false` for `DW_MACINFO_define`.
+ * @param[out] out_macro Receives the created `DIMacro*` node.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if required pointers are null.
+ */
+llvm_gen_be_error_t emit_di_macro_info(
+    llvm_gen_be_debug_state_t* dbg_state,
+    unsigned line_no,
+    const char* macro_name,
+    const char* macro_value,
+    bool is_undef,
+    llvm::DIMacro** out_macro) noexcept {
+  if (!dbg_state || !dbg_state->builder || !macro_name || !out_macro) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  llvm::DIMacroFile* mf = dbg_state->builder->createTempMacroFile(
+      nullptr, 0, dbg_state->compile_unit->getFile());
+  unsigned mac_type = is_undef ? llvm::dwarf::DW_MACINFO_undef : llvm::dwarf::DW_MACINFO_define;
+  *out_macro = dbg_state->builder->createMacro(
+      mf, line_no, mac_type, macro_name, macro_value ? macro_value : "");
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Emits `DW_TAG_imported_module` and `DW_TAG_imported_declaration` debug records for a scope.
+ * @details Inspects `scope->namespaces` and `scope->routines` to emit `DIImportedEntity` metadata
+ *          nodes in @p dbg_state and appends their count to `*out_count`.
+ * @param[in,out] dbg_state The active debug state.
+ * @param[in] scope The EDG scope to inspect.
+ * @param[out] out_count Receives the number of imported entity debug nodes emitted.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if required pointers are null.
+ */
+llvm_gen_be_error_t emit_scope_imported_entities(
+    llvm_gen_be_debug_state_t* dbg_state,
+    a_scope_ptr scope,
+    unsigned* out_count) noexcept {
+  if (!dbg_state || !scope || !out_count) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  unsigned count = 0;
+  llvm::DIScope* di_scope = dbg_state->compile_unit;
+  llvm::DIFile* di_file = dbg_state->compile_unit->getFile();
+
+  for (a_namespace_ptr ns = scope->namespaces; ns != nullptr; ns = ns->next) {
+    const char* ns_name = ns->source_corresp.name ? ns->source_corresp.name : "ns";
+    llvm::DINamespace* di_ns = nullptr;
+    LLVM_GEN_BE_ASSERT_OK(createNameSpace(dbg_state, di_scope, ns_name, false, &di_ns));
+    llvm::DIImportedEntity* imp = nullptr;
+    LLVM_GEN_BE_ASSERT_OK(createImportedModule(dbg_state, di_scope, di_ns, di_file, 1, &imp));
+    ++count;
+  }
+
+  *out_count = count;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Emits a DWARF `DICommonBlock` debug metadata node (`DW_TAG_common_block`).
+ * @details Wraps `DIBuilder::createCommonBlock` to describe a named common storage block.
+ * @param[in,out] dbg_state The active debug state.
+ * @param[in] scope Enclosing lexical `DIScope*` (or `compile_unit` if null).
+ * @param[in] decl `DIGlobalVariable*` declaration associated with the common block.
+ * @param[in] name Null-terminated common block identifier.
+ * @param[in] file `DIFile*` where the common block is declared.
+ * @param[in] line_no 1-based source line number.
+ * @param[out] out_block Receives the created `llvm::DICommonBlock*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if required pointers are null.
+ */
+llvm_gen_be_error_t emit_debug_common_block(
+    llvm_gen_be_debug_state_t* dbg_state,
+    llvm::DIScope* scope,
+    llvm::DIGlobalVariable* decl,
+    const char* name,
+    llvm::DIFile* file,
+    unsigned line_no,
+    llvm::DICommonBlock** out_block) noexcept {
+  if (!dbg_state || !dbg_state->builder || !name || !out_block) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  llvm::DIScope* target_scope = scope ? scope : static_cast<llvm::DIScope*>(dbg_state->compile_unit);
+  llvm::DIFile* target_file = file ? file : dbg_state->compile_unit->getFile();
+  *out_block = dbg_state->builder->createCommonBlock(
+      target_scope, decl, name, target_file, line_no);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Constructs a chained `DILocation` metadata node for an inlined call site (`inlinedAt`).
+ * @details Creates an `llvm::DILocation` at (`line`, `col`) inside `inline_scope` chained to `call_site_loc`.
+ * @param[in] dbg_state The active debug state.
+ * @param[in] line 1-based line number inside the inlined routine.
+ * @param[in] col 1-based column number inside the inlined routine.
+ * @param[in] inline_scope Lexical `DIScope*` of the inlined routine.
+ * @param[in] call_site_loc Outer `DILocation*` representing the call site (`inlinedAt`).
+ * @param[out] out_loc Receives the chained `llvm::DILocation*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if required pointers are null.
+ */
+llvm_gen_be_error_t create_inlined_at_debug_location(
+    llvm_gen_be_debug_state_t* dbg_state,
+    unsigned line,
+    unsigned col,
+    llvm::DIScope* inline_scope,
+    llvm::DILocation* call_site_loc,
+    llvm::DILocation** out_loc) noexcept {
+  if (!dbg_state || !inline_scope || !call_site_loc || !out_loc) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  *out_loc = llvm::DILocation::get(*be_state->context, line, col, inline_scope, call_site_loc);
+  return llvm_gen_be_error_t::ok;
 }
 
 END_EDG_NAMESPACE

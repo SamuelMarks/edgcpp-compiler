@@ -513,9 +513,21 @@ Note that this means we're using the C-generating back end,
 but not necessarily in the current program -- e.g., it can
 be TRUE in the standalone IL display program.
 */
+#ifndef BACK_END_IS_LLVM_GEN_BE
+#define BACK_END_IS_LLVM_GEN_BE FALSE
+#endif /* ifndef BACK_END_IS_LLVM_GEN_BE */
+
 #ifndef BACK_END_IS_C_GEN_BE
+#if BACK_END_IS_LLVM_GEN_BE
+#define BACK_END_IS_C_GEN_BE FALSE
+#else /* !BACK_END_IS_LLVM_GEN_BE */
 #define BACK_END_IS_C_GEN_BE TRUE  /* You can change this. */
+#endif /* BACK_END_IS_LLVM_GEN_BE */
 #endif /* ifndef BACK_END_IS_C_GEN_BE */
+
+#if BACK_END_IS_LLVM_GEN_BE && BACK_END_IS_C_GEN_BE
+ #error -- BACK_END_IS_LLVM_GEN_BE and BACK_END_IS_C_GEN_BE cannot both be TRUE.
+#endif /* BACK_END_IS_LLVM_GEN_BE && BACK_END_IS_C_GEN_BE */
 
 /*
 This switch controls whether a post-pass is done after IL lowering to ensure

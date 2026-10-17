@@ -324,6 +324,41 @@
         "EDG_DEBUG_MACRO_CONF": "windows-msvc",
         "EDG_RELEASE_MACRO_CONF": "windows-msvc-release"
       }
+    },
+    {
+      "name": "llvm-backend-debug",
+      "displayName": "LLVM Backend Debug",
+      "description": "Debug build of the EDG front end with the LLVM IR backend enabled.",
+      "binaryDir": "${sourceDir}/build/llvm-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ENABLE_LLVM_BACKEND": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "llvm-backend-release",
+      "displayName": "LLVM Backend Release",
+      "description": "Release build of the EDG front end with the LLVM IR backend enabled.",
+      "binaryDir": "${sourceDir}/build/llvm-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_LLVM_BACKEND": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "llvm-backend-coverage",
+      "displayName": "LLVM Backend Coverage",
+      "description": "Coverage-instrumented build of the EDG LLVM IR backend and test suite.",
+      "binaryDir": "${sourceDir}/build/llvm-coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ENABLE_LLVM_BACKEND": "ON",
+        "BUILD_TESTING": "ON",
+        "EDG_LLVM_BE_COVERAGE": "ON",
+        "EDG_BUILD_LIB": "OFF"
+      }
     }
   ]
 }

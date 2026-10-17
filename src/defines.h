@@ -3734,6 +3734,13 @@ used to compile older versions where the macros are used).
 
 #endif /* defined(USE_CMAKE_DEFINES) */
 
+#if defined(BACK_END_IS_LLVM_GEN_BE) && BACK_END_IS_LLVM_GEN_BE
+#undef BACK_END_IS_C_GEN_BE
+#define BACK_END_IS_C_GEN_BE 0
+#undef DEFAULT_INSTANTIATION_MODE
+#define DEFAULT_INSTANTIATION_MODE tim_used
+#endif /* defined(BACK_END_IS_LLVM_GEN_BE) && BACK_END_IS_LLVM_GEN_BE */
+
 #endif /* ifndef DEFINES_H */
 
  

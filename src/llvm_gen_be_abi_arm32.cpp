@@ -11,6 +11,7 @@
 #include "llvm_gen_be_abi_arm32.h"
 #include "llvm_gen_be_internal.h"
 
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/TargetParser/Triple.h>
 
 #if BACK_END_IS_LLVM_GEN_BE
@@ -89,9 +90,6 @@ static llvm_gen_be_error_t detect_arm32_hfa(
     uint32_t* out_num_elements,
     llvm::Type** out_elem_ty,
     bool* out_is_hfa) noexcept {
-  
-  if (!out_num_elements || !out_elem_ty || !out_is_hfa) return llvm_gen_be_error_t::invalid_argument;
-
   *out_num_elements = 0;
   *out_elem_ty = nullptr;
   *out_is_hfa = true;
@@ -128,11 +126,7 @@ llvm_gen_be_error_t classify_arm32_argument(a_type_ptr ty, arm32_arg_info_t* out
   bool is_hard_float = (triple.getEnvironment() == llvm::Triple::GNUEABIHF || triple.getEnvironment() == llvm::Triple::EABIHF);
 
   if (ty->kind == tk_float) {
-      if (!is_hard_float) {
-          // softfp: pass float in integer register natively supported by LLVM if we just pass scalar
-          // However, for consistency we let LLVM handle it, so we don't coerce here unless it's a struct.
-          // Wait, if it's a double and not hard float, LLVM maps double to r0/r1 automatically.
-      } else {
+      if (is_hard_float) {
           out_info->is_hfa = true;
       }
       return llvm_gen_be_error_t::ok;
@@ -153,15 +147,8 @@ llvm_gen_be_error_t classify_arm32_argument(a_type_ptr ty, arm32_arg_info_t* out
           }
       }
 
-      if (ty->size > 64) { // AAPCS aggregates > 64 bytes passed indirectly (some versions use 64 bytes, wait, AAPCS says 64 bytes for passing byval)
-          // Wait, AAPCS standard says composites <= 4 registers (16 bytes) are in r0-r3. > 16 bytes goes to stack, or passed byval?
-          // Actually, AAPCS says they are passed byval on the stack, not indirectly by pointer!
-          // We can use ByVal attribute for > 16 bytes or any struct passed on stack/registers.
-          // LLVM handles ByVal attribute efficiently.
-          // Let's use coercion for sizes <= 16, and ByVal for sizes > 16? 
-          // Wait, for AAPCS, structures are passed natively. If we use [N x i32], LLVM passes them in registers or stack as needed.
-          unsigned num_ints = (ty->size + 3) / 4;
-          out_info->coerced_type = llvm::ArrayType::get(llvm::Type::getInt32Ty(*be_state->context), num_ints);
+      if (ty->size > 64) {
+          out_info->is_indirect = true;
       } else {
           unsigned num_ints = (ty->size + 3) / 4;
           if (ty->alignment >= 8) {
@@ -220,7 +207,7 @@ llvm_gen_be_error_t build_arm32_function_type(a_type_ptr routine_ty, llvm::Funct
 
   bool ret_is_sret = false;
   a_type_ptr ret_edg_ty = routine_ty->variant.routine.return_type;
-  if (ret_edg_ty && (ret_edg_ty->kind == tk_class || ret_edg_ty->kind == tk_struct || ret_edg_ty->kind == tk_union)) {
+  if (ret_edg_ty->kind == tk_class || ret_edg_ty->kind == tk_struct || ret_edg_ty->kind == tk_union) {
       if (!ret_info.is_hfa && ret_edg_ty->size > 4) {
           ret_is_sret = true;
       }
@@ -267,6 +254,81 @@ llvm_gen_be_error_t build_arm32_function_type(a_type_ptr routine_ty, llvm::Funct
                                         llvm::AttributeSet(), 
                                         llvm::AttributeSet::get(*be_state->context, ret_attrs), 
                                         param_attrs);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_start intrinsic for the ARM 32-bit AAPCS ABI.
+ * @details Emits `llvm.va_start` on the provided `va_list` pointer.
+ * @param[in] va_list_ptr Pointer to the `va_list` object.
+ * @param[out] out_val Receives the resulting intrinsic call instruction.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_arm32_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
+  if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+      be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
+  *out_val = be_state->builder->CreateCall(fn, {va_list_ptr});
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_arg operation for the ARM 32-bit AAPCS ABI.
+ * @details Emits an LLVM `va_arg` instruction for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the `va_list` object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Receives the extracted LLVM value.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_arm32_va_arg(llvm::Value* va_list_ptr, a_type_ptr ty, llvm::Value** out_val) noexcept {
+  if (!va_list_ptr || !ty || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Type* llvm_ty = nullptr;
+  llvm_gen_be_error_t err = get_llvm_type(ty, &llvm_ty);
+  if (err != llvm_gen_be_error_t::ok) return err;
+  arm32_arg_info_t info = {};
+  LLVM_GEN_BE_ASSERT_OK(classify_arm32_argument(ty, &info));
+  if (info.is_indirect) {
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+    llvm::Value* ind_ptr = be_state->builder->CreateVAArg(va_list_ptr, ptr_ty, "vaarg.ind.ptr");
+    *out_val = be_state->builder->CreateLoad(llvm_ty, ind_ptr, "vaarg.ind.val");
+    return llvm_gen_be_error_t::ok;
+  }
+  if (info.align > 8) {
+    *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty, "vaarg.aligned");
+    return llvm_gen_be_error_t::ok;
+  }
+  *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_end intrinsic for the ARM 32-bit AAPCS ABI.
+ * @details Emits `llvm.va_end` on the provided `va_list` pointer.
+ * @param[in] va_list_ptr Pointer to the `va_list` object.
+ * @param[out] out_val Receives the resulting intrinsic call instruction.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_arm32_va_end(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
+  if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+      be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
+  *out_val = be_state->builder->CreateCall(fn, {va_list_ptr});
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_copy intrinsic for the ARM 32-bit AAPCS ABI.
+ * @details Emits `llvm.va_copy` from `src_va_list_ptr` to `dest_va_list_ptr`.
+ * @param[in] dest_va_list_ptr Pointer to the destination `va_list` object.
+ * @param[in] src_va_list_ptr Pointer to the source `va_list` object.
+ * @param[out] out_val Receives the resulting intrinsic call instruction.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_arm32_va_copy(llvm::Value* dest_va_list_ptr, llvm::Value* src_va_list_ptr, llvm::Value** out_val) noexcept {
+  if (!dest_va_list_ptr || !src_va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+      be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});
+  *out_val = be_state->builder->CreateCall(fn, {dest_va_list_ptr, src_va_list_ptr});
   return llvm_gen_be_error_t::ok;
 }
 

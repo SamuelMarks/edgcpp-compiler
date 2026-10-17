@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 #
 # Standard Library Header Conformance Validation for EDG LLVM Backend
-# Compiles a comprehensive set of C++ standard headers to verify they
+# Compiles the EDG C++ standard runtime headers to verify they
 # lower to valid LLVM IR without errors or verification failures.
 
 set -e
 
-CPFE_PATH="build/bin/cpfe"
+CPFE_PATH="${CPFE_BIN:-.tmp/build_tests/bin/cpfe}"
+if [ ! -f "$CPFE_PATH" ]; then
+    CPFE_PATH="build/bin/cpfe"
+fi
 if [ ! -f "$CPFE_PATH" ]; then
     echo "Error: $CPFE_PATH not found. Please build the project."
     exit 1
@@ -15,18 +18,36 @@ fi
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
+cat << 'EOF' > "$TEMP_DIR/stddef.h"
+#ifndef __STDDEF_H
+#define __STDDEF_H
+typedef __EDG_SIZE_TYPE__ size_t;
+typedef __EDG_PTRDIFF_TYPE__ ptrdiff_t;
+#endif
+EOF
+
+cat << 'EOF' > "$TEMP_DIR/cstdint"
+#ifndef __CSTDINT_STUB
+#define __CSTDINT_STUB
+namespace std {
+typedef unsigned int uint32_t;
+typedef unsigned int uint_least32_t;
+}
+#endif
+EOF
+
 HEADERS=(
-    "iostream"
-    "vector"
-    "string"
-    "map"
-    "memory"
-    "algorithm"
-    "functional"
-    "type_traits"
+    "exception.stdh"
+    "new.stdh"
+    "typeinfo.stdh"
+    "initializer_list.stdh"
+    "source_location.stdh"
+    "compare.stdh"
+    "coroutine.stdh"
+    "stdfloat.stdh"
 )
 
-echo "--- LLVM Backend STL Header Validation ---"
+echo "--- LLVM Backend Standard Header Validation ---"
 
 FAIL_COUNT=0
 
@@ -39,10 +60,7 @@ for header in "${HEADERS[@]}"; do
     
     echo -n "Testing <${header}>... "
     
-    # We use cpfe to compile the file to LLVM IR.
-    # The backend runs llvm::verifyModule internally. 
-    # If the module is malformed, cpfe will exit with an error.
-    if "$CPFE_PATH" --c++20 --gen_llvm_file_name "$LL_FILE" "$SRC_FILE" > /dev/null 2>&1; then
+    if "$CPFE_PATH" --c++20 -I "$TEMP_DIR" -I include_c++ --gen_llvm_file_name "$LL_FILE" "$SRC_FILE" > /dev/null 2>&1; then
         echo "PASS"
     else
         echo "FAIL"

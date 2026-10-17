@@ -5027,7 +5027,11 @@ exception handling stack, and cleanup tables and typeinfo entries are
 generated.  Note that the C-generating back end requires this mode.
 */
 #ifndef DO_FULL_PORTABLE_EH_LOWERING
+#if BACK_END_IS_LLVM_GEN_BE
+#define DO_FULL_PORTABLE_EH_LOWERING FALSE
+#else /* !BACK_END_IS_LLVM_GEN_BE */
 #define DO_FULL_PORTABLE_EH_LOWERING TRUE
+#endif /* BACK_END_IS_LLVM_GEN_BE */
 #endif /* ifndef DO_FULL_PORTABLE_EH_LOWERING */
 
 /*

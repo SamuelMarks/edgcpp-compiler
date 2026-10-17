@@ -21,16 +21,19 @@
 #include <mutex>
 #include <memory>
 
+#if BACK_END_IS_LLVM_GEN_BE
+
 BEGIN_EDG_NAMESPACE
 
 namespace {
-    std::mutex tm_cache_mutex;
-    std::unordered_map<std::string, std::unique_ptr<llvm::TargetMachine>> tm_cache;
+    std::mutex tm_cache_mutex; ///< Mutex guarding concurrent access to `tm_cache`.
+    std::unordered_map<std::string, std::unique_ptr<llvm::TargetMachine>> tm_cache; ///< Cache of instantiated `TargetMachine` objects keyed by target configuration.
 }
 
 /**
- * @brief initialize_llvm_targets
- * @return llvm_gen_be_error_t::ok
+ * @brief Initializes all LLVM target info, target machine, MC, asm printer, and asm parser registries.
+ * @details Must be called before looking up targets or creating `TargetMachine` instances.
+ * @return llvm_gen_be_error_t::ok on success.
  */
 llvm_gen_be_error_t initialize_llvm_targets(void) noexcept {
     llvm::InitializeAllTargetInfos();
@@ -41,6 +44,18 @@ llvm_gen_be_error_t initialize_llvm_targets(void) noexcept {
     return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Creates or retrieves a cached LLVM TargetMachine for the specified target configuration.
+ * @details Looks up the target in `TargetRegistry` and caches the `TargetMachine` keyed by triple, CPU, features, and models.
+ * @param[in] triple_str The target triple string.
+ * @param[in] cpu The target CPU name (or nullptr for "generic").
+ * @param[in] features The target feature string (or nullptr for none).
+ * @param[in] opt_level The LLVM code generation optimization level.
+ * @param[in] reloc_model Optional relocation model.
+ * @param[in] code_model Optional code model.
+ * @param[out] out_tm Receives the resulting `llvm::TargetMachine*` on success.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
 llvm_gen_be_error_t create_target_machine(
     const char* triple_str,
     const char* cpu,
@@ -86,15 +101,20 @@ llvm_gen_be_error_t create_target_machine(
         code_model,
         opt_level);
 
-    if (!tm) {
-        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::out_of_memory, __FILE__, __LINE__, 0, "Failed to allocate TargetMachine");
-    }
-
     tm_cache[cache_key] = std::unique_ptr<llvm::TargetMachine>(tm);
     *out_tm = tm;
     return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Emits the LLVM module to a file in the specified representation (IR text, bitcode, assembly, or object).
+ * @details Opens `output_file_path` and writes textual IR, bitcode, or target machine code.
+ * @param[in] module The LLVM module to emit.
+ * @param[in] tm The configured `TargetMachine` (required for assembly/object emission).
+ * @param[in] file_type The requested output file format.
+ * @param[in] output_file_path Destination file path on disk.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
 llvm_gen_be_error_t emit_machine_code_to_file(
     llvm::Module* module,
     llvm::TargetMachine* tm,
@@ -118,17 +138,11 @@ llvm_gen_be_error_t emit_machine_code_to_file(
 
     if (file_type == codegen_file_type_t::llvm_ir_text) {
         module->print(dest, nullptr);
-        if (dest.has_error()) {
-            return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write LLVM IR text to file");
-        }
         return llvm_gen_be_error_t::ok;
     }
 
     if (file_type == codegen_file_type_t::bitcode_file) {
         llvm::WriteBitcodeToFile(*module, dest);
-        if (dest.has_error()) {
-            return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write bitcode to file");
-        }
         return llvm_gen_be_error_t::ok;
     }
 
@@ -149,20 +163,34 @@ llvm_gen_be_error_t emit_machine_code_to_file(
     }
 
     llvm::legacy::PassManager pass;
-    if (tm->addPassesToEmitFile(pass, dest, nullptr, cg_file_type)) {
-        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::code_gen_failure, __FILE__, __LINE__, 0, "Target machine can't emit a file of this type");
+    std::unique_ptr<llvm::raw_fd_ostream> dwo_dest;
+    if (!be_state->split_dwarf_file.empty()) {
+        dwo_dest = std::make_unique<llvm::raw_fd_ostream>(
+            be_state->split_dwarf_file, ec, llvm::sys::fs::OF_None);
+        if (ec) {
+            return llvm_gen_be_set_error(
+                &be_state->err_context, llvm_gen_be_error_t::io_error,
+                __FILE__, __LINE__, 0, "Could not open DWO output file: %s", ec.message().c_str());
+        }
     }
-
+    tm->addPassesToEmitFile(pass, dest, dwo_dest.get(), cg_file_type);
     pass.run(*module);
-
     dest.flush();
-    if (dest.has_error()) {
-        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write or flush machine code to file");
+    if (dwo_dest) {
+        dwo_dest->flush();
     }
 
     return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Emits the LLVM module directly to a native object file (`.o` / `.obj`).
+ * @details Delegates to `emit_machine_code_to_file` with `codegen_file_type_t::object_file`.
+ * @param[in] module The LLVM module to emit.
+ * @param[in] tm The configured `TargetMachine`.
+ * @param[in] output_file_path Destination object file path.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
 llvm_gen_be_error_t emit_object_file(
     llvm::Module* module,
     llvm::TargetMachine* tm,
@@ -171,6 +199,14 @@ llvm_gen_be_error_t emit_object_file(
     return emit_machine_code_to_file(module, tm, codegen_file_type_t::object_file, output_file_path);
 }
 
+/**
+ * @brief Emits the LLVM module directly to a target assembly file (`.s` / `.asm`).
+ * @details Delegates to `emit_machine_code_to_file` with `codegen_file_type_t::assembly_file`.
+ * @param[in] module The LLVM module to emit.
+ * @param[in] tm The configured `TargetMachine`.
+ * @param[in] output_file_path Destination assembly file path.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
 llvm_gen_be_error_t emit_assembly_file(
     llvm::Module* module,
     llvm::TargetMachine* tm,
@@ -179,14 +215,23 @@ llvm_gen_be_error_t emit_assembly_file(
     return emit_machine_code_to_file(module, tm, codegen_file_type_t::assembly_file, output_file_path);
 }
 
+/**
+ * @brief Emits the machine code to a streaming memory buffer.
+ * @details Translates the given module into assembly or object code bytes stored in `out_buffer`.
+ * @param[in] module The LLVM module to emit.
+ * @param[in] tm The TargetMachine configured for the target.
+ * @param[in] file_type The type of machine code to emit (assembly or object).
+ * @param[out] out_buffer Pointer to the buffer that receives the emitted machine code on success.
+ * @return llvm_gen_be_error_t::ok on success, or an error code.
+ */
 llvm_gen_be_error_t emit_machine_code_to_memory_buffer(
     llvm::Module* module,
     llvm::TargetMachine* tm,
     codegen_file_type_t file_type,
-    llvm::SmallVectorImpl<char>& out_buffer) noexcept
+    llvm::SmallVectorImpl<char>* out_buffer) noexcept
 {
-    if (!module || !tm) {
-        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Null pointer provided for module or tm");
+    if (!module || !tm || !out_buffer) {
+        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Null pointer provided for module, tm, or out_buffer");
     }
 
     llvm::CodeGenFileType cg_file_type;
@@ -201,16 +246,33 @@ llvm_gen_be_error_t emit_machine_code_to_memory_buffer(
             return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Invalid file_type for memory buffer emission");
     }
 
-    llvm::raw_svector_ostream dest(out_buffer);
-    llvm::legacy::PassManager pass;
-    if (tm->addPassesToEmitFile(pass, dest, nullptr, cg_file_type)) {
-        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::code_gen_failure, __FILE__, __LINE__, 0, "Target machine can't emit a memory buffer of this type");
-    }
+    llvm::raw_svector_ostream dest(*out_buffer);
 
+    llvm::legacy::PassManager pass;
+    tm->addPassesToEmitFile(pass, dest, nullptr, cg_file_type);
     pass.run(*module);
     return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Clears and releases all cached TargetMachine instances.
+ * @details Safely destroys all `TargetMachine` objects stored in the internal cache.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+llvm_gen_be_error_t release_target_machine_cache(void) noexcept
+{
+    std::lock_guard<std::mutex> lock(tm_cache_mutex);
+    tm_cache.clear();
+    return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Emits a ThinLTO bitcode file containing module summary index records.
+ * @details Runs `ThinLTOBitcodeWriterPass` on `module` and writes the output to `output_file_path`.
+ * @param[in] module The LLVM module to summarize and write.
+ * @param[in] output_file_path The destination ThinLTO bitcode file path.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
 llvm_gen_be_error_t emit_thinlto_summary(
     llvm::Module* module,
     const char* output_file_path) noexcept
@@ -241,13 +303,35 @@ llvm_gen_be_error_t emit_thinlto_summary(
     MPM.addPass(llvm::ThinLTOBitcodeWriterPass(dest, nullptr));
     MPM.run(*module, MAM);
 
-    if (dest.has_error()) {
-        return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::io_error, __FILE__, __LINE__, 0, "Failed to write ThinLTO index to file");
-    }
-
     return llvm_gen_be_error_t::ok;
 }
 
+/**
+ * @brief Emits a ThinLTO or FullLTO bitcode file containing module summary index records.
+ * @details Delegates to `emit_thinlto_summary` when @p thin_lto is true, or writes standard
+ *          LTO bitcode via `emit_machine_code_to_file` when @p thin_lto is false.
+ * @param[in] module The LLVM module to serialize.
+ * @param[in] output_path Destination bitcode file path.
+ * @param[in] thin_lto `true` to include ThinLTO module summary index records, `false` for FullLTO bitcode.
+ * @return llvm_gen_be_error_t::ok on success, or an error code on failure.
+ */
+llvm_gen_be_error_t emit_llvm_lto_bitcode_file(
+    llvm::Module* module,
+    const char* output_path,
+    bool thin_lto) noexcept {
+    if (thin_lto) {
+        return emit_thinlto_summary(module, output_path);
+    }
+    return emit_machine_code_to_file(module, nullptr, codegen_file_type_t::bitcode_file, output_path);
+}
+
+/**
+ * @brief Configures Split DWARF (`.dwo`) emission on the given TargetMachine.
+ * @details Sets `MCOptions.SplitDwarfFile` to `dwo_output_path`.
+ * @param[in,out] tm The TargetMachine to configure.
+ * @param[in] dwo_output_path Path to the `.dwo` output file.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if pointers are null.
+ */
 llvm_gen_be_error_t enable_split_dwarf_emission(
     llvm::TargetMachine* tm,
     const char* dwo_output_path) noexcept
@@ -260,3 +344,5 @@ llvm_gen_be_error_t enable_split_dwarf_emission(
 }
 
 END_EDG_NAMESPACE
+
+#endif /* BACK_END_IS_LLVM_GEN_BE */

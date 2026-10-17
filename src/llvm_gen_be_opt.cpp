@@ -29,6 +29,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 
+#if BACK_END_IS_LLVM_GEN_BE
 
 BEGIN_EDG_NAMESPACE
 
@@ -81,6 +82,44 @@ llvm_gen_be_error_t parse_opt_level_string(const char* opt_str, llvm_opt_options
 }
 
 /**
+ * @brief Adds PGO and sanitizer instrumentation passes at the start of the optimization pipeline.
+ * @details Appends PGO generation/use passes and ASan, TSan, MSan, and UBSan passes onto @p out_mpm
+ *          according to the flags in @p opts.
+ * @param[in] opts Pointer to the optimization options configuration.
+ * @param[in,out] out_mpm Pointer to the `llvm::ModulePassManager` to populate.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+static llvm_gen_be_error_t add_pipeline_start_passes(
+    const llvm_opt_options_t* opts,
+    llvm::ModulePassManager* out_mpm) noexcept {
+  if (opts->pgo_generate) {
+    out_mpm->addPass(llvm::PGOInstrumentationGen());
+  } else if (opts->pgo_use_path) {
+    out_mpm->addPass(llvm::PGOInstrumentationUse(opts->pgo_use_path));
+  }
+  if (opts->use_asan) {
+    out_mpm->addPass(llvm::AddressSanitizerPass(llvm::AddressSanitizerOptions{}));
+  }
+  if (opts->use_tsan) {
+    out_mpm->addPass(llvm::ModuleThreadSanitizerPass());
+    out_mpm->addPass(llvm::createModuleToFunctionPassAdaptor(llvm::ThreadSanitizerPass()));
+  }
+  if (opts->use_msan) {
+    out_mpm->addPass(llvm::MemorySanitizerPass(llvm::MemorySanitizerOptions{}));
+  }
+  if (opts->use_ubsan) {
+    llvm::BoundsCheckingPass::Options ubsan_opts;
+    ubsan_opts.Rt = llvm::BoundsCheckingPass::Options::Runtime(
+        false, // MinRuntime: false uses full __ubsan_handle_out_of_bounds handlers
+        false, // MayReturn: false for fatal checks
+        false  // HandlerPreserveAllRegs
+    );
+    out_mpm->addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass(ubsan_opts)));
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
  * @brief Executes the LLVM PassBuilder optimization pipeline on a Module.
  * @details Constructs PassManagers, adds sanitizer passes, PGO, LTO, and runs module passes.
  * @param[in,out] module The LLVM Module to optimize.
@@ -92,14 +131,35 @@ llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_o
     return llvm_gen_be_error_t::invalid_argument;
   }
 
+  for (llvm::Function& fn : *module) {
+    if (!fn.isDeclaration()) {
+      if (opts->use_asan) fn.addFnAttr(llvm::Attribute::SanitizeAddress);
+      if (opts->use_tsan) fn.addFnAttr(llvm::Attribute::SanitizeThread);
+      if (opts->use_msan) fn.addFnAttr(llvm::Attribute::SanitizeMemory);
+    }
+  }
+
   llvm::OptimizationLevel llvm_opt_level;
   switch (opts->opt_level) {
     case llvm_opt_level_t::O0: llvm_opt_level = llvm::OptimizationLevel::O0; break;
     case llvm_opt_level_t::O1: llvm_opt_level = llvm::OptimizationLevel::O1; break;
     case llvm_opt_level_t::O2: llvm_opt_level = llvm::OptimizationLevel::O2; break;
     case llvm_opt_level_t::O3: llvm_opt_level = llvm::OptimizationLevel::O3; break;
-    case llvm_opt_level_t::Os: llvm_opt_level = llvm::OptimizationLevel::O2; break; // Map Os to O2 in LLVM 23+
-    case llvm_opt_level_t::Oz: llvm_opt_level = llvm::OptimizationLevel::O2; break; // Map Oz to O2 in LLVM 23+
+    case llvm_opt_level_t::Os:
+      llvm_opt_level = llvm::OptimizationLevel::O2;
+      for (llvm::Function& fn : *module) {
+        if (!fn.isDeclaration()) fn.addFnAttr(llvm::Attribute::OptimizeForSize);
+      }
+      break;
+    case llvm_opt_level_t::Oz:
+      llvm_opt_level = llvm::OptimizationLevel::O2;
+      for (llvm::Function& fn : *module) {
+        if (!fn.isDeclaration()) {
+          fn.addFnAttr(llvm::Attribute::OptimizeForSize);
+          fn.addFnAttr(llvm::Attribute::MinSize);
+        }
+      }
+      break;
     default: llvm_opt_level = llvm::OptimizationLevel::O0; break;
   }
 
@@ -133,49 +193,15 @@ llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_o
   pb.registerLoopAnalyses(lam);
   pb.crossRegisterProxies(lam, fam, cgam, mam);
 
-  
-  pb.registerPipelineStartEPCallback([&](llvm::ModulePassManager &mpm, llvm::OptimizationLevel Level) {
-    
-  // PGO Generation and Use Support
-  if (opts->pgo_generate) {
-      pb.registerPipelineStartEPCallback([&](llvm::ModulePassManager& mpm, llvm::OptimizationLevel Level) {
-          mpm.addPass(llvm::PGOInstrumentationGen());
-      });
-  } else if (opts->pgo_use_path && opts->pgo_use_path[0] != '\0') {
-      pb.registerPipelineStartEPCallback([&](llvm::ModulePassManager& mpm, llvm::OptimizationLevel Level) {
-          mpm.addPass(llvm::PGOInstrumentationUse(opts->pgo_use_path));
-      });
-  }
-if (opts->use_asan) {
-      mpm.addPass(llvm::AddressSanitizerPass(llvm::AddressSanitizerOptions{}));
-    }
-    if (opts->use_tsan) {
-      mpm.addPass(llvm::ModuleThreadSanitizerPass());
-      mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::ThreadSanitizerPass()));
-    }
-    if (opts->use_msan) {
-      mpm.addPass(llvm::MemorySanitizerPass(llvm::MemorySanitizerOptions{}));
-    }
-    if (opts->use_ubsan) {
-      // Full UndefinedBehaviorSanitizer (UBSan) checks and handlers via BoundsChecking runtime options
-      llvm::BoundsCheckingPass::Options ubsan_opts;
-      ubsan_opts.Rt = llvm::BoundsCheckingPass::Options::Runtime(
-          false, // MinRuntime: false uses full __ubsan_handle_out_of_bounds handlers
-          false, // MayReturn: false for fatal checks
-          false  // HandlerPreserveAllRegs
-      );
-      mpm.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass(ubsan_opts)));
-    }
-  });
-
   llvm::ModulePassManager mpm;
+  LLVM_GEN_BE_ASSERT_OK(add_pipeline_start_passes(opts, &mpm));
   if (opts->opt_level == llvm_opt_level_t::O0) {
-    mpm = pb.buildO0DefaultPipeline(llvm_opt_level);
+    mpm.addPass(pb.buildO0DefaultPipeline(llvm_opt_level));
   } else {
     if (opts->use_lto) {
-      mpm = pb.buildThinLTOPreLinkDefaultPipeline(llvm_opt_level);
+      mpm.addPass(pb.buildThinLTOPreLinkDefaultPipeline(llvm_opt_level));
     } else {
-      mpm = pb.buildPerModuleDefaultPipeline(llvm_opt_level);
+      mpm.addPass(pb.buildPerModuleDefaultPipeline(llvm_opt_level));
     }
   }
 
@@ -185,3 +211,5 @@ if (opts->use_asan) {
 }
 
 END_EDG_NAMESPACE
+
+#endif /* BACK_END_IS_LLVM_GEN_BE */

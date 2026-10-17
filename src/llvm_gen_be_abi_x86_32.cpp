@@ -10,6 +10,7 @@
 
 #include "llvm_gen_be_abi_x86_32.h"
 #include "llvm_gen_be_internal.h"
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/TargetParser/Triple.h>
 
 #if BACK_END_IS_LLVM_GEN_BE
@@ -64,8 +65,7 @@ llvm_gen_be_error_t build_x86_32_function_type(a_type_ptr routine_ty, llvm::Func
   if (err != llvm_gen_be_error_t::ok) return err;
   
   x86_32_arg_info_t ret_info;
-  err = classify_x86_32_argument(routine_ty->variant.routine.return_type, &ret_info);
-  if (err != llvm_gen_be_error_t::ok) return err;
+  LLVM_GEN_BE_ASSERT_OK(classify_x86_32_argument(routine_ty->variant.routine.return_type, &ret_info));
   
   llvm::Type* actual_ret_ty = ret_llvm_ty;
   llvm::AttrBuilder ret_attrs(*be_state->context);
@@ -73,8 +73,7 @@ llvm_gen_be_error_t build_x86_32_function_type(a_type_ptr routine_ty, llvm::Func
   std::vector<llvm::Type*> arg_types;
   std::vector<llvm::AttributeSet> param_attrs;
 
-  bool is_msvc = llvm::Triple(be_state->module->getTargetTriple()).isOSMSVCRT() || 
-                 llvm::Triple(be_state->module->getTargetTriple()).isOSWindows();
+  bool is_msvc = llvm::Triple(be_state->module->getTargetTriple()).isOSWindows();
   
   a_calling_convention call_conv = supp ? supp->calling_convention : cc_default;
   bool is_thiscall = (call_conv == cc_thiscall);
@@ -104,8 +103,7 @@ llvm_gen_be_error_t build_x86_32_function_type(a_type_ptr routine_ty, llvm::Func
         if (err != llvm_gen_be_error_t::ok) return err;
         
         x86_32_arg_info_t p_info;
-        err = classify_x86_32_argument(p->type, &p_info);
-        if (err != llvm_gen_be_error_t::ok) return err;
+        LLVM_GEN_BE_ASSERT_OK(classify_x86_32_argument(p->type, &p_info));
         
         llvm::AttrBuilder ab(*be_state->context);
 
@@ -116,10 +114,6 @@ llvm_gen_be_error_t build_x86_32_function_type(a_type_ptr routine_ty, llvm::Func
                 ab.addAttribute(llvm::Attribute::InReg);
                 fastcall_regs++;
             }
-        }
-
-        if (p_info.in_reg) {
-            ab.addAttribute(llvm::Attribute::InReg);
         }
 
         if (p_info.is_indirect) {
@@ -140,6 +134,69 @@ llvm_gen_be_error_t build_x86_32_function_type(a_type_ptr routine_ty, llvm::Func
                                         llvm::AttributeSet(), 
                                         llvm::AttributeSet::get(*be_state->context, ret_attrs), 
                                         param_attrs);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_start intrinsic for the x86 32-bit ABI.
+ * @details Emits `llvm.va_start` on the provided `va_list` pointer.
+ * @param[in] va_list_ptr Pointer to the `va_list` object.
+ * @param[out] out_val Receives the resulting intrinsic call instruction.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_x86_32_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
+  if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+      be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
+  *out_val = be_state->builder->CreateCall(fn, {va_list_ptr});
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_arg operation for the x86 32-bit ABI.
+ * @details Emits an LLVM `va_arg` instruction for the requested EDG type.
+ * @param[in] va_list_ptr Pointer to the `va_list` object.
+ * @param[in] ty The EDG type being extracted.
+ * @param[out] out_val Receives the extracted LLVM value.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_x86_32_va_arg(llvm::Value* va_list_ptr, a_type_ptr ty, llvm::Value** out_val) noexcept {
+  if (!va_list_ptr || !ty || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Type* llvm_ty = nullptr;
+  llvm_gen_be_error_t err = get_llvm_type(ty, &llvm_ty);
+  if (err != llvm_gen_be_error_t::ok) return err;
+  *out_val = be_state->builder->CreateVAArg(va_list_ptr, llvm_ty);
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_end intrinsic for the x86 32-bit ABI.
+ * @details Emits `llvm.va_end` on the provided `va_list` pointer.
+ * @param[in] va_list_ptr Pointer to the `va_list` object.
+ * @param[out] out_val Receives the resulting intrinsic call instruction.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_x86_32_va_end(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
+  if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+      be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
+  *out_val = be_state->builder->CreateCall(fn, {va_list_ptr});
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
+ * @brief Lowers a va_copy intrinsic for the x86 32-bit ABI.
+ * @details Emits `llvm.va_copy` from `src_va_list_ptr` to `dest_va_list_ptr`.
+ * @param[in] dest_va_list_ptr Pointer to the destination `va_list` object.
+ * @param[in] src_va_list_ptr Pointer to the source `va_list` object.
+ * @param[out] out_val Receives the resulting intrinsic call instruction.
+ * @return llvm_gen_be_error_t::ok on success, or an appropriate error code.
+ */
+llvm_gen_be_error_t lower_x86_32_va_copy(llvm::Value* dest_va_list_ptr, llvm::Value* src_va_list_ptr, llvm::Value** out_val) noexcept {
+  if (!dest_va_list_ptr || !src_va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
+  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+      be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});
+  *out_val = be_state->builder->CreateCall(fn, {dest_va_list_ptr, src_va_list_ptr});
   return llvm_gen_be_error_t::ok;
 }
 

@@ -110,6 +110,8 @@ enum an_option_kind {
   optk_display_error_number,
 #if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE
   optk_gen_c_file_name,
+#endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE || BACK_END_IS_LLVM_GEN_BE */
+#if BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE
   optk_msvc_target_version,
   optk_gnu_target_version,
   optk_clang_target_version,
@@ -124,6 +126,17 @@ enum an_option_kind {
   optk_gen_obj_file_name,
   optk_gen_asm_file_name,
   optk_fsanitize,
+  optk_fstack_protector,
+  optk_llvm_opt_level,
+  optk_llvm_debug_info,
+  optk_llvm_split_dwarf,
+  optk_llvm_target,
+  optk_llvm_mcpu,
+  optk_llvm_mattr,
+  optk_llvm_reloc_model,
+  optk_llvm_code_model,
+  optk_llvm_fopenmp,
+  optk_llvm_linker_arg,
 #endif /* BACK_END_IS_LLVM_GEN_BE */
   optk_create_pch,
   optk_use_pch,
@@ -1426,6 +1439,22 @@ EXTERN_THREAD a_boolean
 EXTERN_THREAD a_boolean
            sanitize_undefined;
                    /* TRUE if UndefinedBehaviorSanitizer is enabled. */
+EXTERN_THREAD a_boolean
+           sanitize_hwaddress;
+                   /* TRUE if HWAddressSanitizer is enabled. */
+EXTERN_THREAD a_boolean
+           use_safestack;
+                   /* TRUE if SafeStack is enabled. */
+EXTERN_THREAD a_boolean
+           use_shadowcallstack;
+                   /* TRUE if ShadowCallStack is enabled. */
+EXTERN_THREAD int
+           stack_protector_mode;
+                   /* Stack protector mode (0=none, 1=basic, 2=strong, 3=all). */
+EXTERN_THREAD a_const_char
+           *ofile_name;
+                   /* Points to a string specifying the output executable
+                      or object file name provided via -o. */
 #endif /* BACK_END_IS_LLVM_GEN_BE */
 
 EXTERN_THREAD a_boolean

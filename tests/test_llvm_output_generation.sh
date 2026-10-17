@@ -1,21 +1,18 @@
 #!/bin/bash
 set -e
 
-if [ "$RUN_LLVM_LINK_TESTS" != "1" ]; then
-    echo "Skipping output generation execution test. Set RUN_LLVM_LINK_TESTS=1 to run."
-    exit 0
+CPFE_PATH="${CPFE_BIN:-.tmp/build_tests/bin/cpfe}"
+if [ ! -f "$CPFE_PATH" ]; then
+    CPFE_PATH="build/test_llvm_enabled/bin/cpfe"
 fi
-
-CPFE_PATH="build/test_llvm_enabled/bin/cpfe"
 if [ ! -f "$CPFE_PATH" ]; then
     echo "FAIL: $CPFE_PATH not found."
     exit 1
 fi
 
-TEST_C="tests/empty_main.c"
-# By default, without --gen_llvm_file_name, if it's activated via --llvm, it might use empty_main.ll
-# But since we only have --gen_llvm_file_name, we test if it outputs to the given path and format.
-TEST_LL="tests/empty_main.ll"
+TEST_C=".tmp/empty_main.c"
+TEST_LL=".tmp/empty_main.ll"
+mkdir -p .tmp
 
 cat << 'C_EOF' > "$TEST_C"
 int main() {
@@ -24,7 +21,7 @@ int main() {
 C_EOF
 
 echo "Running $CPFE_PATH on empty_main.c..."
-$CPFE_PATH --gen_llvm_file_name "$TEST_LL" "$TEST_C" || {
+"$CPFE_PATH" --gen_llvm_file_name "$TEST_LL" "$TEST_C" || {
     echo "FAIL: cpfe execution failed."
     exit 1
 }
@@ -34,7 +31,6 @@ if [ ! -f "$TEST_LL" ]; then
     exit 1
 fi
 
-# Verify structural match for .ll
 if ! grep -q "^target datalayout = " "$TEST_LL"; then
     echo "FAIL: Missing target datalayout in output."
     exit 1
@@ -46,5 +42,4 @@ if ! grep -q "^define .* @main(" "$TEST_LL"; then
 fi
 
 echo "PASS: Output generation tests passed."
-
-rm "$TEST_C" "$TEST_LL"
+rm -f "$TEST_C" "$TEST_LL"
