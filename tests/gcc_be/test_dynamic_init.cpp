@@ -1,56 +1,52 @@
 /**
  * @file test_dynamic_init.cpp
- * @brief Test file.
- * @details Tests functionality.
+ * @brief End-to-end C++ test for file-scope dynamic initialization via global constructors.
+ * @details Verifies that `GlobalInitializer`'s constructor runs before `main()` and sets `my_global = 42`.
  */
-#include <stdio.h>
-#include <stdlib.h>
 
-/** @brief my_global member. */
+#include "test_common.h"
+
+/** @brief Global integer modified by `GlobalInitializer::GlobalInitializer()`. */
 int my_global = 0;
 
 /**
- * @brief GlobalInitializer struct.
- * @details Helper struct for testing.
+ * @brief Helper struct whose constructor initializes `my_global` during dynamic startup.
+ * @details Exercises `_GLOBAL__sub_I_*` static constructor synthesis in `gcc_gen_be_dtor.c`.
  */
 struct GlobalInitializer {
-/**
- * @brief GlobalInitializer function.
- * @details Test helper function GlobalInitializer.
- * @return Expected return value.
- */
+    /**
+     * @brief Constructs `GlobalInitializer` and sets `my_global = 42`.
+     * @details Invoked automatically before `main()` enters.
+     */
     GlobalInitializer() {
         my_global = 42;
     }
 };
 
-/** @brief instance member. */
-GlobalInitializer instance;
+/** @brief File-scope `GlobalInitializer` instance triggering dynamic initialization. */
+GlobalInitializer init_obj;
+
+/**
+ * @brief Verifies that `init_obj`'s constructor ran before `main()`.
+ * @details Asserts `my_global == 42`.
+ * @param[out] out_ok Pointer to receive 1 on success.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or an error code on failure.
+ */
+static gcc_gen_be_error_t run_dynamic_init_test(int *out_ok) GCC_GEN_BE_NOEXCEPT {
+    if (!out_ok) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_ok = 0;
+    ASSERT_EQ(my_global, 42);
+    *out_ok = 1;
+    return GCC_GEN_BE_SUCCESS;
+}
 
 /**
  * @brief Main entry point.
- * @details Runs tests.
+ * @details Invokes `run_dynamic_init_test` and returns 0 on success.
  * @return 0 on success.
  */
-int main() {
-    if (my_global == 42) {
-/**
- * @brief printf function.
- * @details Test helper function printf.
- * @param[in] PASS\n" Input parameter.
- * @return Expected return value.
- */
-        printf("Dynamic Init PASS\n");
-        return 0;
-    } else {
-/**
- * @brief printf function.
- * @details Test helper function printf.
- * @param[in] %d\n" Input parameter.
- * @param[in] my_global Input parameter.
- * @return Expected return value.
- */
-        printf("Dynamic Init FAIL: %d\n", my_global);
-        return 1;
-    }
+int main(void) {
+    int ok = 0;
+    gcc_gen_be_error_t err = run_dynamic_init_test(&ok);
+    return (err == GCC_GEN_BE_SUCCESS && ok) ? 0 : 1;
 }

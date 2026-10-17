@@ -250,16 +250,19 @@ typedef void (*pfn_gcc_jit_lvalue_set_register_name)(
     struct gcc_jit_lvalue *lvalue,
     const char *reg_name);
 
+/** @brief Function pointer type for `gcc_jit_context_get_int_type`. */
 typedef struct gcc_jit_type * (*pfn_gcc_jit_context_get_int_type)(
     struct gcc_jit_context *ctxt,
     int num_bytes,
     int is_signed);
 
+/** @brief Function pointer type for `gcc_jit_type_get_vector`. */
 typedef struct gcc_jit_type * (*pfn_gcc_jit_type_get_vector)(
     struct gcc_jit_type *type,
     size_t num_units);
 
 /* Optional modern libgccjit API features (loaded dynamically on all platforms) */
+/** @brief Function pointer type for `gcc_jit_context_new_struct_constructor`. */
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_struct_constructor)(
     struct gcc_jit_context *ctxt,
     struct gcc_jit_location *loc,
@@ -268,6 +271,7 @@ typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_struct_constructor)(
     struct gcc_jit_field **fields,
     struct gcc_jit_rvalue **values);
 
+/** @brief Function pointer type for `gcc_jit_context_new_array_constructor`. */
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_array_constructor)(
     struct gcc_jit_context *ctxt,
     struct gcc_jit_location *loc,
@@ -275,15 +279,15 @@ typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_array_constructor)(
     size_t num_values,
     struct gcc_jit_rvalue **values);
 
-/** @brief Function pointer. */
-/** @brief pfn_gcc_jit_context_get_builtin_function member. */
-/** @brief pfn_gcc_jit_context_new_rvalue_from_vector member. */
-/** @brief pfn_gcc_jit_context_new_bitcast member. */
-/** @brief pfn_gcc_jit_context_new_union_constructor member. */
+/** @brief Function pointer for `gcc_jit_context_new_struct_constructor`. */
 extern pfn_gcc_jit_context_new_struct_constructor p_gcc_jit_context_new_struct_constructor;
+/** @brief Function pointer type for `gcc_jit_context_new_union_constructor`. */
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_union_constructor)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_type *type, struct gcc_jit_field *field, struct gcc_jit_rvalue *value);
+/** @brief Function pointer type for `gcc_jit_context_new_bitcast`. */
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_bitcast)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_rvalue *rvalue, struct gcc_jit_type *type);
+/** @brief Function pointer type for `gcc_jit_context_new_rvalue_from_vector`. */
 typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_rvalue_from_vector)(struct gcc_jit_context *ctxt, struct gcc_jit_location *loc, struct gcc_jit_type *vec_type, size_t num_elements, struct gcc_jit_rvalue **elements);
+/** @brief Function pointer type for `gcc_jit_context_get_builtin_function`. */
 typedef struct gcc_jit_function * (*pfn_gcc_jit_context_get_builtin_function)(struct gcc_jit_context *ctxt, const char *name);
 /** @brief Function pointer. */
 extern pfn_gcc_jit_context_get_builtin_function p_gcc_jit_context_get_builtin_function;
@@ -326,6 +330,109 @@ extern pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type;
 /** @brief Function pointer. */
 extern pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector;
 
+/** @brief Function pointer type for `gcc_jit_context_new_rvalue_vector_perm`. */
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_rvalue_vector_perm)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_rvalue *elements1,
+    struct gcc_jit_rvalue *elements2,
+    struct gcc_jit_rvalue *mask);
+
+/** @brief Function pointer type for `gcc_jit_context_new_convert_vector`. */
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_convert_vector)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_rvalue *vector,
+    struct gcc_jit_type *type);
+
+/** @brief Function pointer for `gcc_jit_context_new_rvalue_vector_perm`. */
+extern pfn_gcc_jit_context_new_rvalue_vector_perm p_gcc_jit_context_new_rvalue_vector_perm;
+
+/** @brief Function pointer for `gcc_jit_context_new_convert_vector`. */
+extern pfn_gcc_jit_context_new_convert_vector p_gcc_jit_context_new_convert_vector;
+
+/** @brief Function pointer type for optional `gcc_jit_block_end_with_invoke` unwind extension. */
+typedef void (*pfn_gcc_jit_block_end_with_invoke)(
+    struct gcc_jit_block *block,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_rvalue *call,
+    struct gcc_jit_block *normal_dest,
+    struct gcc_jit_block *unwind_dest);
+
+/** @brief Function pointer for `gcc_jit_block_end_with_invoke`. */
+extern pfn_gcc_jit_block_end_with_invoke p_gcc_jit_block_end_with_invoke;
+
+/** @brief Function pointer type for optional `gcc_jit_block_add_try_catch` GIMPLE EH extension. */
+typedef void (*pfn_gcc_jit_block_add_try_catch)(
+    struct gcc_jit_block *try_block,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_block *catch_block);
+
+/** @brief Function pointer for `gcc_jit_block_add_try_catch`. */
+extern pfn_gcc_jit_block_add_try_catch p_gcc_jit_block_add_try_catch;
+
+/** @brief Function pointer type for optional `gcc_jit_block_add_cleanup` GIMPLE EH extension. */
+typedef void (*pfn_gcc_jit_block_add_cleanup)(
+    struct gcc_jit_block *block,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_block *cleanup_block);
+
+/** @brief Function pointer for `gcc_jit_block_add_cleanup`. */
+extern pfn_gcc_jit_block_add_cleanup p_gcc_jit_block_add_cleanup;
+
+/** @brief Function pointer type for optional `gcc_jit_block_end_with_resx` GIMPLE EH extension. */
+typedef void (*pfn_gcc_jit_block_end_with_resx)(
+    struct gcc_jit_block *block,
+    struct gcc_jit_location *loc,
+    int region_idx);
+
+/** @brief Function pointer for `gcc_jit_block_end_with_resx`. */
+extern pfn_gcc_jit_block_end_with_resx p_gcc_jit_block_end_with_resx;
+
+/** @brief Function pointer type for optional `gcc_jit_function_set_personality` GIMPLE EH extension. */
+typedef void (*pfn_gcc_jit_function_set_personality)(
+    struct gcc_jit_function *fn,
+    struct gcc_jit_function *personality_fn);
+
+/** @brief Function pointer for `gcc_jit_function_set_personality`. */
+extern pfn_gcc_jit_function_set_personality p_gcc_jit_function_set_personality;
+
+/** @brief Function pointer type for optional `gcc_jit_block_add_landing_pad` GIMPLE EH extension. */
+typedef void (*pfn_gcc_jit_block_add_landing_pad)(
+    struct gcc_jit_block *block,
+    struct gcc_jit_location *loc,
+    struct gcc_jit_function *personality_fn,
+    int action_index);
+
+/** @brief Function pointer for `gcc_jit_block_add_landing_pad`. */
+extern pfn_gcc_jit_block_add_landing_pad p_gcc_jit_block_add_landing_pad;
+
+/** @brief Function pointer type for optional `gcc_jit_context_new_eh_filter` GIMPLE EH extension. */
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_eh_filter)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_location *loc,
+    int filter_index);
+
+/** @brief Function pointer for `gcc_jit_context_new_eh_filter`. */
+extern pfn_gcc_jit_context_new_eh_filter p_gcc_jit_context_new_eh_filter;
+
+/** @brief Function pointer type for optional `gcc_jit_rvalue_set_bool_require_tail_call`. */
+typedef void (*pfn_gcc_jit_rvalue_set_bool_require_tail_call)(
+    struct gcc_jit_rvalue *call,
+    int require_tail_call);
+
+/** @brief Function pointer for `gcc_jit_rvalue_set_bool_require_tail_call`. */
+extern pfn_gcc_jit_rvalue_set_bool_require_tail_call p_gcc_jit_rvalue_set_bool_require_tail_call;
+
+/** @brief Function pointer type for optional `gcc_jit_context_add_top_level_asm`. */
+typedef void (*pfn_gcc_jit_context_add_top_level_asm)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_location *loc,
+    const char *asm_stmts);
+
+/** @brief Function pointer for `gcc_jit_context_add_top_level_asm`. */
+extern pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm;
+
 /**
  * @brief Loads the libgccjit dynamic library on Windows.
  *
@@ -339,6 +446,56 @@ extern gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT;
  * @return GCC_GEN_BE_SUCCESS if loaded successfully, or an error code otherwise.
  */
 extern gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Probes `libgccjit` for exception handling and unwind builtins.
+ * @details Queries `gcc_jit_context_get_builtin_function` (or dynamic `p_gcc_jit_context_get_builtin_function`)
+ * for `__builtin_eh_pointer`, `__builtin_eh_filter`, and `__builtin_unwind_resume`, and ensures `_Unwind_Resume`
+ * is available in the context.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_has_eh_builtins Pointer to receive `TRUE` if native EH builtins are available, `FALSE` otherwise.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code if arguments are invalid.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_probe_eh_builtins(struct gcc_jit_context *ctx, a_boolean *out_has_eh_builtins) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Probes `libgccjit` for native GIMPLE EH region entrypoints (`TRY_CATCH_EXPR`, `CLEANUP_POINT_EXPR`, `RESX_EXPR`).
+ * @details Checks whether the loaded `libgccjit` shared library exports `gcc_jit_block_add_try_catch`,
+ * `gcc_jit_block_add_cleanup`, `gcc_jit_block_end_with_resx`, and `gcc_jit_function_set_personality`.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_supported Pointer to receive `TRUE` if native GIMPLE EH region entrypoints are present, `FALSE` otherwise.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or `GCC_GEN_BE_ERROR_INVALID_ARGUMENT` if `ctx` or `out_supported` is NULL.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_probe_native_eh_support(
+    struct gcc_jit_context *ctx,
+    a_boolean *out_supported) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Resolves and reports optional `libgccjit` invoke and landing-pad EH entrypoints.
+ * @details Checks whether `gcc_jit_block_end_with_invoke` and `gcc_jit_block_add_landing_pad` (or
+ * `gcc_jit_block_add_try_catch`) are bound on the loaded `libgccjit` library and writes the results
+ * into `out_has_invoke` and `out_has_landing_pad`.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_has_invoke Pointer to receive `TRUE` if `gcc_jit_block_end_with_invoke` is available.
+ * @param[out] out_has_landing_pad Pointer to receive `TRUE` if landing pad / try-catch entrypoints are available.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or `GCC_GEN_BE_ERROR_INVALID_ARGUMENT` if any argument is NULL.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_resolve_eh_entrypoints(
+    struct gcc_jit_context *ctx,
+    a_boolean *out_has_invoke,
+    a_boolean *out_has_landing_pad) GCC_GEN_BE_NOEXCEPT;
+
+/**
+ * @brief Probes `libgccjit` at runtime for extended floating-point `enum gcc_jit_types` support.
+ * @details Checks whether `GCC_JIT_TYPE_BFLOAT16`, `_Float16`, `_Float32`, `_Float64`, and `_Float128`
+ * enumerators are compiled into the active headers and runtime library without triggering errors.
+ * @param[in] ctx Active `gcc_jit_context`.
+ * @param[out] out_has_ext_float Pointer to receive `TRUE` if extended float types are supported, `FALSE` otherwise.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or `GCC_GEN_BE_ERROR_INVALID_ARGUMENT`.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_probe_extended_float_types(
+    struct gcc_jit_context *ctx,
+    a_boolean *out_has_ext_float) GCC_GEN_BE_NOEXCEPT;
 
 END_EDG_NAMESPACE
 

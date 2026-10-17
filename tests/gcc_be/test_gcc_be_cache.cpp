@@ -1,96 +1,106 @@
 /**
  * @file test_gcc_be_cache.cpp
- * @brief Test file.
- * @details Tests functionality.
+ * @brief Unit tests for backend AST-to-JIT hash map caching (`gcc_gen_be_cache.c`).
+ * @details Exercises `cache_insert`, `cache_lookup`, `cache_get_metrics`, `cache_clear`,
+ * `cache_clear_all`, string caching (`GCC_GEN_BE_CACHE_STRING`), and bucket resizing.
  */
+
 #include "basic_hdrs.h"
 #include "gcc_gen_be_cache.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 extern "C" {
-    gcc_gen_be_error_t gcc_gen_be_report_diagnostic(gcc_gen_be_error_t err, const char* msg) GCC_GEN_BE_NOEXCEPT {
-        return GCC_GEN_BE_SUCCESS;
-    }
+/**
+ * @brief Mock diagnostic reporter for cache tests.
+ * @details Returns the error code passed in.
+ * @param[in] err Error code.
+ * @param[in] msg Context message.
+ * @return `err`.
+ */
+gcc_gen_be_error_t gcc_gen_be_report_diagnostic(gcc_gen_be_error_t err, const char *msg) GCC_GEN_BE_NOEXCEPT {
+    (void)msg;
+    return err;
+}
 }
 
 using namespace edg;
 
 /**
- * @brief Main entry point.
- * @details Runs tests.
- * @return 0 on success.
+ * @brief Executes all cache insertion, lookup, resize, and clear unit tests.
+ * @details Verifies pointer and string keys, collision chaining, resizing past load factor, and metrics.
+ * @param[out] out_ok Pointer to receive 1 on success, 0 on failure.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
-int main() {
-    /** @brief err member. */
-    gcc_gen_be_error_t err;
+static gcc_gen_be_error_t run_cache_tests(int *out_ok) GCC_GEN_BE_NOEXCEPT {
+    if (!out_ok) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_ok = 0;
 
-    // Test basic insertion and lookup
     void *key1 = (void *)0x1000;
     void *val1 = (void *)0x2000;
-    
-    err = cache_insert(GCC_GEN_BE_CACHE_TYPE, key1, val1);
-    if (err != GCC_GEN_BE_SUCCESS) return 1;
+
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, key1, val1));
 
     void *out_val = NULL;
-    err = cache_lookup(GCC_GEN_BE_CACHE_TYPE, key1, &out_val);
-    if (err != GCC_GEN_BE_SUCCESS || out_val != val1) return 1;
+    GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_TYPE, key1, &out_val));
+    if (out_val != val1) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test missing key
     void *key2 = (void *)0x1008;
     out_val = (void *)0x1;
-    err = cache_lookup(GCC_GEN_BE_CACHE_TYPE, key2, &out_val);
-    if (err != GCC_GEN_BE_SUCCESS || out_val != NULL) return 1;
+    GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_TYPE, key2, &out_val));
+    if (out_val != NULL) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test metrics
     size_t hits = 0, misses = 0;
-    err = cache_get_metrics(GCC_GEN_BE_CACHE_TYPE, &hits, &misses);
-    if (err != GCC_GEN_BE_SUCCESS || hits != 1 || misses != 1) return 1;
+    GCC_GEN_BE_CHECK(cache_get_metrics(GCC_GEN_BE_CACHE_TYPE, &hits, &misses));
+    if (hits != 1 || misses != 1) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test cache resize and collisions
-    // We insert more than INITIAL_CACHE_CAPACITY * MAX_LOAD_FACTOR items (64 * 0.75 = 48)
     for (int i = 1; i <= 100; ++i) {
         void *k = (void *)(size_t)(i * 16);
         void *v = (void *)(size_t)(i * 32);
-        err = cache_insert(GCC_GEN_BE_CACHE_VAR, k, v);
-        if (err != GCC_GEN_BE_SUCCESS) return 1;
+        GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, k, v));
     }
 
-    // Verify all 100 items can be found
     for (int i = 1; i <= 100; ++i) {
         void *k = (void *)(size_t)(i * 16);
-        err = cache_lookup(GCC_GEN_BE_CACHE_VAR, k, &out_val);
-        if (err != GCC_GEN_BE_SUCCESS || out_val != (void *)(size_t)(i * 32)) return 1;
+        GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_VAR, k, &out_val));
+        if (out_val != (void *)(size_t)(i * 32)) return GCC_GEN_BE_ERROR_INTERNAL;
     }
 
-    err = cache_get_metrics(GCC_GEN_BE_CACHE_VAR, &hits, &misses);
-    if (err != GCC_GEN_BE_SUCCESS || hits != 100 || misses != 0) return 1;
+    GCC_GEN_BE_CHECK(cache_get_metrics(GCC_GEN_BE_CACHE_VAR, &hits, &misses));
+    if (hits != 100 || misses != 0) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test clear
-    err = cache_clear(GCC_GEN_BE_CACHE_VAR);
-    if (err != GCC_GEN_BE_SUCCESS) return 1;
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_VAR));
+    GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_VAR, (void *)16, &out_val));
+    if (out_val != NULL) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    err = cache_lookup(GCC_GEN_BE_CACHE_VAR, (void*)16, &out_val);
-    if (err != GCC_GEN_BE_SUCCESS || out_val != NULL) return 1; // Should be missing
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_SWITCH_CASE, key1, val1));
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_LABEL, key1, val1));
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, key1, val1));
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FUNC, key1, val1));
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_GUARD, key1, val1));
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_STRING, (void *)"hello_key", val1));
 
-    // Test clear all
-    err = cache_insert(GCC_GEN_BE_CACHE_SWITCH_CASE, key1, val1);
-    err = cache_insert(GCC_GEN_BE_CACHE_LABEL, key1, val1);
-    err = cache_insert(GCC_GEN_BE_CACHE_FIELD, key1, val1);
-    err = cache_insert(GCC_GEN_BE_CACHE_FUNC, key1, val1);
-    
-    err = cache_clear_all();
-    if (err != GCC_GEN_BE_SUCCESS) return 1;
+    GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_STRING, (void *)"hello_key", &out_val));
+    if (out_val != val1) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    err = cache_lookup(GCC_GEN_BE_CACHE_SWITCH_CASE, key1, &out_val);
-    if (err != GCC_GEN_BE_SUCCESS || out_val != NULL) return 1;
+    GCC_GEN_BE_CHECK(cache_clear_all());
+
+    GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_SWITCH_CASE, key1, &out_val));
+    if (out_val != NULL) return GCC_GEN_BE_ERROR_INTERNAL;
+
+    *out_ok = 1;
+    return GCC_GEN_BE_SUCCESS;
+}
 
 /**
- * @brief printf function.
- * @details Test helper function printf.
- * @param[in] "PASS\n" Input parameter.
- * @return Expected return value.
+ * @brief Main entry point for cache unit tests.
+ * @details Runs `run_cache_tests` and returns 0 on success.
+ * @return 0 on success, non-zero on failure.
  */
-    printf("PASS\n");
+int main(void) {
+    int ok = 0;
+    gcc_gen_be_error_t err = run_cache_tests(&ok);
+    if (err != GCC_GEN_BE_SUCCESS || !ok) return 1;
+    puts("PASS");
     return 0;
-}\n// Enhanced coverage for test_gcc_be_cache.cpp verified.\n// Added failure injection tests (NULL params, OOM simulation, invalid nodes).\n
+}

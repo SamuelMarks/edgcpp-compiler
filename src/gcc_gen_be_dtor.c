@@ -10,11 +10,32 @@
 
 #include "gcc_gen_be_dtor.h"
 #include "gcc_gen_be_context.h"
+#include "gcc_gen_be_cache.h"
 #include "gcc_gen_be_lib_loader.h"
 
 #if BACK_END_IS_GCC_GEN_BE
 
 BEGIN_EDG_NAMESPACE
+
+gcc_gen_be_error_t gcc_gen_be_get_dso_handle(gcc_jit_context *ctx, gcc_jit_rvalue **out_dso_handle) GCC_GEN_BE_NOEXCEPT {
+    if (!ctx || !out_dso_handle) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_dso_handle = NULL;
+
+    gcc_jit_type *void_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID);
+    gcc_jit_type *void_ptr_type = gcc_jit_type_get_pointer(void_type);
+
+    void *cached_dso = NULL;
+    if (cache_lookup(GCC_GEN_BE_CACHE_VAR, (void *)"__dso_handle", &cached_dso) == GCC_GEN_BE_SUCCESS && cached_dso) {
+        *out_dso_handle = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address((gcc_jit_lvalue *)cached_dso, NULL), void_ptr_type);
+        return GCC_GEN_BE_SUCCESS;
+    }
+
+    gcc_jit_lvalue *dso_handle = gcc_jit_context_new_global(ctx, NULL, GCC_JIT_GLOBAL_IMPORTED, void_ptr_type, "__dso_handle");
+    if (!dso_handle) return GCC_GEN_BE_ERROR_DSO_HANDLE_FAILED;
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, (void *)"__dso_handle", dso_handle));
+    *out_dso_handle = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(dso_handle, NULL), void_ptr_type);
+    return GCC_GEN_BE_SUCCESS;
+}
 
 gcc_gen_be_error_t gcc_gen_be_emit_cxa_atexit(gcc_jit_lvalue *var, gcc_jit_function *dtor_func) GCC_GEN_BE_NOEXCEPT {
     if (!var || !dtor_func) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
@@ -38,13 +59,13 @@ gcc_gen_be_error_t gcc_gen_be_emit_cxa_atexit(gcc_jit_lvalue *var, gcc_jit_funct
     gcc_jit_param *params[] = {p1, p2, p3};
     gcc_jit_function *atexit_fn = gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_IMPORTED, int_type, "__cxa_atexit", 3, params, 0);
 
-    /* dso_handle */
-    gcc_jit_lvalue *dso_handle = gcc_jit_context_new_global(ctx, NULL, GCC_JIT_GLOBAL_IMPORTED, void_ptr_type, "__dso_handle");
+    gcc_jit_rvalue *dso_handle_rval = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_dso_handle(ctx, &dso_handle_rval));
     
     gcc_jit_rvalue *args[3];
     args[0] = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_function_get_address(dtor_func, NULL), void_ptr_type);
     args[1] = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(var, NULL), void_ptr_type);
-    args[2] = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(dso_handle, NULL), void_ptr_type);
+    args[2] = dso_handle_rval;
 
     gcc_jit_block_add_eval(cblock, NULL, gcc_jit_context_new_call(ctx, NULL, atexit_fn, 3, args));
 
@@ -73,13 +94,13 @@ gcc_gen_be_error_t gcc_gen_be_emit_cxa_thread_atexit(gcc_jit_lvalue *var, gcc_ji
     gcc_jit_param *params[] = {p1, p2, p3};
     gcc_jit_function *atexit_fn = gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_IMPORTED, int_type, "__cxa_thread_atexit", 3, params, 0);
 
-    /* dso_handle */
-    gcc_jit_lvalue *dso_handle = gcc_jit_context_new_global(ctx, NULL, GCC_JIT_GLOBAL_IMPORTED, void_ptr_type, "__dso_handle");
+    gcc_jit_rvalue *dso_handle_rval = NULL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_dso_handle(ctx, &dso_handle_rval));
     
     gcc_jit_rvalue *args[3];
     args[0] = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_function_get_address(dtor_func, NULL), void_ptr_type);
     args[1] = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(var, NULL), void_ptr_type);
-    args[2] = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(dso_handle, NULL), void_ptr_type);
+    args[2] = dso_handle_rval;
 
     gcc_jit_block_add_eval(cblock, NULL, gcc_jit_context_new_call(ctx, NULL, atexit_fn, 3, args));
 

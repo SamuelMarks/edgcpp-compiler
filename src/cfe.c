@@ -50,7 +50,6 @@ Open-sourced in September of 2026.
 #if BACK_END_IS_GCC_GEN_BE
 #include "gcc_gen_be_main.h"
 #include "gcc_gen_be_context.h"
-#include "gcc_gen_be_context.h"
 #endif /* BACK_END_IS_GCC_GEN_BE */
 #if BACK_END_SHOULD_BE_CALLED && \
     !BACK_END_IS_C_GEN_BE && !BACK_END_IS_CP_GEN_BE && !BACK_END_IS_GCC_GEN_BE
@@ -113,6 +112,7 @@ MAKE_FRONT_END_CALLABLE is TRUE.
     MAKE_FRONT_END_CALLABLE
   gcc_gen_be_error_t err = gcc_gen_be_early_init();
   if (err != GCC_GEN_BE_SUCCESS) {
+    (void)gcc_gen_be_report_diagnostic(err, "gcc_gen_be_early_init failed");
     internal_error("gcc_gen_be_early_init failed");
   }
 #endif /* BACK_END_SHOULD_BE_CALLED && BACK_END_IS_GCC_GEN_BE && ... */
@@ -180,8 +180,12 @@ MAKE_FRONT_END_CALLABLE is TRUE.
 #endif /* USING_KAI_INLINER */
       if (display_compilation_time) get_timer(&be_start_time);
 #if BACK_END_IS_GCC_GEN_BE
-      if (back_end() != GCC_GEN_BE_SUCCESS) {
-        internal_error("back_end failed");
+      {
+        gcc_gen_be_error_t be_err = back_end();
+        if (be_err != GCC_GEN_BE_SUCCESS) {
+          (void)gcc_gen_be_report_diagnostic(be_err, "back_end failed");
+          internal_error("back_end failed");
+        }
       }
 #else
       back_end();

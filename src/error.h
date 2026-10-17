@@ -27,19 +27,13 @@ error.h -- Declarations related to error reporting.
 Include the file that defines the enumeration an_error_code.
 */
 #ifndef EDG_GCC_BE_ISOLATED_TEST
+#include "err_codes.h"
+#else
 #ifndef AN_ERROR_CODE_DEFINED
 #define AN_ERROR_CODE_DEFINED
 typedef int an_error_code;
 #define ec_no_error 0
 #define ec_list_initializer_nonstandard_in_current_mode 1
-#endif
-#ifndef EDG_GCC_BE_ISOLATED_TEST
-#include "err_codes.h"
-#endif
-#else
-#ifndef AN_ERROR_CODE_DEFINED
-#define AN_ERROR_CODE_DEFINED
-typedef int an_error_code;
 #endif
 #endif
 

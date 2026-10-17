@@ -6729,6 +6729,11 @@ file.
 #else /* !defined(BACK_END_IS_C_GEN_BE) */
   comment_undefined_macro_name(BACK_END_IS_C_GEN_BE);
 #endif /* defined(BACK_END_IS_C_GEN_BE) */
+#if defined(BACK_END_IS_GCC_GEN_BE)
+  define_numeric_valued_macro(BACK_END_IS_GCC_GEN_BE);
+#else /* !defined(BACK_END_IS_GCC_GEN_BE) */
+  comment_undefined_macro_name(BACK_END_IS_GCC_GEN_BE);
+#endif /* defined(BACK_END_IS_GCC_GEN_BE) */
 #if defined(BACK_END_SHOULD_BE_CALLED)
   define_numeric_valued_macro(BACK_END_SHOULD_BE_CALLED);
 #else /* !defined(BACK_END_SHOULD_BE_CALLED) */
@@ -12315,16 +12320,24 @@ enable_microsoft_mode:
       case optk_gcc_be_m64: gcc_be_m64 = TRUE; break;
       case optk_gcc_be_m32: gcc_be_m32 = TRUE; break;
       case optk_gcc_be_L:
-        add_to_list(&gcc_be_driver_options, 
-                    new_str_list_entry_using_host_mem(
-                        add_to_temp_string(
-                            add_to_temp_string(alloc_temp_string(), "-L"), opt_arg)));
+        {
+          size_t len = (opt_arg ? strlen(opt_arg) : 0) + 3;
+          char *buf = (char *)malloc(len);
+          if (buf) {
+            snprintf(buf, len, "-L%s", opt_arg ? opt_arg : "");
+            gcc_be_driver_options = (void *)buf;
+          }
+        }
         break;
       case optk_gcc_be_l:
-        add_to_list(&gcc_be_driver_options, 
-                    new_str_list_entry_using_host_mem(
-                        add_to_temp_string(
-                            add_to_temp_string(alloc_temp_string(), "-l"), opt_arg)));
+        {
+          size_t len = (opt_arg ? strlen(opt_arg) : 0) + 3;
+          char *buf = (char *)malloc(len);
+          if (buf) {
+            snprintf(buf, len, "-l%s", opt_arg ? opt_arg : "");
+            gcc_be_driver_options = (void *)buf;
+          }
+        }
         break;
 #endif /* BACK_END_IS_GCC_GEN_BE */
 
@@ -13064,6 +13077,10 @@ enable_microsoft_mode:
 #if IL_SHOULD_BE_WRITTEN_TO_FILE
     il_file_name = NULL;
   } else {
+#if BACK_END_IS_GCC_GEN_BE
+    gcc_be_output_file_name = ofile_name;
+    ofile_name = NULL;
+#else /* !BACK_END_IS_GCC_GEN_BE */
     /* Establish the intermediate file name (if it is needed). */
     if (!suppress_il_file_write) {
       /* The intermediate language should be written to a file; the file
@@ -13071,6 +13088,7 @@ enable_microsoft_mode:
       il_file_name = ofile_name;
       ofile_name = NULL;
     }  /* if */
+#endif /* BACK_END_IS_GCC_GEN_BE */
 #endif /* IL_SHOULD_BE_WRITTEN_TO_FILE */
   }  /* if */
   if (list_macro_definitions) {
@@ -13120,8 +13138,10 @@ enable_microsoft_mode:
   /* If the -o option appeared, its file should have been taken for
      something. */
   #if BACK_END_IS_GCC_GEN_BE
-  gcc_be_output_file_name = ofile_name;
-  ofile_name = NULL;
+  if (ofile_name != NULL) {
+    gcc_be_output_file_name = ofile_name;
+    ofile_name = NULL;
+  }
 #endif
 
   if (ofile_name != NULL) {

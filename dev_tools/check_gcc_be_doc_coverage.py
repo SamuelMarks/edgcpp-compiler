@@ -14,8 +14,8 @@ OUTPUT_DIRECTORY       = docs_tmp
 GENERATE_XML           = YES
 GENERATE_HTML          = NO
 GENERATE_LATEX         = NO
-INPUT                  = src tests/gcc_be
-FILE_PATTERNS          = gcc_gen_be_*.h gcc_gen_be_*.c test_*.c test_*.cpp
+INPUT                  = src lib_src tests/gcc_be
+FILE_PATTERNS          = gcc_gen_be_*.h gcc_gen_be_*.c gcc_be_*.c gcc_be_*.cpp test_*.h test_*.c test_*.cpp
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = YES
 EXTRACT_STATIC         = YES
@@ -24,6 +24,7 @@ EXPAND_ONLY_PREDEF     = YES
 PREDEFINED             = BACK_END_IS_GCC_GEN_BE=1 GCC_GEN_BE_NODISCARD= GCC_GEN_BE_NOEXCEPT= BEGIN_EDG_NAMESPACE= END_EDG_NAMESPACE=
 WARNINGS               = YES
 WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = YES
 """
     with open("Doxyfile_doc_check", "w") as f:
         f.write(doxyfile_content)
@@ -34,8 +35,10 @@ WARN_IF_UNDOCUMENTED   = YES
 def has_text(element):
     if element is None:
         return False
-    # Check if element has any text or child elements
+    # Check if element has any non-placeholder text
     text = "".join(element.itertext()).strip()
+    if "Missing brief" in text or "Missing details" in text:
+        return False
     return len(text) > 0
 
 def check_coverage():
@@ -59,7 +62,7 @@ def check_coverage():
             name = compound.findtext('compoundname')
             
             # Skip non-backend files
-            if kind == 'file' and not (name.startswith('gcc_gen_be_') or name.startswith('test_')):
+            if kind == 'file' and not (name.startswith('gcc_gen_be_') or name.startswith('gcc_be_') or name.startswith('test_')):
                 continue
             # Skip non-backend structs/enums (though they are generated from these files)
             
@@ -86,8 +89,8 @@ def check_coverage():
                 mkind = member.get('kind')
                 mname = member.findtext('name')
                 
-                # Check enum values, variables (fields)
-                if mkind in ['enumvalue', 'variable']:
+                # Check enum values, variables (fields), typedefs, and macro defines
+                if mkind in ['enumvalue', 'variable', 'typedef', 'define']:
                     brief = member.find('briefdescription')
                     if not has_text(brief):
                         print(f"FAIL: {mkind} {mname} in {name} is missing @brief.")
@@ -107,7 +110,7 @@ def check_coverage():
                     
                     # Check return
                     type_str = "".join(member.find('type').itertext()).strip()
-                    if type_str != 'void' and type_str != '' and not mname.startswith('TEST'):
+                    if type_str != 'void' and type_str != '':
                         ret = details.find('.//simplesect[@kind="return"]')
                         if ret is None or not has_text(ret):
                             print(f"FAIL: Function {mname} in {name} returning '{type_str}' is missing @return.")

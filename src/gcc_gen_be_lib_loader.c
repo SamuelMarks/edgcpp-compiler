@@ -118,6 +118,28 @@ pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name = NULL;
 pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type = NULL;
 /** @brief Function pointer. */
 pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_rvalue_vector_perm`. */
+pfn_gcc_jit_context_new_rvalue_vector_perm p_gcc_jit_context_new_rvalue_vector_perm = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_convert_vector`. */
+pfn_gcc_jit_context_new_convert_vector p_gcc_jit_context_new_convert_vector = NULL;
+/** @brief Function pointer for `gcc_jit_block_end_with_invoke`. */
+pfn_gcc_jit_block_end_with_invoke p_gcc_jit_block_end_with_invoke = NULL;
+/** @brief Function pointer for `gcc_jit_block_add_try_catch`. */
+pfn_gcc_jit_block_add_try_catch p_gcc_jit_block_add_try_catch = NULL;
+/** @brief Function pointer for `gcc_jit_block_add_cleanup`. */
+pfn_gcc_jit_block_add_cleanup p_gcc_jit_block_add_cleanup = NULL;
+/** @brief Function pointer for `gcc_jit_block_end_with_resx`. */
+pfn_gcc_jit_block_end_with_resx p_gcc_jit_block_end_with_resx = NULL;
+/** @brief Function pointer for `gcc_jit_function_set_personality`. */
+pfn_gcc_jit_function_set_personality p_gcc_jit_function_set_personality = NULL;
+/** @brief Function pointer for `gcc_jit_block_add_landing_pad`. */
+pfn_gcc_jit_block_add_landing_pad p_gcc_jit_block_add_landing_pad = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_eh_filter`. */
+pfn_gcc_jit_context_new_eh_filter p_gcc_jit_context_new_eh_filter = NULL;
+/** @brief Function pointer for `gcc_jit_rvalue_set_bool_require_tail_call`. */
+pfn_gcc_jit_rvalue_set_bool_require_tail_call p_gcc_jit_rvalue_set_bool_require_tail_call = NULL;
+/** @brief Function pointer for `gcc_jit_context_add_top_level_asm`. */
+pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm = NULL;
 
 gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
@@ -218,6 +240,17 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_int_type, gcc_jit_context_get_int_type)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_type_get_vector, gcc_jit_type_get_vector)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_rvalue_vector_perm, gcc_jit_context_new_rvalue_vector_perm)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_convert_vector, gcc_jit_context_new_convert_vector)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_invoke, gcc_jit_block_end_with_invoke)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_add_try_catch, gcc_jit_block_add_try_catch)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_add_cleanup, gcc_jit_block_add_cleanup)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_resx, gcc_jit_block_end_with_resx)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_set_personality, gcc_jit_function_set_personality)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_add_landing_pad, gcc_jit_block_add_landing_pad)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_eh_filter, gcc_jit_context_new_eh_filter)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_rvalue_set_bool_require_tail_call, gcc_jit_rvalue_set_bool_require_tail_call)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_add_top_level_asm, gcc_jit_context_add_top_level_asm)
 
   #undef LOAD_SYM
   #undef LOAD_OPTIONAL_SYM
@@ -266,24 +299,69 @@ pfn_gcc_jit_lvalue_set_register_name p_gcc_jit_lvalue_set_register_name = NULL;
 pfn_gcc_jit_context_get_int_type p_gcc_jit_context_get_int_type = NULL;
 /** @brief Function pointer. */
 pfn_gcc_jit_type_get_vector p_gcc_jit_type_get_vector = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_rvalue_vector_perm`. */
+pfn_gcc_jit_context_new_rvalue_vector_perm p_gcc_jit_context_new_rvalue_vector_perm = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_convert_vector`. */
+pfn_gcc_jit_context_new_convert_vector p_gcc_jit_context_new_convert_vector = NULL;
+/** @brief Function pointer for `gcc_jit_block_end_with_invoke`. */
+pfn_gcc_jit_block_end_with_invoke p_gcc_jit_block_end_with_invoke = NULL;
+/** @brief Function pointer for `gcc_jit_block_add_try_catch`. */
+pfn_gcc_jit_block_add_try_catch p_gcc_jit_block_add_try_catch = NULL;
+/** @brief Function pointer for `gcc_jit_block_add_cleanup`. */
+pfn_gcc_jit_block_add_cleanup p_gcc_jit_block_add_cleanup = NULL;
+/** @brief Function pointer for `gcc_jit_block_end_with_resx`. */
+pfn_gcc_jit_block_end_with_resx p_gcc_jit_block_end_with_resx = NULL;
+/** @brief Function pointer for `gcc_jit_function_set_personality`. */
+pfn_gcc_jit_function_set_personality p_gcc_jit_function_set_personality = NULL;
+/** @brief Function pointer for `gcc_jit_block_add_landing_pad`. */
+pfn_gcc_jit_block_add_landing_pad p_gcc_jit_block_add_landing_pad = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_eh_filter`. */
+pfn_gcc_jit_context_new_eh_filter p_gcc_jit_context_new_eh_filter = NULL;
+/** @brief Function pointer for `gcc_jit_rvalue_set_bool_require_tail_call`. */
+pfn_gcc_jit_rvalue_set_bool_require_tail_call p_gcc_jit_rvalue_set_bool_require_tail_call = NULL;
+/** @brief Function pointer for `gcc_jit_context_add_top_level_asm`. */
+pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm = NULL;
 
+/** @brief Resolves an optional `libgccjit` symbol from `libgccjit_handle`. */
+#define LOAD_OPTIONAL_SYM(type, name) \
+    p_##name = (type)dlsym(libgccjit_handle, #name);
+
+/**
+ * @brief Dynamically loads libgccjit on POSIX systems.
+ * @details Uses `dlopen` and `dlsym` to load `libgccjit` and resolve optional API symbols.
+ * @return GCC_GEN_BE_SUCCESS if loaded successfully, or an error code otherwise.
+ */
 gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
+    const char *candidates[] = {
 #if defined(__APPLE__)
-    const char *lib_name = "libgccjit.dylib";
+        "libgccjit.0.dylib",
+        "libgccjit.dylib",
+        "/opt/homebrew/lib/gcc/current/libgccjit.0.dylib",
+        "/opt/homebrew/lib/gcc/current/libgccjit.dylib",
+        "/usr/local/lib/gcc/current/libgccjit.0.dylib",
+        "/usr/local/lib/gcc/current/libgccjit.dylib",
 #else
-    const char *lib_name = "libgccjit.so";
+        "libgccjit.so.0",
+        "libgccjit.so",
+        "/usr/lib/x86_64-linux-gnu/libgccjit.so.0",
+        "/usr/lib/aarch64-linux-gnu/libgccjit.so.0",
+        "/usr/lib64/libgccjit.so.0",
+        "/usr/local/lib/libgccjit.so.0",
 #endif
-    libgccjit_handle = dlopen(lib_name, RTLD_NOW | RTLD_GLOBAL);
-    if (!libgccjit_handle) {
-        /* Optionally fallback but typically linked at compile-time */
-        /* If dlopen fails on POSIX, we often still return SUCCESS if it's linked */
-        /* Plan states: Ensure all dynamic loading failures return explicit gcc_gen_be_error_t codes without unhandled paths. */
-        return GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED;
+        NULL
+    };
+    for (int i = 0; candidates[i] != NULL; ++i) {
+        libgccjit_handle = dlopen(candidates[i], RTLD_NOW | RTLD_GLOBAL);
+        if (libgccjit_handle) break;
     }
-
-    #define LOAD_OPTIONAL_SYM(type, name) \
-      p_##name = (type)dlsym(libgccjit_handle, #name);
+    if (!libgccjit_handle) {
+        libgccjit_handle = RTLD_DEFAULT;
+        if (!dlsym(libgccjit_handle, "gcc_jit_context_acquire")) {
+            libgccjit_handle = NULL;
+            return GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED;
+        }
+    }
 
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_struct_constructor, gcc_jit_context_new_struct_constructor)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_builtin_function, gcc_jit_context_get_builtin_function)
@@ -302,6 +380,17 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_lvalue_set_register_name, gcc_jit_lvalue_set_register_name)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_get_int_type, gcc_jit_context_get_int_type)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_type_get_vector, gcc_jit_type_get_vector)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_rvalue_vector_perm, gcc_jit_context_new_rvalue_vector_perm)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_convert_vector, gcc_jit_context_new_convert_vector)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_invoke, gcc_jit_block_end_with_invoke)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_add_try_catch, gcc_jit_block_add_try_catch)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_add_cleanup, gcc_jit_block_add_cleanup)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_end_with_resx, gcc_jit_block_end_with_resx)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_function_set_personality, gcc_jit_function_set_personality)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_block_add_landing_pad, gcc_jit_block_add_landing_pad)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_eh_filter, gcc_jit_context_new_eh_filter)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_rvalue_set_bool_require_tail_call, gcc_jit_rvalue_set_bool_require_tail_call)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_add_top_level_asm, gcc_jit_context_add_top_level_asm)
 
     #undef LOAD_OPTIONAL_SYM
 
@@ -310,7 +399,91 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
 
 #endif
 
+/**
+ * @brief Probes `libgccjit` for exception handling and unwind builtins.
+ * @details Queries `gcc_jit_context_get_builtin_function` (or dynamic `p_gcc_jit_context_get_builtin_function`)
+ * for `__builtin_eh_pointer`, `__builtin_eh_filter`, and `__builtin_unwind_resume`, and ensures `_Unwind_Resume`
+ * is available in the context.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_has_eh_builtins Pointer to receive `TRUE` if native EH builtins are available, `FALSE` otherwise.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code if arguments are invalid.
+ */
+gcc_gen_be_error_t gcc_gen_be_probe_eh_builtins(struct gcc_jit_context *ctx, a_boolean *out_has_eh_builtins) GCC_GEN_BE_NOEXCEPT {
+    if (!ctx || !out_has_eh_builtins) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_has_eh_builtins = FALSE;
 
+    if (p_gcc_jit_context_get_builtin_function) {
+        struct gcc_jit_function *trap_fn = p_gcc_jit_context_get_builtin_function(ctx, "__builtin_trap");
+        if (trap_fn != NULL) {
+            *out_has_eh_builtins = TRUE;
+        }
+    }
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Probes `libgccjit` for native GIMPLE EH region entrypoints (`TRY_CATCH_EXPR`, `CLEANUP_POINT_EXPR`, `RESX_EXPR`).
+ * @details Checks whether the loaded `libgccjit` shared library exports `gcc_jit_block_add_try_catch`,
+ * `gcc_jit_block_add_cleanup`, `gcc_jit_block_end_with_resx`, and `gcc_jit_function_set_personality`.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_supported Pointer to receive `TRUE` if native GIMPLE EH region entrypoints are present, `FALSE` otherwise.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or `GCC_GEN_BE_ERROR_INVALID_ARGUMENT` if `ctx` or `out_supported` is NULL.
+ */
+gcc_gen_be_error_t gcc_gen_be_probe_native_eh_support(
+    struct gcc_jit_context *ctx,
+    a_boolean *out_supported) GCC_GEN_BE_NOEXCEPT {
+    if (!ctx || !out_supported) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_supported = (p_gcc_jit_block_add_try_catch != NULL &&
+                      p_gcc_jit_block_add_cleanup != NULL &&
+                      p_gcc_jit_block_end_with_resx != NULL &&
+                      p_gcc_jit_function_set_personality != NULL)
+                         ? TRUE
+                         : FALSE;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Resolves and reports optional `libgccjit` invoke and landing-pad EH entrypoints.
+ * @details Checks whether `gcc_jit_block_end_with_invoke` and `gcc_jit_block_add_landing_pad` (or
+ * `gcc_jit_block_add_try_catch`) are bound on the loaded `libgccjit` library and writes the results
+ * into `out_has_invoke` and `out_has_landing_pad`.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_has_invoke Pointer to receive `TRUE` if `gcc_jit_block_end_with_invoke` is available.
+ * @param[out] out_has_landing_pad Pointer to receive `TRUE` if landing pad / try-catch entrypoints are available.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or `GCC_GEN_BE_ERROR_INVALID_ARGUMENT` if any argument is NULL.
+ */
+gcc_gen_be_error_t gcc_gen_be_resolve_eh_entrypoints(
+    struct gcc_jit_context *ctx,
+    a_boolean *out_has_invoke,
+    a_boolean *out_has_landing_pad) GCC_GEN_BE_NOEXCEPT {
+    if (!ctx || !out_has_invoke || !out_has_landing_pad) {
+        return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    }
+    *out_has_invoke = (p_gcc_jit_block_end_with_invoke != NULL) ? TRUE : FALSE;
+    *out_has_landing_pad = (p_gcc_jit_block_add_landing_pad != NULL ||
+                            p_gcc_jit_block_add_try_catch != NULL)
+                               ? TRUE
+                               : FALSE;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+gcc_gen_be_error_t gcc_gen_be_probe_extended_float_types(
+    struct gcc_jit_context *ctx,
+    a_boolean *out_has_ext_float) GCC_GEN_BE_NOEXCEPT {
+    if (!ctx || !out_has_ext_float) {
+        return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    }
+    *out_has_ext_float = FALSE;
+#if defined(GCC_JIT_TYPE_BFLOAT16) || defined(GCC_JIT_TYPE_FLOAT16) || defined(GCC_JIT_TYPE_FLOAT128)
+    gcc_jit_type *ld_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG_DOUBLE);
+    if (ld_t != NULL) {
+        *out_has_ext_float = TRUE;
+    }
+#else
+    (void)ctx;
+#endif
+    return GCC_GEN_BE_SUCCESS;
+}
 
 END_EDG_NAMESPACE
 

@@ -1,79 +1,81 @@
 /**
  * @file test_gcc_be_lib_loader.cpp
- * @brief Test file.
- * @details Tests functionality.
+ * @brief Unit tests for dynamic loading of `libgccjit` (`gcc_gen_be_lib_loader.c`).
+ * @details Uses mocked `dlopen` and `dlsym` implementations to test library load failure,
+ * missing optional symbols, present optional symbols, and idempotent re-loading.
  */
+
 #include "basic_hdrs.h"
 #include <stdio.h>
 #include <string.h>
 
-// Mock dlopen and dlsym
 extern "C" {
 /**
- * @brief mock_dlopen function.
- * @details Test helper function mock_dlopen.
- * @param[in] filename Input parameter.
- * @param[in] flags Input parameter.
- * @return none.
+ * @brief Mock `dlopen` implementation for unit testing `gcc_gen_be_lib_loader.c`.
+ * @details Simulates library open success or failure based on `should_fail_dlopen`.
+ * @param[in] filename Library filename.
+ * @param[in] flags Dynamic linker flags.
+ * @return Mock handle on success, or NULL on simulated failure.
  */
-void* mock_dlopen(const char* filename, int flags);
+void *mock_dlopen(const char *filename, int flags);
+
 /**
- * @brief mock_dlsym function.
- * @details Test helper function mock_dlsym.
- * @param[in] handle Input parameter.
- * @param[in] symbol Input parameter.
- * @return none.
+ * @brief Mock `dlsym` implementation for unit testing `gcc_gen_be_lib_loader.c`.
+ * @details Simulates symbol lookup success or failure based on `should_fail_dlsym`.
+ * @param[in] handle Library handle.
+ * @param[in] symbol Symbol name to resolve.
+ * @return Mock function pointer on success, or NULL on simulated failure.
  */
-void* mock_dlsym(void* handle, const char* symbol);
+void *mock_dlsym(void *handle, const char *symbol);
 }
 
+/** @brief Redirects `dlopen` to `mock_dlopen` in the included loader implementation. */
 #define dlopen mock_dlopen
+/** @brief Redirects `dlsym` to `mock_dlsym` in the included loader implementation. */
 #define dlsym mock_dlsym
 
-// Include the source directly so we can override the macros and internal state
 #include "gcc_gen_be_lib_loader.c"
 
 extern "C" {
-    gcc_gen_be_error_t gcc_gen_be_report_diagnostic(gcc_gen_be_error_t err, const char* msg) GCC_GEN_BE_NOEXCEPT { 
-        return GCC_GEN_BE_SUCCESS; 
-    }
+/**
+ * @brief Mock diagnostic reporter for lib loader tests.
+ * @details Returns the error code passed in.
+ * @param[in] err Error code.
+ * @param[in] msg Context message.
+ * @return `err`.
+ */
+gcc_gen_be_error_t gcc_gen_be_report_diagnostic(gcc_gen_be_error_t err, const char *msg) GCC_GEN_BE_NOEXCEPT {
+    (void)msg;
+    return err;
+}
 }
 
-/** @brief should_fail_dlopen member. */
+/** @brief Controls whether `mock_dlopen` simulates failure. */
 static bool should_fail_dlopen = false;
-/** @brief should_fail_dlsym member. */
+/** @brief Controls whether `mock_dlsym` simulates failure. */
 static bool should_fail_dlsym = false;
 
-/**
- * @brief mock_dlopen function.
- * @details Test helper function mock_dlopen.
- * @param[in] filename Input parameter.
- * @param[in] flags Input parameter.
- * @return none.
- */
-void* mock_dlopen(const char* filename, int flags) {
+void *mock_dlopen(const char *filename, int flags) {
+    (void)filename;
+    (void)flags;
     if (should_fail_dlopen) return NULL;
-    return (void*)0xDEADBEEF; // Dummy handle
+    return (void *)0xDEADBEEF;
 }
 
-/**
- * @brief mock_dlsym function.
- * @details Test helper function mock_dlsym.
- * @param[in] handle Input parameter.
- * @param[in] symbol Input parameter.
- * @return none.
- */
-void* mock_dlsym(void* handle, const char* symbol) {
+void *mock_dlsym(void *handle, const char *symbol) {
+    (void)handle;
     if (should_fail_dlsym) return NULL;
-    
-    // Return dummy pointers for our optional symbols
-    if (strcmp(symbol, "gcc_jit_block_end_with_extended_asm_goto") == 0) return (void*)1;
-    if (strcmp(symbol, "gcc_jit_lvalue_set_tls_model") == 0) return (void*)2;
-    if (strcmp(symbol, "gcc_jit_function_add_attribute") == 0) return (void*)3;
-    if (strcmp(symbol, "gcc_jit_lvalue_add_string_attribute") == 0) return (void*)4;
-    if (strcmp(symbol, "gcc_jit_lvalue_set_alignment") == 0) return (void*)5;
-    if (strcmp(symbol, "gcc_jit_context_get_int_type") == 0) return (void*)6;
-    if (strcmp(symbol, "gcc_jit_type_get_vector") == 0) return (void*)7;
+
+    if (strcmp(symbol, "gcc_jit_block_end_with_extended_asm_goto") == 0) return (void *)1;
+    if (strcmp(symbol, "gcc_jit_lvalue_set_tls_model") == 0) return (void *)2;
+    if (strcmp(symbol, "gcc_jit_function_add_attribute") == 0) return (void *)3;
+    if (strcmp(symbol, "gcc_jit_lvalue_add_string_attribute") == 0) return (void *)4;
+    if (strcmp(symbol, "gcc_jit_lvalue_set_alignment") == 0) return (void *)5;
+    if (strcmp(symbol, "gcc_jit_context_get_int_type") == 0) return (void *)6;
+    if (strcmp(symbol, "gcc_jit_type_get_vector") == 0) return (void *)7;
+    if (strcmp(symbol, "gcc_jit_block_end_with_invoke") == 0) return (void *)8;
+    if (strcmp(symbol, "gcc_jit_block_add_landing_pad") == 0) return (void *)9;
+    if (strcmp(symbol, "gcc_jit_context_new_eh_filter") == 0) return (void *)10;
 
     return NULL;
 }
@@ -81,54 +83,70 @@ void* mock_dlsym(void* handle, const char* symbol) {
 using namespace edg;
 
 /**
- * @brief Main entry point.
- * @details Runs tests.
- * @return 0 on success.
+ * @brief Runs all dynamic loader test cases and percolates `gcc_gen_be_error_t`.
+ * @details Tests `dlopen` failure, missing optional symbols, present optional symbols, and idempotency.
+ * @param[out] out_ok Pointer to receive 1 on success, 0 on failure.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
-int main() {
-    /** @brief err member. */
-    gcc_gen_be_error_t err;
+static gcc_gen_be_error_t run_loader_tests(int *out_ok) GCC_GEN_BE_NOEXCEPT {
+    if (!out_ok) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_ok = 0;
 
-    // Test 1: dlopen failure
     should_fail_dlopen = true;
-    libgccjit_handle = NULL; // reset internal state
-    err = load_libgccjit_posix();
-    if (err != GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED) return 1;
+    should_fail_dlsym = true;
+    libgccjit_handle = NULL;
+    gcc_gen_be_error_t err = load_libgccjit_posix();
+    if (err != GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test 2: Successful load, missing optional symbols
     should_fail_dlopen = false;
     should_fail_dlsym = true;
     libgccjit_handle = NULL;
-    err = load_libgccjit_posix();
-    if (err != GCC_GEN_BE_SUCCESS) return 1;
-    if (p_gcc_jit_lvalue_set_tls_model != NULL) return 1; // Optional symbols should be NULL
+    GCC_GEN_BE_CHECK(load_libgccjit_posix());
+    if (p_gcc_jit_lvalue_set_tls_model != NULL) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test 3: Successful load, optional symbols present
+    a_boolean has_inv = FALSE;
+    a_boolean has_lp = FALSE;
+    if (gcc_gen_be_resolve_eh_entrypoints(NULL, &has_inv, &has_lp) != GCC_GEN_BE_ERROR_INVALID_ARGUMENT) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (gcc_gen_be_resolve_eh_entrypoints((struct gcc_jit_context *)0x1, NULL, &has_lp) != GCC_GEN_BE_ERROR_INVALID_ARGUMENT) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (gcc_gen_be_resolve_eh_entrypoints((struct gcc_jit_context *)0x1, &has_inv, NULL) != GCC_GEN_BE_ERROR_INVALID_ARGUMENT) return GCC_GEN_BE_ERROR_INTERNAL;
+    GCC_GEN_BE_CHECK(gcc_gen_be_resolve_eh_entrypoints((struct gcc_jit_context *)0x1, &has_inv, &has_lp));
+    if (has_inv != FALSE || has_lp != FALSE) return GCC_GEN_BE_ERROR_INTERNAL;
+
     should_fail_dlopen = false;
     should_fail_dlsym = false;
     libgccjit_handle = NULL;
-    err = load_libgccjit_posix();
-    if (err != GCC_GEN_BE_SUCCESS) return 1;
-    if (p_gcc_jit_block_end_with_extended_asm_goto != (void*)1) return 1;
-    if (p_gcc_jit_lvalue_set_tls_model != (void*)2) return 1;
-    if (p_gcc_jit_function_add_attribute != (void*)3) return 1;
-    if (p_gcc_jit_lvalue_add_string_attribute != (void*)4) return 1;
-    if (p_gcc_jit_lvalue_set_alignment != (void*)5) return 1;
-    if (p_gcc_jit_context_get_int_type != (void*)6) return 1;
-    if (p_gcc_jit_type_get_vector != (void*)7) return 1;
+    GCC_GEN_BE_CHECK(load_libgccjit_posix());
+    if (p_gcc_jit_block_end_with_extended_asm_goto != (void *)1) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_lvalue_set_tls_model != (void *)2) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_function_add_attribute != (void *)3) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_lvalue_add_string_attribute != (void *)4) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_lvalue_set_alignment != (void *)5) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_context_get_int_type != (void *)6) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_type_get_vector != (void *)7) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_block_end_with_invoke != (void *)8) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_block_add_landing_pad != (void *)9) return GCC_GEN_BE_ERROR_INTERNAL;
+    if (p_gcc_jit_context_new_eh_filter != (void *)10) return GCC_GEN_BE_ERROR_INTERNAL;
 
-    // Test 4: Already loaded
-    libgccjit_handle = (void*)0xDEADBEEF; // Simulate loaded
-    should_fail_dlopen = true; // Should not be called
-    err = load_libgccjit_posix();
-    if (err != GCC_GEN_BE_SUCCESS) return 1;
+    GCC_GEN_BE_CHECK(gcc_gen_be_resolve_eh_entrypoints((struct gcc_jit_context *)0x1, &has_inv, &has_lp));
+    if (has_inv != TRUE || has_lp != TRUE) return GCC_GEN_BE_ERROR_INTERNAL;
+
+    libgccjit_handle = (void *)0xDEADBEEF;
+    should_fail_dlopen = true;
+    GCC_GEN_BE_CHECK(load_libgccjit_posix());
+
+    *out_ok = 1;
+    return GCC_GEN_BE_SUCCESS;
+}
 
 /**
- * @brief printf function.
- * @details Test helper function printf.
- * @param[in] "PASS\n" Input parameter.
- * @return Expected return value.
+ * @brief Main entry point for dynamic loader unit tests.
+ * @details Runs `run_loader_tests` and returns 0 on success.
+ * @return 0 on success, non-zero on failure.
  */
-    printf("PASS\n");
+int main(void) {
+    int ok = 0;
+    gcc_gen_be_error_t err = run_loader_tests(&ok);
+    if (err != GCC_GEN_BE_SUCCESS || !ok) return 1;
+    puts("PASS");
     return 0;
-}\n// Enhanced coverage for test_gcc_be_lib_loader.cpp verified.\n// Added failure injection tests (NULL params, OOM simulation, invalid nodes).\n
+}

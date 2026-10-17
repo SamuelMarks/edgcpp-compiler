@@ -1,8 +1,104 @@
 /**
  * @file gcc_gen_be_context.c
- * @brief GCC backend context configuration.
- * @details Manages libgccjit context initialization, option propagation, and cleanup.
+ * @brief Implementation of context and core state management.
+ * @details Manages libgccjit context initialization, option propagation, control-flow stacks, and cleanup.
+ *
+ * Part of the EDG Compiler Project, under the Apache License v2.0 with LLVM
+ * Exceptions.
+ * See https://edgcpp.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
+
+#include "fe_common.h"
+#include "gcc_gen_be_context.h"
+#include "gcc_gen_be_cache.h"
+#include "gcc_gen_be_lib_loader.h"
+#include "gcc_gen_be_cache.h"
+#include "cmd_line.h"
+#include <libgccjit.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#include <stdint.h>
+#endif
+#include <stdlib.h>
+#include <stdio.h>
+
+#if BACK_END_IS_GCC_GEN_BE
+
+BEGIN_EDG_NAMESPACE
+
+static gcc_gen_be_error_t get_current_thread_id(unsigned long *out_tid) GCC_GEN_BE_NOEXCEPT;
+
+/** @brief Global libgccjit context pointer. */
+static gcc_jit_context *gcc_jit_ctx = NULL;
+
+/** @brief The currently active libgccjit block. */
+static gcc_jit_block *current_block = NULL;
+
+/** @brief Global tracking state for the GCC backend context. */
+gcc_gen_be_context_t gcc_gen_be_singleton_state = {0};
+/** @brief Alias for the singleton backend state inside `gcc_gen_be_context.c`. */
+#define backend_state gcc_gen_be_singleton_state
+
+/**
+ * @brief Retrieves the global GCC backend context object.
+ * @details Populates out_state with the address of the singleton backend_state structure.
+ * @param[out] out_state Pointer to receive the backend state object.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_state(gcc_gen_be_context_t **out_state) GCC_GEN_BE_NOEXCEPT {
+    if (!out_state) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_state = &backend_state;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Retrieves the currently active libgccjit context.
+ * @details Populates out_ctx with the active gcc_jit_context pointer.
+ * @param[out] out_ctx Pointer to receive the gcc_jit_context pointer.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_context(gcc_jit_context **out_ctx) GCC_GEN_BE_NOEXCEPT {
+    if (!out_ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_ctx = gcc_jit_ctx;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Sets the currently active libgccjit context.
+ * @details Updates the global gcc_jit_ctx pointer.
+ * @param[in] ctx The gcc_jit_context to set as active.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+gcc_gen_be_error_t gcc_gen_be_set_context(gcc_jit_context *ctx) GCC_GEN_BE_NOEXCEPT {
+    gcc_jit_ctx = ctx;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Retrieves the currently active libgccjit block.
+ * @details Populates out_block with the active gcc_jit_block pointer.
+ * @param[out] out_block Pointer to receive the gcc_jit_block pointer.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_current_block(gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
+    if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    *out_block = current_block;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Sets the currently active libgccjit block.
+ * @details Updates the global current_block pointer.
+ * @param[in] block The gcc_jit_block to set as active.
+ * @return GCC_GEN_BE_SUCCESS on success.
+ */
+gcc_gen_be_error_t gcc_gen_be_set_current_block(gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT {
+    current_block = block;
+    return GCC_GEN_BE_SUCCESS;
+}
 
 /**
  * @brief Configures libgccjit context based on command line options.
@@ -39,6 +135,7 @@ gcc_gen_be_error_t gcc_gen_be_context_configure_options(gcc_jit_context *ctx) GC
     if (exceptions_enabled) {
 #ifdef LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option
         gcc_jit_context_add_command_line_option(ctx, "-fexceptions");
+        gcc_jit_context_add_command_line_option(ctx, "-funwind-tables");
         gcc_jit_context_add_command_line_option(ctx, "-fasynchronous-unwind-tables");
 #endif
     }
@@ -117,7 +214,7 @@ gcc_gen_be_error_t gcc_gen_be_init(void) GCC_GEN_BE_NOEXCEPT {
 
     GCC_GEN_BE_CHECK(gcc_gen_be_context_configure_options(gcc_jit_ctx));
 
-    backend_state.thread_id = get_current_thread_id();
+    GCC_GEN_BE_CHECK(get_current_thread_id(&backend_state.thread_id));
 
     return GCC_GEN_BE_SUCCESS;
 }
@@ -165,6 +262,13 @@ gcc_gen_be_error_t gcc_gen_be_cleanup(void) GCC_GEN_BE_NOEXCEPT {
         backend_state.block_stack_capacity = 0;
     }
 
+    if (backend_state.landing_pad_stack) {
+        free(backend_state.landing_pad_stack);
+        backend_state.landing_pad_stack = NULL;
+        backend_state.landing_pad_stack_size = 0;
+        backend_state.landing_pad_stack_capacity = 0;
+    }
+
     if (backend_state.cleanup_stack) {
         free(backend_state.cleanup_stack);
         backend_state.cleanup_stack = NULL;
@@ -182,6 +286,62 @@ gcc_gen_be_error_t gcc_gen_be_cleanup(void) GCC_GEN_BE_NOEXCEPT {
         backend_state.scope_stack_size = 0;
         backend_state.scope_stack_capacity = 0;
     }
+
+    backend_state.global_ctor_func = NULL;
+    backend_state.global_ctor_block = NULL;
+    backend_state.stmt_expr_result_lval = NULL;
+    backend_state.computed_goto_dispatch_block = NULL;
+    backend_state.computed_goto_target_lval = NULL;
+    if (backend_state.computed_goto_labels) {
+        free(backend_state.computed_goto_labels);
+        backend_state.computed_goto_labels = NULL;
+    }
+    backend_state.computed_goto_labels_count = 0;
+    backend_state.computed_goto_labels_capacity = 0;
+    backend_state.active_seh_finally_stack = NULL;
+    backend_state.active_coro_state_index = 0;
+    backend_state.active_coro_frame_type = NULL;
+    backend_state.active_coro_frame_lval = NULL;
+    backend_state.active_coro_state_field = NULL;
+    backend_state.active_coro_promise_field = NULL;
+    backend_state.active_coro_descr = NULL;
+    if (backend_state.active_coro_resume_blocks) {
+        free(backend_state.active_coro_resume_blocks);
+        backend_state.active_coro_resume_blocks = NULL;
+    }
+    if (backend_state.active_coro_suspend_scopes) {
+        free(backend_state.active_coro_suspend_scopes);
+        backend_state.active_coro_suspend_scopes = NULL;
+    }
+    backend_state.active_coro_current_scope = NULL;
+    backend_state.active_coro_resume_blocks_count = 0;
+    backend_state.active_coro_resume_blocks_capacity = 0;
+    while (backend_state.coro_state_stack) {
+        gcc_gen_be_coro_state_t *cs = backend_state.coro_state_stack;
+        backend_state.coro_state_stack = cs->prev;
+        if (cs->resume_blocks) free(cs->resume_blocks);
+        if (cs->suspend_scopes) free(cs->suspend_scopes);
+        free(cs);
+    }
+    while (backend_state.eh_state.regions) {
+        gcc_gen_be_eh_region_t *r = backend_state.eh_state.regions;
+        backend_state.eh_state.regions = r->next;
+        free(r);
+    }
+    while (backend_state.eh_state.types) {
+        gcc_gen_be_eh_type_filter_t *t = backend_state.eh_state.types;
+        backend_state.eh_state.types = t->next;
+        free(t);
+    }
+    if (backend_state.eh_state.action_table) {
+        free(backend_state.eh_state.action_table);
+        backend_state.eh_state.action_table = NULL;
+    }
+    backend_state.eh_state.action_table_len = 0;
+    backend_state.eh_state.action_table_cap = 0;
+    backend_state.eh_state.current_func = NULL;
+    backend_state.eh_state_ptr = NULL;
+    backend_state.active_subst_table.count = 0;
     
     return GCC_GEN_BE_SUCCESS;
 }
@@ -190,28 +350,24 @@ gcc_gen_be_error_t gcc_gen_be_cleanup(void) GCC_GEN_BE_NOEXCEPT {
 
 
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <pthread.h>
-#include <stdint.h>
-#endif
-#include <stdlib.h>
-
 /**
  * @brief Gets the current thread ID.
- * @return The thread ID as an unsigned long.
+ * @details Queries the OS thread identifier and writes it to out_tid.
+ * @param[out] out_tid Pointer to receive the thread ID as an unsigned long.
+ * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT if out_tid is NULL.
  */
-static unsigned long get_current_thread_id(void) {
+static gcc_gen_be_error_t get_current_thread_id(unsigned long *out_tid) GCC_GEN_BE_NOEXCEPT {
+    if (!out_tid) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
 #ifdef _WIN32
-    return (unsigned long)GetCurrentThreadId();
+    *out_tid = (unsigned long)GetCurrentThreadId();
 #elif defined(__APPLE__)
-    uint64_t tid;
+    uint64_t tid = 0;
     pthread_threadid_np(NULL, &tid);
-    return (unsigned long)tid;
+    *out_tid = (unsigned long)tid;
 #else
-    return (unsigned long)pthread_self();
+    *out_tid = (unsigned long)pthread_self();
 #endif
+    return GCC_GEN_BE_SUCCESS;
 }
 
 /**
@@ -225,7 +381,7 @@ static unsigned long get_current_thread_id(void) {
  * @param[in] block The gcc_jit_block to push onto the stack.
  * @return GCC_GEN_BE_SUCCESS on success, GCC_GEN_BE_ERROR_INVALID_ARGUMENT if block is null, or GCC_GEN_BE_ERROR_OOM.
  */
-static gcc_gen_be_error_t push_to_block_stack(gcc_jit_block ***stack, size_t *size, size_t *capacity, gcc_jit_block *block) {
+static gcc_gen_be_error_t push_to_block_stack(gcc_jit_block ***stack, size_t *size, size_t *capacity, gcc_jit_block *block) GCC_GEN_BE_NOEXCEPT {
     if (!block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     if (*size >= *capacity) {
         size_t new_cap = (*capacity == 0) ? 8 : (*capacity * 2);
@@ -248,7 +404,7 @@ static gcc_gen_be_error_t push_to_block_stack(gcc_jit_block ***stack, size_t *si
  * @param[out] out_block Pointer to receive the popped gcc_jit_block.
  * @return GCC_GEN_BE_SUCCESS on success, or GCC_GEN_BE_ERROR_INVALID_ARGUMENT on underflow or null pointers.
  */
-static gcc_gen_be_error_t pop_from_block_stack(gcc_jit_block ***stack, size_t *size, gcc_jit_block **out_block) {
+static gcc_gen_be_error_t pop_from_block_stack(gcc_jit_block ***stack, size_t *size, gcc_jit_block **out_block) GCC_GEN_BE_NOEXCEPT {
     if (!out_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     if (*size == 0) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT; // Stack underflow
     *out_block = (*stack)[--(*size)];
@@ -288,24 +444,28 @@ gcc_gen_be_error_t gcc_gen_be_pop_block(gcc_jit_block **out_block) GCC_GEN_BE_NO
 }
 
 gcc_gen_be_error_t gcc_gen_be_check_thread_safety(void) GCC_GEN_BE_NOEXCEPT {
-    if (backend_state.thread_id != get_current_thread_id()) {
+    unsigned long current_tid = 0;
+    GCC_GEN_BE_CHECK(get_current_thread_id(&current_tid));
+    if (backend_state.thread_id != current_tid) {
         return gcc_gen_be_report_diagnostic(GCC_GEN_BE_ERROR_INTERNAL, "Thread safety violation in gcc_gen_be context");
     }
     return GCC_GEN_BE_SUCCESS;
 }
 
-typedef void (*gcc_gen_be_cleanup_func_t)(void *);
-
 /** @brief A cleanup entry */
 typedef struct {
-    /** @brief function */
+    /** @brief Cleanup callback function. */
     gcc_gen_be_cleanup_func_t func;
-    /** @brief data */
+    /** @brief Opaque data pointer for callback. */
     void *data;
 } gcc_gen_be_cleanup_entry_t;
 
 /**
  * @brief Pushes a cleanup function to the RAII stack.
+ * @details Registers a callback to be invoked during cleanup execution.
+ * @param[in] func The function to execute during cleanup.
+ * @param[in] data Data pointer to pass to the cleanup function.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
  */
 gcc_gen_be_error_t gcc_gen_be_push_cleanup(gcc_gen_be_cleanup_func_t func, void *data) GCC_GEN_BE_NOEXCEPT {
     if (!func) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
@@ -328,13 +488,15 @@ gcc_gen_be_error_t gcc_gen_be_push_cleanup(gcc_gen_be_cleanup_func_t func, void 
 
 /**
  * @brief Executes all pending cleanups in reverse order and clears the stack.
+ * @details Pops each registered cleanup entry and percolates any error returned by the callback.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code from a cleanup callback.
  */
 gcc_gen_be_error_t gcc_gen_be_execute_cleanups(void) GCC_GEN_BE_NOEXCEPT {
     gcc_gen_be_cleanup_entry_t *entries = (gcc_gen_be_cleanup_entry_t *)backend_state.cleanup_stack;
     while (backend_state.cleanup_stack_size > 0) {
         backend_state.cleanup_stack_size--;
         if (entries[backend_state.cleanup_stack_size].func) {
-            entries[backend_state.cleanup_stack_size].func(entries[backend_state.cleanup_stack_size].data);
+            GCC_GEN_BE_CHECK(entries[backend_state.cleanup_stack_size].func(entries[backend_state.cleanup_stack_size].data));
         }
     }
     return GCC_GEN_BE_SUCCESS;
@@ -361,6 +523,8 @@ typedef struct gcc_gen_be_scope {
     an_object_lifetime_ptr lifetime;
     /** @brief List of cleanups registered in this scope. */
     gcc_gen_be_cleanup_t *cleanups;
+    /** @brief Optional SjLj frame lvalue registered in this scope. */
+    struct gcc_jit_lvalue *sjlj_frame;
 } gcc_gen_be_scope_t;
 
 gcc_gen_be_error_t gcc_gen_be_push_scope(an_object_lifetime_ptr lifetime) GCC_GEN_BE_NOEXCEPT {
@@ -376,6 +540,7 @@ gcc_gen_be_error_t gcc_gen_be_push_scope(an_object_lifetime_ptr lifetime) GCC_GE
     if (!new_scope) return GCC_GEN_BE_ERROR_OOM;
     new_scope->lifetime = lifetime;
     new_scope->cleanups = NULL;
+    new_scope->sjlj_frame = NULL;
     
     backend_state.scope_stack[backend_state.scope_stack_size++] = (struct gcc_gen_be_scope *)new_scope;
     return GCC_GEN_BE_SUCCESS;
@@ -392,14 +557,25 @@ gcc_gen_be_error_t gcc_gen_be_register_cleanup(struct gcc_jit_lvalue *var, struc
     if (backend_state.scope_stack_size == 0) return GCC_GEN_BE_ERROR_INTERNAL;
     gcc_gen_be_scope_t *top_scope = (gcc_gen_be_scope_t *)backend_state.scope_stack[backend_state.scope_stack_size - 1];
     
+    for (gcc_gen_be_cleanup_t *existing = top_scope->cleanups; existing != NULL; existing = existing->next) {
+        if (existing->var == var && existing->dtor_func == dtor_func) {
+            return GCC_GEN_BE_SUCCESS;
+        }
+    }
+
     gcc_gen_be_cleanup_t *cleanup = (gcc_gen_be_cleanup_t *)malloc(sizeof(gcc_gen_be_cleanup_t));
     if (!cleanup) return GCC_GEN_BE_ERROR_OOM;
     
     cleanup->var = var;
     cleanup->dtor_func = dtor_func;
-    /* Push to front so they are executed in reverse order */
-    cleanup->next = top_scope->cleanups;
-    top_scope->cleanups = cleanup;
+    cleanup->next = NULL;
+    if (!top_scope->cleanups) {
+        top_scope->cleanups = cleanup;
+    } else {
+        gcc_gen_be_cleanup_t *tail = top_scope->cleanups;
+        while (tail->next) tail = tail->next;
+        tail->next = cleanup;
+    }
     
     return GCC_GEN_BE_SUCCESS;
 }
@@ -445,10 +621,45 @@ gcc_gen_be_error_t gcc_gen_be_emit_cleanups(an_object_lifetime_ptr target_lifeti
             if (found) break; /* stop traversing */
         }
         
+        if (scope->sjlj_frame) {
+            void *cached_chain = NULL;
+            void *cached_eh_t = NULL;
+            if (cache_lookup(GCC_GEN_BE_CACHE_VAR, (void *)"__gcc_be_eh_chain", &cached_chain) == GCC_GEN_BE_SUCCESS && cached_chain &&
+                cache_lookup(GCC_GEN_BE_CACHE_TYPE, (void *)"__eh_frame", &cached_eh_t) == GCC_GEN_BE_SUCCESS && cached_eh_t) {
+                gcc_jit_struct *eh_st = gcc_jit_type_is_struct((gcc_jit_type *)cached_eh_t);
+                if (eh_st) {
+                    gcc_jit_field *f_next = gcc_jit_struct_get_field(eh_st, 0);
+                    gcc_jit_rvalue *next_val = gcc_jit_lvalue_as_rvalue(
+                        gcc_jit_lvalue_access_field(scope->sjlj_frame, NULL, f_next));
+                    gcc_jit_block_add_assignment(block, NULL, (gcc_jit_lvalue *)cached_chain, next_val);
+                }
+            }
+        }
+#if !defined(EDG_GCC_BE_ISOLATED_TEST) && DO_IL_LOWERING && !DO_FULL_PORTABLE_EH_LOWERING
+        if (target_lifetime == (an_object_lifetime_ptr)(uintptr_t)1) {
+            /* Normal stmk_return / normal scope exit: EDG already emitted explicit destructor calls */
+            continue;
+        }
+#endif
         gcc_gen_be_cleanup_t *cleanup = scope->cleanups;
         while (cleanup) {
-            gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(cleanup->var, NULL), void_ptr_type);
-            gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+            int pcount = (int)gcc_jit_function_get_param_count(cleanup->dtor_func);
+            gcc_jit_rvalue *var_addr = gcc_jit_lvalue_get_address(cleanup->var, NULL);
+            if (pcount >= 2) {
+                gcc_jit_type *p0_t = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(gcc_jit_function_get_param(cleanup->dtor_func, 0)));
+                gcc_jit_type *p1_t = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(gcc_jit_function_get_param(cleanup->dtor_func, 1)));
+                gcc_jit_rvalue *d_args[2];
+                d_args[0] = gcc_jit_context_new_cast(ctx, NULL, var_addr, p0_t);
+                d_args[1] = gcc_jit_context_new_rvalue_from_int(ctx, p1_t, 2);
+                gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 2, d_args));
+            } else if (pcount == 1) {
+                gcc_jit_type *p0_t = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(gcc_jit_function_get_param(cleanup->dtor_func, 0)));
+                gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, var_addr, p0_t);
+                gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+            } else {
+                gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, var_addr, void_ptr_type);
+                gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+            }
             cleanup = cleanup->next;
         }
     }
@@ -473,11 +684,45 @@ gcc_gen_be_error_t gcc_gen_be_pop_scope(struct gcc_jit_block *block) GCC_GEN_BE_
     if (block) {
         gcc_jit_context *ctx = NULL;
         if (gcc_gen_be_get_context(&ctx) == GCC_GEN_BE_SUCCESS) {
+            if (top_scope->sjlj_frame) {
+                void *cached_chain = NULL;
+                void *cached_eh_t = NULL;
+                if (cache_lookup(GCC_GEN_BE_CACHE_VAR, (void *)"__gcc_be_eh_chain", &cached_chain) == GCC_GEN_BE_SUCCESS && cached_chain &&
+                    cache_lookup(GCC_GEN_BE_CACHE_TYPE, (void *)"__eh_frame", &cached_eh_t) == GCC_GEN_BE_SUCCESS && cached_eh_t) {
+                    gcc_jit_struct *eh_st = gcc_jit_type_is_struct((gcc_jit_type *)cached_eh_t);
+                    if (eh_st) {
+                        gcc_jit_field *f_next = gcc_jit_struct_get_field(eh_st, 0);
+                        gcc_jit_rvalue *next_val = gcc_jit_lvalue_as_rvalue(
+                            gcc_jit_lvalue_access_field(top_scope->sjlj_frame, NULL, f_next));
+                        gcc_jit_block_add_assignment(block, NULL, (gcc_jit_lvalue *)cached_chain, next_val);
+                    }
+                }
+            }
             gcc_jit_type *void_ptr_type = gcc_jit_type_get_pointer(gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID));
             gcc_gen_be_cleanup_t *cleanup = top_scope->cleanups;
+#if !defined(EDG_GCC_BE_ISOLATED_TEST) && DO_IL_LOWERING && !DO_FULL_PORTABLE_EH_LOWERING
+            if (top_scope->lifetime != NULL) {
+                cleanup = NULL;
+            }
+#endif
             while (cleanup) {
-                gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_lvalue_get_address(cleanup->var, NULL), void_ptr_type);
-                gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+                int pcount = (int)gcc_jit_function_get_param_count(cleanup->dtor_func);
+                gcc_jit_rvalue *var_addr = gcc_jit_lvalue_get_address(cleanup->var, NULL);
+                if (pcount >= 2) {
+                    gcc_jit_type *p0_t = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(gcc_jit_function_get_param(cleanup->dtor_func, 0)));
+                    gcc_jit_type *p1_t = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(gcc_jit_function_get_param(cleanup->dtor_func, 1)));
+                    gcc_jit_rvalue *d_args[2];
+                    d_args[0] = gcc_jit_context_new_cast(ctx, NULL, var_addr, p0_t);
+                    d_args[1] = gcc_jit_context_new_rvalue_from_int(ctx, p1_t, 2);
+                    gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 2, d_args));
+                } else if (pcount == 1) {
+                    gcc_jit_type *p0_t = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(gcc_jit_function_get_param(cleanup->dtor_func, 0)));
+                    gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, var_addr, p0_t);
+                    gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+                } else {
+                    gcc_jit_rvalue *arg = gcc_jit_context_new_cast(ctx, NULL, var_addr, void_ptr_type);
+                    gcc_jit_block_add_eval(block, NULL, gcc_jit_context_new_call(ctx, NULL, cleanup->dtor_func, 1, &arg));
+                }
                 cleanup = cleanup->next;
             }
         }
@@ -490,9 +735,59 @@ gcc_gen_be_error_t gcc_gen_be_pop_scope(struct gcc_jit_block *block) GCC_GEN_BE_
         cleanup = next;
     }
     
+    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_GUARD, top_scope, NULL));
     backend_state.scope_stack_size--;
     free(top_scope);
     
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Pushes an exception landing pad block onto the active landing pad stack.
+ * @details Used for nested `try` blocks and cleanup landing pads.
+ * @param[in] lp_block The landing pad `gcc_jit_block` to push.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+gcc_gen_be_error_t gcc_gen_be_push_landing_pad(gcc_jit_block *lp_block) GCC_GEN_BE_NOEXCEPT {
+    if (!lp_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    if (backend_state.landing_pad_stack_size >= backend_state.landing_pad_stack_capacity) {
+        size_t new_cap = (backend_state.landing_pad_stack_capacity == 0) ? 16 : (backend_state.landing_pad_stack_capacity * 2);
+        gcc_jit_block **new_stack = (gcc_jit_block **)realloc(
+            backend_state.landing_pad_stack, new_cap * sizeof(gcc_jit_block *));
+        if (!new_stack) return GCC_GEN_BE_ERROR_OOM;
+        backend_state.landing_pad_stack = new_stack;
+        backend_state.landing_pad_stack_capacity = new_cap;
+    }
+    backend_state.landing_pad_stack[backend_state.landing_pad_stack_size++] = lp_block;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Pops the top exception landing pad block from the active landing pad stack.
+ * @details Restores the enclosing landing pad after leaving a `try` or cleanup region.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code if the stack is empty.
+ */
+gcc_gen_be_error_t gcc_gen_be_pop_landing_pad(void) GCC_GEN_BE_NOEXCEPT {
+    if (backend_state.landing_pad_stack_size == 0) {
+        return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    }
+    backend_state.landing_pad_stack_size--;
+    return GCC_GEN_BE_SUCCESS;
+}
+
+/**
+ * @brief Retrieves the currently active exception landing pad block, if any.
+ * @details Outputs the top block on the landing pad stack or `NULL` if none is active.
+ * @param[out] out_lp_block Pointer to receive the active landing pad block.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+gcc_gen_be_error_t gcc_gen_be_get_active_landing_pad(gcc_jit_block **out_lp_block) GCC_GEN_BE_NOEXCEPT {
+    if (!out_lp_block) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    if (backend_state.landing_pad_stack_size == 0) {
+        *out_lp_block = NULL;
+    } else {
+        *out_lp_block = backend_state.landing_pad_stack[backend_state.landing_pad_stack_size - 1];
+    }
     return GCC_GEN_BE_SUCCESS;
 }
 

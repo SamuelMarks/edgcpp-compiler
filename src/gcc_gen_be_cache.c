@@ -20,7 +20,9 @@ BEGIN_EDG_NAMESPACE
 
 
 
+/** @brief Initial bucket capacity for newly allocated backend hash maps. */
 #define INITIAL_CACHE_CAPACITY 64
+/** @brief Maximum load factor threshold before doubling hash map bucket capacity. */
 #define MAX_LOAD_FACTOR 0.75
 
 /** @brief Cache instance. */
@@ -74,7 +76,7 @@ static gcc_gen_be_error_t get_cache_map(gcc_gen_be_cache_type_t cache_type, be_c
  * @param[out] out_hash The computed hash index.
  * @return GCC_GEN_BE_SUCCESS.
  */
-static gcc_gen_be_error_t hash_key(void *key, size_t capacity, size_t *out_hash) {
+static gcc_gen_be_error_t hash_key(void *key, size_t capacity, size_t *out_hash) GCC_GEN_BE_NOEXCEPT {
     if (!out_hash) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     if (capacity == 0) { *out_hash = 0; return GCC_GEN_BE_SUCCESS; }
     /* Basic pointer hash: shift right by 3 to ignore alignment bits */
@@ -91,7 +93,7 @@ static gcc_gen_be_error_t hash_key(void *key, size_t capacity, size_t *out_hash)
  * @param[out] out_hash The computed hash index.
  * @return GCC_GEN_BE_SUCCESS.
  */
-static gcc_gen_be_error_t hash_string(const char *str, size_t capacity, size_t *out_hash) {
+static gcc_gen_be_error_t hash_string(const char *str, size_t capacity, size_t *out_hash) GCC_GEN_BE_NOEXCEPT {
     if (!out_hash) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     if (!str || capacity == 0) { *out_hash = 0; return GCC_GEN_BE_SUCCESS; }
     size_t hash = 5381;
@@ -112,7 +114,7 @@ static gcc_gen_be_error_t hash_string(const char *str, size_t capacity, size_t *
  * @param[out] out_hash The computed hash index.
  * @return GCC_GEN_BE_SUCCESS.
  */
-static gcc_gen_be_error_t hash_entry(be_cache_map *map, void *key, size_t capacity, size_t *out_hash) {
+static gcc_gen_be_error_t hash_entry(be_cache_map *map, void *key, size_t capacity, size_t *out_hash) GCC_GEN_BE_NOEXCEPT {
     if (map->type == GCC_GEN_BE_CACHE_STRING) {
         return hash_string((const char *)key, capacity, out_hash);
     }
@@ -128,7 +130,7 @@ static gcc_gen_be_error_t hash_entry(be_cache_map *map, void *key, size_t capaci
  * @param[out] out_equal TRUE if keys match.
  * @return GCC_GEN_BE_SUCCESS.
  */
-static gcc_gen_be_error_t keys_equal(be_cache_map *map, void *k1, void *k2, a_boolean *out_equal) {
+static gcc_gen_be_error_t keys_equal(be_cache_map *map, void *k1, void *k2, a_boolean *out_equal) GCC_GEN_BE_NOEXCEPT {
     if (!out_equal) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     if (map->type == GCC_GEN_BE_CACHE_STRING) {
         if (!k1 || !k2) { *out_equal = (k1 == k2); return GCC_GEN_BE_SUCCESS; }
@@ -269,6 +271,8 @@ gcc_gen_be_error_t cache_clear_all(void) GCC_GEN_BE_NOEXCEPT {
     GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_LABEL));
     GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_FIELD));
     GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_SWITCH_CASE));
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_GUARD));
+    GCC_GEN_BE_CHECK(cache_clear(GCC_GEN_BE_CACHE_STRING));
     
     return GCC_GEN_BE_SUCCESS;
 }

@@ -35,6 +35,16 @@ extern gcc_gen_be_error_t gcc_gen_be_emit_cxa_atexit(gcc_jit_lvalue *var, gcc_ji
  */
 extern gcc_gen_be_error_t gcc_gen_be_emit_cxa_thread_atexit(gcc_jit_lvalue *var, gcc_jit_function *dtor_func) GCC_GEN_BE_NOEXCEPT;
 
+/**
+ * @brief Retrieves or declares the `&__dso_handle` address rvalue for `__cxa_atexit` / `__cxa_thread_atexit`.
+ * @details Declares `__dso_handle` as an imported `void *` global symbol (cached per context) and returns
+ * its `void *`-cast address in `out_dso_handle`.
+ * @param[in] ctx The active `gcc_jit_context`.
+ * @param[out] out_dso_handle Pointer to receive the `&__dso_handle` rvalue.
+ * @return GCC_GEN_BE_SUCCESS on success, or an error code.
+ */
+extern gcc_gen_be_error_t gcc_gen_be_get_dso_handle(gcc_jit_context *ctx, gcc_jit_rvalue **out_dso_handle) GCC_GEN_BE_NOEXCEPT;
+
 END_EDG_NAMESPACE
 
 #endif /* GCC_GEN_BE_DTOR_H */
