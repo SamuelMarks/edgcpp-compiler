@@ -1,3 +1,3 @@
-modules/crash-processing-imported-explicit-specialization/test.mft.cpp:cp:-DTEST_NUMBER=1:FAIL:
+immediate-pragma-lost.sft.cpp:cppbe:-DTEST_NUMBER=1:PASS:
 pragma-il-class-no-lowering.sft.cpp:fp:-DTEST_NUMBER=1:REQUIREMENTS NOT MET:
 pragma-il-class.sft.cpp:fp:-DTEST_NUMBER=1:REQUIREMENTS NOT MET:

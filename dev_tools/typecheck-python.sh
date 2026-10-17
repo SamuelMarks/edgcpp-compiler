@@ -63,6 +63,7 @@ pushd bin/ > /dev/null
   check_types edg-exec
   check_types edg-modify-test
   check_types_strict edg-pack-cpfe-ce
+  check_types_strict edg-rematerialize-test-run
   check_types_strict edg-run-test
   check_types edg-scrape-compiler
   check_types_strict edg-test-run-diff

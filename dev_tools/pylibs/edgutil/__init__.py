@@ -312,23 +312,63 @@ class AsyncLoopFatalError(Exception):
   '''Raised to ask ``run_asyncio_loop`` to cancel remaining tasks and stop.'''
   pass
 
-def get_running_event_loop() -> asyncio.AbstractEventLoop:
-  # asyncio.get_running_loop is 3.7+.
-  if sys.version_info >= (3, 7):
-    return asyncio.get_running_loop()
-  return asyncio.get_event_loop()
+# The helpers below depend on the Python version, which cannot change at run
+# time, so each is declared once per supported API and selected at import.
 
-def _active_asyncio_tasks(
-    loop: asyncio.AbstractEventLoop) -> Set[asyncio.Task]:
-  # In Python 3.7 asyncio.Task.all_tasks was deprecated in favor of
-  # asyncio.all_tasks. This was later removed in 3.9.
-  #
-  # To provide compatibility for both check to see if our python version is
-  # greater than or equal to 3.7, and conditionally enable the new API,
-  # otherwise fallback to the original API.
-  if sys.version_info >= (3, 7):
+if sys.version_info >= (3, 7):
+  def get_running_event_loop() -> asyncio.AbstractEventLoop:
+    '''Return the running event loop (asyncio.get_running_loop is 3.7+).'''
+    return asyncio.get_running_loop()
+else:
+  def get_running_event_loop() -> asyncio.AbstractEventLoop:
+    '''Return the running event loop (asyncio.get_running_loop is 3.7+).'''
+    return asyncio.get_event_loop()
+
+if sys.version_info >= (3, 9):
+  def is_path_relative_to(path: Path, other: Path) -> bool:
+    '''Return whether path is equal to or located under other.'''
+    return path.is_relative_to(other)
+else:
+  def is_path_relative_to(path: Path, other: Path) -> bool:
+    '''Return whether path is equal to or located under other.
+
+    Path.is_relative_to is only available in Python 3.9+.
+    '''
+    try:
+      result = Path(os.path.commonpath([str(path), str(other)])) == other
+    except ValueError:
+      # Mixing absolute and relative paths (or differing drives).
+      result = False
+    return result
+
+if sys.version_info >= (3, 9):
+  async def async_to_thread(func: Callable[..., Any],
+                            *args: Any,
+                            **kwargs: Any) -> Any:
+    '''Run func(*args, **kwargs) in a worker thread and await its result.'''
+    return await asyncio.to_thread(func, *args, **kwargs)
+else:
+  async def async_to_thread(func: Callable[..., Any],
+                            *args: Any,
+                            **kwargs: Any) -> Any:
+    '''Run func(*args, **kwargs) in a worker thread and await its result.
+
+    asyncio.to_thread is only available in Python 3.9+.
+    '''
+    return await get_running_event_loop().run_in_executor(
+      None, functools.partial(func, *args, **kwargs)
+    )
+
+if sys.version_info >= (3, 7):
+  def _active_asyncio_tasks(
+      loop: asyncio.AbstractEventLoop) -> Set[asyncio.Task]:
+    # asyncio.Task.all_tasks was deprecated in 3.7 in favor of
+    # asyncio.all_tasks, and removed in 3.9.
     return asyncio.all_tasks(loop)
-  return asyncio.Task.all_tasks(loop)  # type: ignore[attr-defined]
+else:
+  def _active_asyncio_tasks(
+      loop: asyncio.AbstractEventLoop) -> Set[asyncio.Task]:
+    return asyncio.Task.all_tasks(loop)  # type: ignore[attr-defined]
 
 def _stop_asyncio_loop(loop: asyncio.AbstractEventLoop) -> None:
   for task in _active_asyncio_tasks(loop):
@@ -671,29 +711,14 @@ class UnifiedDiffStream:
     self._out_handle = open(self._temp_dir / 'diff', 'w+b')
 
     if _DIFF_CMD is None:
-      # asyncio.to_thread is 3.9+.
-      if sys.version_info >= (3, 9):
-        has_diff = await asyncio.to_thread(
-          _write_unified_diff_with_difflib,
-          self._from_file,
-          self._to_file,
-          self._out_handle,
-          self._from_label,
-          self._to_label
-        )
-      else:
-        loop = get_running_event_loop()
-        has_diff = await loop.run_in_executor(
-          None,
-          functools.partial(
-            _write_unified_diff_with_difflib,
-            self._from_file,
-            self._to_file,
-            self._out_handle,
-            self._from_label,
-            self._to_label
-          )
-        )
+      has_diff = await async_to_thread(
+        _write_unified_diff_with_difflib,
+        self._from_file,
+        self._to_file,
+        self._out_handle,
+        self._from_label,
+        self._to_label
+      )
     else:
       has_diff = await _write_unified_diff_with_diff_cmd(
         self._from_file,

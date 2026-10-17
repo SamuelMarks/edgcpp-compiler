@@ -34,7 +34,7 @@ from edgacknowledg.client.shared import (
   trunc_display_content,
 )
 import edgutil
-from edgutil import eprint, get_running_event_loop
+from edgutil import eprint
 
 TOOL_PATH_CG_ANNOTATE = edgutil.RequiredToolPath('cg_annotate')
 
@@ -289,10 +289,8 @@ async def run_bench_source_handler(channel: Channel,
       run_path = session.run_dir / metadata.rel_benchmark_path
 
       async def annotate_job() -> str:
-        loop = get_running_event_loop()
-        return await loop.run_in_executor(
-          None,
-          lambda: get_cg_annotate_output(baseline_path, run_path)
+        return await edgutil.async_to_thread(
+          get_cg_annotate_output, baseline_path, run_path
         )
 
       annotate_text = await worker_pool.submit(annotate_job)
