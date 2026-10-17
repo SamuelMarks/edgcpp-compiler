@@ -507,7 +507,18 @@ Initialize the option information table.
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_command_line);
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
+#if BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
+  add_option_description(optk_backend_select, "backend",
+                         '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
+                         pchek_none);
+#endif /* BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE */
 #if BACK_END_IS_LLVM_GEN_BE
+  add_option_description(optk_llvm_gen_be, "llvm_gen_be",
+                         '\0', /*value=*/TRUE, /*arg_required=*/FALSE,
+                         pchek_none);
+  add_option_description(optk_llvm_gen_be, "llvm-be",
+                         '\0', /*value=*/TRUE, /*arg_required=*/FALSE,
+                         pchek_none);
   add_option_description(optk_gen_llvm_file_name, "gen_llvm_file_name",
                          '\0', /*value=*/TRUE, /*arg_required=*/TRUE,
                          pchek_none);
@@ -1909,6 +1920,47 @@ Initialize the option information table.
                          /*arg_required=*/FALSE, pchek_command_line);
   add_option_description(optk_incognito, "no_incognito", '\0', /*value=*/FALSE,
                          /*arg_required=*/FALSE, pchek_command_line);
+
+#if BACK_END_IS_GCC_GEN_BE
+  add_option_description(optk_gcc_gen_be, "gcc_gen_be", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_gen_be, "gcc-be", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_c, "compile_only", 'c', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_S, "assemble_only", 'S', TRUE, FALSE, pchek_command_line);
+#if !BACK_END_IS_LLVM_GEN_BE
+  add_option_description(optk_gcc_be_O0, "O0", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_O1, "O1", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_O2, "O2", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_O3, "O3", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_Os, "Os", '\0', TRUE, FALSE, pchek_command_line);
+#endif /* !BACK_END_IS_LLVM_GEN_BE */
+  add_option_description(optk_gcc_be_Ofast, "Ofast", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_g, "g", '\0', TRUE, FALSE, pchek_command_line);
+#if !BACK_END_IS_LLVM_GEN_BE
+  add_option_description(optk_gcc_be_fPIC, "fPIC", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_fPIE, "fPIE", '\0', TRUE, FALSE, pchek_command_line);
+#endif /* !BACK_END_IS_LLVM_GEN_BE */
+  add_option_description(optk_gcc_be_fno_pie, "fno-pie", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_dump_initial_tree, "fdump-tree-all", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_dump_gimple, "fdump-tree-gimple", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_dump_rtl_all, "fdump-rtl-all", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_ffast_math, "ffast-math", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_fno_trapping_math, "fno-trapping-math", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_fassociative_math, "fassociative-math", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_shared, "shared", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_static, "static", '\0', TRUE, FALSE, pchek_command_line);
+#if !BACK_END_IS_LLVM_GEN_BE
+  add_option_description(optk_gcc_be_march, "march", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mcpu, "mcpu", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mcmodel, "mcmodel", '\0', TRUE, TRUE, pchek_command_line);
+#endif /* !BACK_END_IS_LLVM_GEN_BE */
+  add_option_description(optk_gcc_be_mtune, "mtune", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_mfpu, "mfpu", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_m64, "m64", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_m32, "m32", '\0', TRUE, FALSE, pchek_command_line);
+  add_option_description(optk_gcc_be_L, "L", '\0', TRUE, TRUE, pchek_command_line);
+  add_option_description(optk_gcc_be_l, "l", '\0', TRUE, TRUE, pchek_command_line);
+#endif /* BACK_END_IS_GCC_GEN_BE */
+
 }  /* initialize_option_descriptions */
 
 
@@ -6798,6 +6850,16 @@ file.
 #else /* !defined(BACK_END_IS_C_GEN_BE) */
   comment_undefined_macro_name(BACK_END_IS_C_GEN_BE);
 #endif /* defined(BACK_END_IS_C_GEN_BE) */
+#if defined(BACK_END_IS_GCC_GEN_BE)
+  define_numeric_valued_macro(BACK_END_IS_GCC_GEN_BE);
+#else /* !defined(BACK_END_IS_GCC_GEN_BE) */
+  comment_undefined_macro_name(BACK_END_IS_GCC_GEN_BE);
+#endif /* defined(BACK_END_IS_GCC_GEN_BE) */
+#if defined(BACK_END_IS_LLVM_GEN_BE)
+  define_numeric_valued_macro(BACK_END_IS_LLVM_GEN_BE);
+#else /* !defined(BACK_END_IS_LLVM_GEN_BE) */
+  comment_undefined_macro_name(BACK_END_IS_LLVM_GEN_BE);
+#endif /* defined(BACK_END_IS_LLVM_GEN_BE) */
 #if defined(BACK_END_SHOULD_BE_CALLED)
   define_numeric_valued_macro(BACK_END_SHOULD_BE_CALLED);
 #else /* !defined(BACK_END_SHOULD_BE_CALLED) */
@@ -11221,7 +11283,34 @@ Process the arguments on the command line that invoked the compiler.
         clang_is_generated_code_target = TRUE;
         break;
 #endif /* BACK_END_IS_C_GEN_BE || BACK_END_IS_CP_GEN_BE */
+#if BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
+      case optk_backend_select:
+        if (opt_arg != NULL) {
+          if (strcmp(opt_arg, "llvm") == 0) {
 #if BACK_END_IS_LLVM_GEN_BE
+            llvm_be_enabled = TRUE;
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+#if BACK_END_IS_GCC_GEN_BE
+            gcc_be_enabled = FALSE;
+#endif /* BACK_END_IS_GCC_GEN_BE */
+          } else if (strcmp(opt_arg, "gcc") == 0) {
+#if BACK_END_IS_GCC_GEN_BE
+            gcc_be_enabled = TRUE;
+#endif /* BACK_END_IS_GCC_GEN_BE */
+#if BACK_END_IS_LLVM_GEN_BE
+            llvm_be_enabled = FALSE;
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+          }
+        }
+        break;
+#endif /* BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE */
+#if BACK_END_IS_LLVM_GEN_BE
+      case optk_llvm_gen_be:
+        llvm_be_enabled = TRUE;
+#if BACK_END_IS_GCC_GEN_BE
+        gcc_be_enabled = FALSE;
+#endif /* BACK_END_IS_GCC_GEN_BE */
+        break;
       case optk_gen_llvm_file_name:
         /* The name to be used for the generated LLVM IR file. */
         gen_llvm_file_name = file_name_from_opt_arg(opt_arg);
@@ -11275,10 +11364,19 @@ Process the arguments on the command line that invoked the compiler.
       case optk_llvm_opt_level:
         if (odp->keyword != NULL) {
           (void)llvm_configure_cli_option("opt_level", odp->keyword);
+#if BACK_END_IS_GCC_GEN_BE
+          if (strcmp(odp->keyword, "O0") == 0) gcc_be_opt_level = 0;
+          else if (strcmp(odp->keyword, "O1") == 0) gcc_be_opt_level = 1;
+          else if (strcmp(odp->keyword, "O3") == 0) gcc_be_opt_level = 3;
+          else gcc_be_opt_level = 2;
+#endif /* BACK_END_IS_GCC_GEN_BE */
         }  /* if */
         break;
       case optk_llvm_debug_info:
         (void)llvm_configure_cli_option("debug_info", opt_value ? "1" : "0");
+#if BACK_END_IS_GCC_GEN_BE
+        gcc_be_debug_info = opt_value;
+#endif /* BACK_END_IS_GCC_GEN_BE */
         break;
       case optk_llvm_split_dwarf:
         (void)llvm_configure_cli_option("split_dwarf", opt_arg);
@@ -11288,21 +11386,48 @@ Process the arguments on the command line that invoked the compiler.
         break;
       case optk_llvm_mcpu:
         (void)llvm_configure_cli_option("mcpu", opt_arg);
+#if BACK_END_IS_GCC_GEN_BE
+        if (odp->keyword != NULL && strcmp(odp->keyword, "march") == 0) {
+          gcc_be_march = opt_arg;
+        } else {
+          gcc_be_mcpu = opt_arg;
+        }
+#endif /* BACK_END_IS_GCC_GEN_BE */
         break;
       case optk_llvm_mattr:
         (void)llvm_configure_cli_option("mattr", opt_arg);
         break;
       case optk_llvm_reloc_model:
         (void)llvm_configure_cli_option("reloc_model", opt_value ? "pic" : "static");
+#if BACK_END_IS_GCC_GEN_BE
+        if (odp->keyword != NULL) {
+          if (strcmp(odp->keyword, "fPIC") == 0) gcc_be_fPIC = TRUE;
+          else if (strcmp(odp->keyword, "fPIE") == 0) gcc_be_fPIE = TRUE;
+          else gcc_be_fno_pie = TRUE;
+        }
+#endif /* BACK_END_IS_GCC_GEN_BE */
         break;
       case optk_llvm_code_model:
         (void)llvm_configure_cli_option("code_model", opt_arg);
+#if BACK_END_IS_GCC_GEN_BE
+        gcc_be_mcmodel = opt_arg;
+#endif /* BACK_END_IS_GCC_GEN_BE */
         break;
       case optk_llvm_fopenmp:
         (void)llvm_configure_cli_option("fopenmp", opt_value ? "1" : "0");
         break;
       case optk_llvm_linker_arg:
         (void)llvm_configure_cli_option("linker_arg", opt_arg);
+#if BACK_END_IS_GCC_GEN_BE
+        {
+          size_t len = (opt_arg ? strlen(opt_arg) : 0) + 3;
+          char *buf = (char *)malloc(len);
+          if (buf) {
+            snprintf(buf, len, "-l%s", opt_arg ? opt_arg : "");
+            gcc_be_driver_options = (void *)buf;
+          }
+        }
+#endif /* BACK_END_IS_GCC_GEN_BE */
         break;
 #endif /* BACK_END_IS_LLVM_GEN_BE */
       case optk_create_pch:
@@ -12445,6 +12570,81 @@ enable_microsoft_mode:
       case optk_incognito:
         incognito = opt_value;
         break;
+
+#if BACK_END_IS_GCC_GEN_BE
+      case optk_gcc_gen_be:
+        gcc_be_enabled = TRUE;
+#if BACK_END_IS_LLVM_GEN_BE
+        llvm_be_enabled = FALSE;
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+        break;
+      case optk_gcc_be_c: gcc_be_compile_only = TRUE; break;
+      case optk_gcc_be_S: gcc_be_assemble_only = TRUE; break;
+      case optk_gcc_be_O0: gcc_be_opt_level = 0; break;
+      case optk_gcc_be_O1: gcc_be_opt_level = 1; break;
+      case optk_gcc_be_O2: gcc_be_opt_level = 2; break;
+      case optk_gcc_be_O3: gcc_be_opt_level = 3; break;
+      case optk_gcc_be_Os: gcc_be_opt_level = 2; /* libgccjit doesn't have Os natively, map to 2 */ break;
+      case optk_gcc_be_Ofast:
+        gcc_be_opt_level = 3;
+#if BACK_END_IS_LLVM_GEN_BE
+        (void)llvm_configure_cli_option("opt_level", "O3");
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+        break;
+      case optk_gcc_be_g:
+        gcc_be_debug_info = TRUE;
+#if BACK_END_IS_LLVM_GEN_BE
+        (void)llvm_configure_cli_option("debug_info", "1");
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+        break;
+      case optk_gcc_be_fPIC: gcc_be_fPIC = TRUE; break;
+      case optk_gcc_be_fPIE: gcc_be_fPIE = TRUE; break;
+      case optk_gcc_be_fno_pie:
+        gcc_be_fno_pie = TRUE;
+#if BACK_END_IS_LLVM_GEN_BE
+        (void)llvm_configure_cli_option("reloc_model", "static");
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+        break;
+      case optk_gcc_be_dump_initial_tree: gcc_be_dump_initial_tree = TRUE; break;
+      case optk_gcc_be_dump_gimple: gcc_be_dump_gimple = TRUE; break;
+      case optk_gcc_be_dump_rtl_all: gcc_be_dump_rtl_all = TRUE; break;
+      case optk_gcc_be_ffast_math: gcc_be_ffast_math = TRUE; break;
+      case optk_gcc_be_fno_trapping_math: gcc_be_fno_trapping_math = TRUE; break;
+      case optk_gcc_be_fassociative_math: gcc_be_fassociative_math = TRUE; break;
+      case optk_gcc_be_shared: gcc_be_shared = TRUE; break;
+      case optk_gcc_be_static: gcc_be_static = TRUE; break;
+      case optk_gcc_be_march: gcc_be_march = opt_arg; break;
+      case optk_gcc_be_mcpu: gcc_be_mcpu = opt_arg; break;
+      case optk_gcc_be_mtune: gcc_be_mtune = opt_arg; break;
+      case optk_gcc_be_mfpu: gcc_be_mfpu = opt_arg; break;
+      case optk_gcc_be_mcmodel: gcc_be_mcmodel = opt_arg; break;
+      case optk_gcc_be_m64: gcc_be_m64 = TRUE; break;
+      case optk_gcc_be_m32: gcc_be_m32 = TRUE; break;
+      case optk_gcc_be_L:
+        {
+          size_t len = (opt_arg ? strlen(opt_arg) : 0) + 3;
+          char *buf = (char *)malloc(len);
+          if (buf) {
+            snprintf(buf, len, "-L%s", opt_arg ? opt_arg : "");
+            gcc_be_driver_options = (void *)buf;
+          }
+        }
+        break;
+      case optk_gcc_be_l:
+        {
+          size_t len = (opt_arg ? strlen(opt_arg) : 0) + 3;
+          char *buf = (char *)malloc(len);
+          if (buf) {
+            snprintf(buf, len, "-l%s", opt_arg ? opt_arg : "");
+            gcc_be_driver_options = (void *)buf;
+          }
+        }
+#if BACK_END_IS_LLVM_GEN_BE
+        (void)llvm_configure_cli_option("linker_arg", opt_arg);
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+        break;
+#endif /* BACK_END_IS_GCC_GEN_BE */
+
      default:
         /* It should not be possible to get here. */
         unexpected_condition();
@@ -13188,6 +13388,12 @@ enable_microsoft_mode:
 #if IL_SHOULD_BE_WRITTEN_TO_FILE
     il_file_name = NULL;
   } else {
+#if BACK_END_IS_GCC_GEN_BE
+    gcc_be_output_file_name = ofile_name;
+#if !BACK_END_IS_LLVM_GEN_BE
+    ofile_name = NULL;
+#endif /* !BACK_END_IS_LLVM_GEN_BE */
+#else /* !BACK_END_IS_GCC_GEN_BE */
     /* Establish the intermediate file name (if it is needed). */
 #if !BACK_END_IS_LLVM_GEN_BE
     if (!suppress_il_file_write) {
@@ -13197,6 +13403,7 @@ enable_microsoft_mode:
       ofile_name = NULL;
     }  /* if */
 #endif /* !BACK_END_IS_LLVM_GEN_BE */
+#endif /* BACK_END_IS_GCC_GEN_BE */
 #endif /* IL_SHOULD_BE_WRITTEN_TO_FILE */
   }  /* if */
   if (list_macro_definitions) {
@@ -13245,6 +13452,14 @@ enable_microsoft_mode:
   create_template_deduction_name_references = NEED_NAME_MANGLING;
   /* If the -o option appeared, its file should have been taken for
      something. */
+#if BACK_END_IS_GCC_GEN_BE
+  if (!do_preprocessing_only && ofile_name != NULL) {
+    gcc_be_output_file_name = ofile_name;
+#if !BACK_END_IS_LLVM_GEN_BE
+    ofile_name = NULL;
+#endif /* !BACK_END_IS_LLVM_GEN_BE */
+  }
+#endif /* BACK_END_IS_GCC_GEN_BE */
 #if !BACK_END_IS_LLVM_GEN_BE
   if (ofile_name != NULL) {
     command_line_error(ec_cl_no_output_file_needed);
@@ -13332,6 +13547,12 @@ enable_microsoft_mode:
     raw_string_literals_enabled = TRUE;
   }  /* if */
 #endif /* GNU_EXTENSIONS_ALLOWED */
+
+#if BACK_END_IS_GCC_GEN_BE && !BACK_END_IS_LLVM_GEN_BE
+  if (!gcc_be_enabled) {
+    suppress_back_end = TRUE;
+  }
+#endif
 }  /* proc_command_line */
 
 #if COMPILE_MULTIPLE_TRANSLATION_UNITS
@@ -14092,7 +14313,37 @@ variables declared in cmd_line.h.
   auto_cast_enabled = FALSE;
   embed_enabled = FALSE;
   struct_binding_packs_enabled = FALSE;
-  pack_indexing_enabled = FALSE;
+#if BACK_END_IS_LLVM_GEN_BE
+  llvm_be_enabled = FALSE;
+#endif /* BACK_END_IS_LLVM_GEN_BE */
+#if BACK_END_IS_GCC_GEN_BE
+  gcc_be_enabled = FALSE;
+  gcc_be_output_file_name = NULL;
+  gcc_be_opt_level = 0;
+  gcc_be_compile_only = FALSE;
+  gcc_be_assemble_only = FALSE;
+  gcc_be_debug_info = FALSE;
+  gcc_be_fPIC = FALSE;
+  gcc_be_fPIE = FALSE;
+  gcc_be_fno_pie = FALSE;
+  gcc_be_dump_initial_tree = FALSE;
+  gcc_be_dump_gimple = FALSE;
+  gcc_be_dump_rtl_all = FALSE;
+  gcc_be_ffast_math = FALSE;
+  gcc_be_fno_trapping_math = FALSE;
+  gcc_be_fassociative_math = FALSE;
+  gcc_be_shared = FALSE;
+  gcc_be_static = FALSE;
+  gcc_be_march = NULL;
+  gcc_be_mcpu = NULL;
+  gcc_be_mtune = NULL;
+  gcc_be_mfpu = NULL;
+  gcc_be_mcmodel = NULL;
+  gcc_be_m64 = FALSE;
+  gcc_be_m32 = FALSE;
+  gcc_be_driver_options = NULL;
+  gcc_be_compiler_options = NULL;
+#endif
 }  /* cmd_line_static_var_init */
 
 

@@ -2690,11 +2690,11 @@ llvm_gen_be_error_t llvm_lower_global_ctors_and_dtors(void) noexcept {
         dtor_priority_val = gnu_routine_supp(routine)->dtor_priority;
       }
 #if DO_IL_LOWERING
-      if (routine->is_initialization_routine && gnu_routine_supp_or_null(routine) && gnu_routine_supp(routine)->init_priority != 0) {
-         ctor_priority_val = gnu_routine_supp(routine)->init_priority;
+      if (routine->is_initialization_routine && routine->init_priority != 0) {
+         ctor_priority_val = routine->init_priority;
       }
-      if (routine->is_finalization_routine && gnu_routine_supp_or_null(routine) && gnu_routine_supp(routine)->init_priority != 0) {
-         dtor_priority_val = gnu_routine_supp(routine)->init_priority;
+      if (routine->is_finalization_routine && routine->init_priority != 0) {
+         dtor_priority_val = routine->init_priority;
       }
 #endif // DO_IL_LOWERING
 #endif // GNU_INIT_PRIORITY_ATTRIBUTE_ALLOWED

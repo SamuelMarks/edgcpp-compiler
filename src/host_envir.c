@@ -6900,11 +6900,11 @@ This is done before command line processing.
 #endif /* DO_IL_LOWERING */
   in_front_end = FALSE;
   pragma_define_type_info_is_required = PRAGMA_DEFINE_TYPE_INFO_IS_REQUIRED;
-#if BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE
   use_predefined_macro_file = FALSE;
-#else /* !BACK_END_IS_LLVM_GEN_BE */
+#else /* !(BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE) */
   use_predefined_macro_file = DEFAULT_USE_PREDEFINED_MACRO_FILE;
-#endif /* BACK_END_IS_LLVM_GEN_BE */
+#endif /* BACK_END_IS_LLVM_GEN_BE || BACK_END_IS_GCC_GEN_BE */
   memzero((a_void_ptr)predef_macro_mode_values,
 	  sizeof(predef_macro_mode_values));
 #if UNICODE_SOURCE_SUPPORTED

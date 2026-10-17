@@ -50,8 +50,13 @@ Open-sourced in September of 2026.
 #if BACK_END_IS_LLVM_GEN_BE
 #include "llvm_gen_be.h"
 #endif /* BACK_END_IS_LLVM_GEN_BE */
+#if BACK_END_IS_GCC_GEN_BE
+#include "gcc_gen_be_main.h"
+#include "gcc_gen_be_context.h"
+#endif /* BACK_END_IS_GCC_GEN_BE */
 #if BACK_END_SHOULD_BE_CALLED && \
-    !BACK_END_IS_C_GEN_BE && !BACK_END_IS_CP_GEN_BE && !BACK_END_IS_LLVM_GEN_BE
+    !BACK_END_IS_C_GEN_BE && !BACK_END_IS_CP_GEN_BE && \
+    !BACK_END_IS_LLVM_GEN_BE && !BACK_END_IS_GCC_GEN_BE
 /*
 Provide a declaration for a non-EDG-supplied back end (not in the "edg"
 namespace).
@@ -107,6 +112,14 @@ MAKE_FRONT_END_CALLABLE is TRUE.
      if it wasn't invoked during this compilation). */
   cp_gen_be_early_init();
 #endif /* BACK_END_SHOULD_BE_CALLED && BACK_END_IS_CP_GEN_BE && ... */
+#if BACK_END_SHOULD_BE_CALLED && BACK_END_IS_GCC_GEN_BE && \
+    MAKE_FRONT_END_CALLABLE
+  gcc_gen_be_error_t err = gcc_gen_be_early_init();
+  if (err != GCC_GEN_BE_SUCCESS) {
+    (void)gcc_gen_be_report_diagnostic(err, "gcc_gen_be_early_init failed");
+    internal_error("gcc_gen_be_early_init failed");
+  }
+#endif /* BACK_END_SHOULD_BE_CALLED && BACK_END_IS_GCC_GEN_BE && ... */
   /* Get the execution starting time.  Do this unconditionally because the
      timing command line option will not have been processed yet.  This must
      be done after the early initialization done above. */
@@ -170,7 +183,24 @@ MAKE_FRONT_END_CALLABLE is TRUE.
       }  /* if */
 #endif /* USING_KAI_INLINER */
       if (display_compilation_time) get_timer(&be_start_time);
-#if BACK_END_IS_LLVM_GEN_BE
+#if BACK_END_IS_LLVM_GEN_BE && BACK_END_IS_GCC_GEN_BE
+      if (gcc_be_enabled) {
+        gcc_gen_be_error_t be_err = gcc_gen_be();
+        if (be_err != GCC_GEN_BE_SUCCESS) {
+          (void)gcc_gen_be_report_diagnostic(be_err, "back_end failed");
+          internal_error("back_end failed");
+        }
+      } else {
+        llvm_gen_be_error_t be_err = llvm_gen_be();
+        if (be_err != llvm_gen_be_error_t::ok) {
+          const char *err_str = NULL;
+          (void)llvm_gen_be_error_to_string(be_err, &err_str);
+          fprintf(f_error, "error: LLVM backend failure (%s)\n",
+                  err_str != NULL ? err_str : "unknown");
+          diagnostic_counters.total.errors++;
+        }  /* if */
+      }
+#elif BACK_END_IS_LLVM_GEN_BE
       llvm_gen_be_error_t be_err = llvm_gen_be();
       if (be_err != llvm_gen_be_error_t::ok) {
         const char *err_str = NULL;
@@ -179,6 +209,14 @@ MAKE_FRONT_END_CALLABLE is TRUE.
                 err_str != NULL ? err_str : "unknown");
         diagnostic_counters.total.errors++;
       }  /* if */
+#elif BACK_END_IS_GCC_GEN_BE
+      {
+        gcc_gen_be_error_t be_err = gcc_gen_be();
+        if (be_err != GCC_GEN_BE_SUCCESS) {
+          (void)gcc_gen_be_report_diagnostic(be_err, "back_end failed");
+          internal_error("back_end failed");
+        }
+      }
 #else
       back_end();
 #endif
@@ -212,7 +250,11 @@ MAKE_FRONT_END_CALLABLE is TRUE.
        line. */
   } while (get_next_source_file());
 #if BACK_END_IS_LLVM_GEN_BE
-  if (most_severe_diagnostic < es_error) {
+  if (most_severe_diagnostic < es_error
+#if BACK_END_IS_GCC_GEN_BE
+      && !gcc_be_enabled
+#endif /* BACK_END_IS_GCC_GEN_BE */
+      ) {
     llvm_gen_be_error_t link_err = llvm_finalize_multi_tu_link();
     if (link_err != llvm_gen_be_error_t::ok) {
       const char *err_str = NULL;
