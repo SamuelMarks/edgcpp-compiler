@@ -144,6 +144,18 @@ llvm_gen_be_error_t llvm_lower_builtin_operation(
     llvm::Value** out_val) noexcept;
 
 /**
+ * @brief Lowers a GNU `__builtin_choose_expr` node (`enk_builtin_choose_expr`) into LLVM IR.
+ * @details Evaluates either the second or third operand of `expr->variant.builtin_choose_expr`
+ *          depending on `choose_first`.
+ * @param[in] expr Pointer to the EDG `enk_builtin_choose_expr` expression node.
+ * @param[out] out_val Receives the lowered `llvm::Value*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if operands are missing.
+ */
+llvm_gen_be_error_t llvm_lower_builtin_choose_expr(
+    an_expr_node_ptr expr,
+    llvm::Value** out_val) noexcept;
+
+/**
  * @brief Lowers an ISO Embedded C fixed-point binary arithmetic operation using LLVM intrinsics.
  * @details Supports saturating (`llvm.sadd.sat`, `llvm.uadd.sat`, `llvm.ssub.sat`, `llvm.usub.sat`,
  *          `llvm.smul.fix.sat`, `llvm.umul.fix.sat`) and non-saturating (`llvm.smul.fix`, `llvm.umul.fix`,

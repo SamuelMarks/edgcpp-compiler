@@ -155,7 +155,7 @@ llvm_gen_be_error_t build_wasm_function_type(a_type_ptr routine_ty, llvm::Functi
  */
 llvm_gen_be_error_t lower_wasm_va_start(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
-  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
   *out_val = be_state->builder->CreateCall(fn, {va_list_ptr});
   return llvm_gen_be_error_t::ok;
@@ -197,7 +197,7 @@ llvm_gen_be_error_t lower_wasm_va_arg(llvm::Value* va_list_ptr, a_type_ptr ty, l
  */
 llvm_gen_be_error_t lower_wasm_va_end(llvm::Value* va_list_ptr, llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
-  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
   *out_val = be_state->builder->CreateCall(fn, {va_list_ptr});
   return llvm_gen_be_error_t::ok;
@@ -213,7 +213,7 @@ llvm_gen_be_error_t lower_wasm_va_end(llvm::Value* va_list_ptr, llvm::Value** ou
  */
 llvm_gen_be_error_t lower_wasm_va_copy(llvm::Value* dest_va_list_ptr, llvm::Value* src_va_list_ptr, llvm::Value** out_val) noexcept {
   if (!dest_va_list_ptr || !src_va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
-  llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});
   *out_val = be_state->builder->CreateCall(fn, {dest_va_list_ptr, src_va_list_ptr});
   return llvm_gen_be_error_t::ok;

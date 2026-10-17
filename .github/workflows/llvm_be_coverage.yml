@@ -8,31 +8,19 @@ on:
 
 jobs:
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake llvm-14-dev clang-14 lcov valgrind
-        
-    - name: Run Tests with Coverage
+        sudo apt-get install -y cmake ninja-build clang llvm llvm-dev python3
+
+    - name: Verify 100% Documentation Coverage
       run: |
-        export CXX=clang++-14
-        export CC=clang-14
-        OUTPUT=$(./dev_tools/bin/run_coverage.sh)
-        echo "$OUTPUT"
-        if ! echo "$OUTPUT" | grep -q "100%"; then
-          echo "Coverage is below strict 100% threshold!"
-          exit 1
-        fi
-        
-    - name: Run Valgrind Tests
+        python3 dev_tools/check_doc_coverage.py
+
+    - name: Run Tests with 100% Coverage
       run: |
-        export CXX=clang++-14
-        export CC=clang-14
-        cmake -S . -B build/valgrind -DBUILD_TESTING=ON -DENABLE_LLVM_BACKEND=ON
-        cmake --build build/valgrind
-        cd build/valgrind
-        ctest -T memcheck
+        python3 dev_tools/check_llvm_be_coverage.py

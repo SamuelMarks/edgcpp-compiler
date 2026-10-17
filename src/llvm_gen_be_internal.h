@@ -22,18 +22,89 @@
 #include "llvm_gen_be_debug.h"
 #include "llvm_gen_be_opt.h"
 
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DataLayout.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/TargetParser/Triple.h>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#if LLVM_VERSION_MAJOR >= 21
+#define EDG_LLVM_SET_TARGET_TRIPLE(mod, triple_str) \
+  (mod)->setTargetTriple(llvm::Triple(triple_str))
+#else
+#define EDG_LLVM_SET_TARGET_TRIPLE(mod, triple_str) \
+  (mod)->setTargetTriple(triple_str)
+#endif
+
+#if LLVM_VERSION_MAJOR >= 20
+#define EDG_LLVM_GET_INTRINSIC_DECL(...) \
+  llvm::Intrinsic::getOrInsertDeclaration(__VA_ARGS__)
+#define EDG_LLVM_GET_TERMINATOR(bb) \
+  ((bb)->getTerminatorOrNull())
+#else
+#define EDG_LLVM_GET_INTRINSIC_DECL(...) \
+  llvm::Intrinsic::getDeclaration(__VA_ARGS__)
+#define EDG_LLVM_GET_TERMINATOR(bb) \
+  ((bb)->getTerminator())
+#endif
+
+#if INTEGER_VALUE_REPR_IS_A_HOST_INTEGER
+#define EDG_INT_VAL_LOW64(val) static_cast<uint64_t>(val)
+#if INT128_EXTENSIONS_ALLOWED
+#define EDG_INT_VAL_HIGH64(val) \
+  ((sizeof(val) > 8) ? static_cast<uint64_t>((val) >> 64) : 0ULL)
+#else
+#define EDG_INT_VAL_HIGH64(val) (0ULL)
+#endif
+#else
+#define EDG_INT_VAL_LOW64(val) \
+  (static_cast<uint64_t>((val).part[0]) | \
+   (static_cast<uint64_t>((val).part[1]) << 16) | \
+   (static_cast<uint64_t>((val).part[2]) << 32) | \
+   (static_cast<uint64_t>((val).part[3]) << 48))
+#define EDG_INT_VAL_HIGH64(val) \
+  ((INT_VALUE_PARTS_PER_INTEGER_VALUE >= 8) \
+       ? (static_cast<uint64_t>((val).part[4]) | \
+          (static_cast<uint64_t>((val).part[5]) << 16) | \
+          (static_cast<uint64_t>((val).part[6]) << 32) | \
+          (static_cast<uint64_t>((val).part[7]) << 48)) \
+       : 0ULL)
+#endif
+
+#if !GNU_EXTENSIONS_ALLOWED && !MICROSOFT_EXTENSIONS_ALLOWED
+#define EDG_ALIGN_OF_TYPE(tp) alignment_of_type(tp)
+#else
+#define EDG_ALIGN_OF_TYPE(tp) f_alignment_of_type(tp)
+#endif
+
+#if RECORD_RAW_ASM_OPERAND_DESCRIPTIONS
+#define EDG_ASM_OP_IS_OUTPUT(aop) ((aop)->is_output_operand != 0)
+#define EDG_ASM_OP_CONSTRAINT_STR(aop) \
+  ((aop)->constraints_string ? std::string((aop)->constraints_string) : std::string(""))
+#else
+#define EDG_ASM_OP_IS_OUTPUT(aop) (((aop)->modifiers & aom_output) != 0)
+#define EDG_ASM_OP_CONSTRAINT_STR(aop) \
+  ([](an_asm_operand_ptr _op) -> std::string { \
+    std::string _s; \
+    if (_op->modifiers & aom_output) { \
+      _s += (_op->modifiers & aom_input) ? "+" : "="; \
+    } \
+    for (an_asm_operand_constraint_ptr _c = _op->constraints; _c != nullptr; _c = _c->next) { \
+      _s += asm_operand_constraint_letters[static_cast<int>(_c->kind)]; \
+    } \
+    return _s; \
+  }(aop))
+#endif
 
 BEGIN_EDG_NAMESPACE
 

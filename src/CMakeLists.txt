@@ -342,10 +342,6 @@ if(EDG_ENABLE_GCC_BACKEND)
   endif()
   set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
   
-  if(MSVC)
-    add_link_options(/DELAYLOAD:libgccjit.dll)
-  endif()
-  
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set_source_files_properties(
       "${PROJECT_SOURCE_DIR}/gcc_gen_be_error.c"

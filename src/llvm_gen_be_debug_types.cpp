@@ -90,7 +90,7 @@ llvm_gen_be_error_t get_or_create_di_type(
                 }
                 for (a_constant_ptr cp = c_list; cp != nullptr; cp = cp->next) {
                     const char* e_name = cp->source_corresp.name ? cp->source_corresp.name : "enumerator";
-                    int64_t enum_val = static_cast<int64_t>(cp->variant.integer_value);
+                    int64_t enum_val = static_cast<int64_t>(EDG_INT_VAL_LOW64(cp->variant.integer_value));
                     enum_elts.push_back(dbg_state->builder->createEnumerator(e_name, enum_val, !int_type_is_signed(ty)));
                 }
                 llvm::DINodeArray elts_arr = dbg_state->builder->getOrCreateArray(enum_elts);
@@ -312,7 +312,7 @@ llvm_gen_be_error_t get_or_create_di_type(
                                                   : "V";
                         llvm::Constant* val_c = llvm::ConstantInt::get(
                             llvm::Type::getInt64Ty(*be_state->context),
-                            static_cast<uint64_t>(tc->variant.integer_value));
+                            EDG_INT_VAL_LOW64(tc->variant.integer_value));
                         tpl_params.push_back(dbg_state->builder->createTemplateValueParameter(
                             dbg_state->compile_unit, vp_name, tc_di_ty, false, val_c));
                     } else if (ta->kind == tak_template) {

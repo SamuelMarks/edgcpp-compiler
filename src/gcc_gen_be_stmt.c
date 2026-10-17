@@ -2001,8 +2001,29 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, struct gcc_j
                           int out_op_idx = 0;
                           while (op) {
                               const char *name = op->name;
-                              const char *constraint = op->constraints_string;
-                              if (op->is_output_operand) {
+                              char cbuf[64];
+                              const char *constraint = "";
+                              a_boolean is_out_op = FALSE;
+#if RECORD_RAW_ASM_OPERAND_DESCRIPTIONS
+                              constraint = op->constraints_string;
+                              is_out_op = op->is_output_operand;
+#else
+                              is_out_op = (op->modifiers & aom_output) ? TRUE : FALSE;
+                              {
+                                  size_t cpos = 0;
+                                  if (is_out_op) {
+                                      cbuf[cpos++] = (op->modifiers & aom_input) ? '+' : '=';
+                                  }
+                                  an_asm_operand_constraint_ptr cp = op->constraints;
+                                  while (cp && cpos + 4 < sizeof(cbuf)) {
+                                      cbuf[cpos++] = asm_operand_constraint_letters[(int)cp->kind];
+                                      cp = cp->next;
+                                  }
+                                  cbuf[cpos] = '\0';
+                                  constraint = cbuf;
+                              }
+#endif
+                              if (is_out_op) {
                                   gcc_jit_lvalue *lval = NULL;
                                   err = gcc_gen_be_lower_expr_lvalue(op->expression, &lval);
                                   if (err != GCC_GEN_BE_SUCCESS) return err;

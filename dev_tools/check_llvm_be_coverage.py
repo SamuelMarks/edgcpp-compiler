@@ -3,8 +3,25 @@
 
 import glob
 import os
+import shutil
 import subprocess
 import sys
+
+
+def resolve_llvm_tool(tool_name: str) -> list[str]:
+    """Resolves llvm-profdata or llvm-cov across macOS (xcrun) and Linux."""
+    env_override = os.environ.get(tool_name.upper().replace("-", "_"))
+    if env_override:
+        return [env_override]
+    if sys.platform == "darwin" and shutil.which("xcrun"):
+        return ["xcrun", tool_name]
+    if shutil.which(tool_name):
+        return [tool_name]
+    for ver in range(22, 13, -1):
+        cand = f"{tool_name}-{ver}"
+        if shutil.which(cand):
+            return [cand]
+    return [tool_name]
 
 
 def main() -> int:
@@ -16,6 +33,27 @@ def main() -> int:
     merged_prof = os.path.join(build_dir, "merged.profdata")
 
     test_bins = sorted(glob.glob(os.path.join(bin_dir, "test_llvm_*")))
+    if not test_bins:
+        cmake_args = [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            build_dir,
+            "-G",
+            "Ninja",
+            "-DCMAKE_BUILD_TYPE=Debug",
+            "-DEDG_ENABLE_LLVM_BACKEND=ON",
+            "-DBUILD_TESTING=ON",
+            "-DEDG_LLVM_BE_COVERAGE=ON",
+            "-DEDG_BUILD_LIB=OFF",
+        ]
+        if shutil.which("clang") and shutil.which("clang++"):
+            cmake_args.extend(["-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"])
+        subprocess.run(cmake_args, check=True)
+        subprocess.run(["cmake", "--build", build_dir], check=True)
+        test_bins = sorted(glob.glob(os.path.join(bin_dir, "test_llvm_*")))
+
     if not test_bins:
         print(f"Error: No test_llvm_* binaries found in {bin_dir}", file=sys.stderr)
         return 1
@@ -40,13 +78,15 @@ def main() -> int:
             return 1
 
     profraw_files = sorted(glob.glob(os.path.join(profraw_dir, "*.profraw")))
+    profdata_cmd = resolve_llvm_tool("llvm-profdata")
     subprocess.run(
-        ["xcrun", "llvm-profdata", "merge", "-sparse", *profraw_files, "-o", merged_prof],
+        [*profdata_cmd, "merge", "-sparse", *profraw_files, "-o", merged_prof],
         check=True,
     )
 
     src_files = sorted(glob.glob("src/llvm_gen_be*.cpp") + glob.glob("src/llvm_gen_be*.h"))
-    cmd = ["xcrun", "llvm-cov", "report", test_bins[0]]
+    cov_cmd = resolve_llvm_tool("llvm-cov")
+    cmd = [*cov_cmd, "report", test_bins[0]]
     for tb in test_bins[1:]:
         cmd.extend(["-object", tb])
     cmd.extend([f"-instr-profile={merged_prof}", "--sources", *src_files])

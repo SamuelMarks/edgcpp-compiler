@@ -239,19 +239,19 @@ llvm_gen_be_error_t generate_llvm_output_file(const char* base_name) noexcept {
   llvm_gen_be_error_t init_err = initialize_llvm_targets();
   if (init_err != llvm_gen_be_error_t::ok) return init_err;
 
-  llvm::CodeGenOptLevel cg_opt = llvm::CodeGenOptLevel::None;
+  llvm_codegen_opt_level_t cg_opt = llvm_codegen_opt_level_t::None;
   switch (be_state->opt_level) {
-    case llvm_opt_level_t::O0: cg_opt = llvm::CodeGenOptLevel::None; break;
-    case llvm_opt_level_t::O1: cg_opt = llvm::CodeGenOptLevel::Less; break;
+    case llvm_opt_level_t::O0: cg_opt = llvm_codegen_opt_level_t::None; break;
+    case llvm_opt_level_t::O1: cg_opt = llvm_codegen_opt_level_t::Less; break;
     case llvm_opt_level_t::O2:
     case llvm_opt_level_t::Os:
-    case llvm_opt_level_t::Oz: cg_opt = llvm::CodeGenOptLevel::Default; break;
-    case llvm_opt_level_t::O3: cg_opt = llvm::CodeGenOptLevel::Aggressive; break;
-    default: cg_opt = llvm::CodeGenOptLevel::Default; break;
+    case llvm_opt_level_t::Oz: cg_opt = llvm_codegen_opt_level_t::Default; break;
+    case llvm_opt_level_t::O3: cg_opt = llvm_codegen_opt_level_t::Aggressive; break;
+    default: cg_opt = llvm_codegen_opt_level_t::Default; break;
   }
 
   llvm::TargetMachine* tm = nullptr;
-  std::string triple_str = be_state->module->getTargetTriple().str();
+  std::string triple_str = llvm::Triple(be_state->module->getTargetTriple()).str();
   const char* cpu_cstr = be_state->target_cpu.empty() ? nullptr : be_state->target_cpu.c_str();
   const char* feat_cstr = be_state->target_features.empty() ? nullptr : be_state->target_features.c_str();
   llvm_gen_be_error_t tm_err = create_target_machine(
@@ -453,7 +453,7 @@ llvm_gen_be_error_t llvm_gen_be(void) noexcept
 #endif
   }
 
-  be_state->module->setTargetTriple(llvm::Triple(triple_str));
+  EDG_LLVM_SET_TARGET_TRIPLE(be_state->module.get(), triple_str);
 
   if (be_state->emit_debug_info) {
     bool is_opt = (be_state->opt_level != llvm_opt_level_t::O0);
@@ -463,7 +463,7 @@ llvm_gen_be_error_t llvm_gen_be(void) noexcept
   }
 
   llvm::TargetMachine* tm = nullptr;
-  llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm::CodeGenOptLevel::Default, std::nullopt, std::nullopt, &tm);
+  llvm_gen_be_error_t tm_err = create_target_machine(triple_str.c_str(), nullptr, nullptr, llvm_codegen_opt_level_t::Default, std::nullopt, std::nullopt, &tm);
   if (tm_err != llvm_gen_be_error_t::ok) {
     return tm_err;
   }

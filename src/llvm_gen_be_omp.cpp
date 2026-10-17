@@ -262,7 +262,7 @@ llvm_gen_be_error_t lower_omp_parallel_region(a_statement_ptr stmt) noexcept {
         return err;
     }
     
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateRetVoid();
     }
     be_state->local_vars = std::move(saved_locals);
@@ -945,7 +945,7 @@ llvm_gen_be_error_t compile_omp_device_module(
     out_device_image->clear();
     llvm::LLVMContext& Ctx = host_mod->getContext();
     llvm::Module dev_mod("omp_device_module", Ctx);
-    dev_mod.setTargetTriple(llvm::Triple(offload_triple));
+    EDG_LLVM_SET_TARGET_TRIPLE(&dev_mod, offload_triple);
     bool is_amdgpu = llvm::StringRef(offload_triple).starts_with("amdgcn");
 
     llvm::NamedMDNode* nvvm_annot = is_amdgpu ? nullptr : dev_mod.getOrInsertNamedMetadata("nvvm.annotations");
@@ -1060,7 +1060,7 @@ llvm_gen_be_error_t lower_omp_target_region(a_statement_ptr stmt) noexcept {
         be_state->builder->restoreIP(saved_ip);
         return err;
     }
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateRetVoid();
     }
     be_state->builder->restoreIP(saved_ip);
@@ -1275,7 +1275,7 @@ llvm_gen_be_error_t lower_omp_task(a_statement_ptr stmt) noexcept {
         be_state->builder->restoreIP(saved_ip);
         return err;
     }
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateRet(llvm::ConstantInt::get(i32_ty, 0));
     }
     be_state->builder->restoreIP(saved_ip);
@@ -1702,7 +1702,7 @@ llvm_gen_be_error_t lower_omp_simd(a_statement_ptr stmt) noexcept {
     loop_id->replaceOperandWith(0, loop_id);
 
     for (llvm::BasicBlock& bb : *parent_fn) {
-        if (llvm::Instruction* term = bb.getTerminatorOrNull()) {
+        if (llvm::Instruction* term = EDG_LLVM_GET_TERMINATOR(&bb)) {
             term->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
         }
     }
@@ -1760,7 +1760,7 @@ llvm_gen_be_error_t lower_omp_teams_distribute(a_statement_ptr stmt) noexcept {
         be_state->builder->restoreIP(saved_ip);
         return err;
     }
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateCall(dist_fini_call, {ident, llvm::ConstantInt::get(i32_ty, 0)});
         be_state->builder->CreateRetVoid();
     }
@@ -1814,7 +1814,7 @@ llvm_gen_be_error_t lower_omp_taskloop(a_statement_ptr stmt) noexcept {
         be_state->builder->restoreIP(saved_ip);
         return err;
     }
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateRet(llvm::ConstantInt::get(i32_ty, 0));
     }
     be_state->builder->restoreIP(saved_ip);

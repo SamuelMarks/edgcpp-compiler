@@ -350,7 +350,7 @@ llvm_gen_be_error_t run_thinlto_combined_index_and_link(
             return llvm_gen_be_error_t::io_error;
         }
         std::unique_ptr<llvm::Module> sub_mod = std::move(*mod_or_err);
-        if (!sub_mod->getTargetTriple().str().empty()) {
+        if (!llvm::Triple(sub_mod->getTargetTriple()).str().empty()) {
             combined_mod->setTargetTriple(sub_mod->getTargetTriple());
         }
 
@@ -411,20 +411,20 @@ llvm_gen_be_error_t invoke_embedded_lld_lto(void) noexcept {
         return init_err;
     }
 
-    std::string triple_str = be_state->module->getTargetTriple().str();
+    std::string triple_str = llvm::Triple(be_state->module->getTargetTriple()).str();
     if (triple_str.empty()) {
         triple_str = "x86_64-unknown-linux-gnu";
     }
 
-    llvm::CodeGenOptLevel cg_opt = llvm::CodeGenOptLevel::Default;
+    llvm_codegen_opt_level_t cg_opt = llvm_codegen_opt_level_t::Default;
     switch (be_state->opt_level) {
-        case llvm_opt_level_t::O0: cg_opt = llvm::CodeGenOptLevel::None; break;
-        case llvm_opt_level_t::O1: cg_opt = llvm::CodeGenOptLevel::Less; break;
+        case llvm_opt_level_t::O0: cg_opt = llvm_codegen_opt_level_t::None; break;
+        case llvm_opt_level_t::O1: cg_opt = llvm_codegen_opt_level_t::Less; break;
         case llvm_opt_level_t::O2:
         case llvm_opt_level_t::Os:
-        case llvm_opt_level_t::Oz: cg_opt = llvm::CodeGenOptLevel::Default; break;
-        case llvm_opt_level_t::O3: cg_opt = llvm::CodeGenOptLevel::Aggressive; break;
-        default: cg_opt = llvm::CodeGenOptLevel::Default; break;
+        case llvm_opt_level_t::Oz: cg_opt = llvm_codegen_opt_level_t::Default; break;
+        case llvm_opt_level_t::O3: cg_opt = llvm_codegen_opt_level_t::Aggressive; break;
+        default: cg_opt = llvm_codegen_opt_level_t::Default; break;
     }
 
     llvm::TargetMachine* tm = nullptr;

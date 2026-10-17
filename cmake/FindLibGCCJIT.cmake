@@ -1,19 +1,49 @@
 # FindLibGCCJIT
 # -------------
 
+file(GLOB _homebrew_libgccjit_include_dirs
+  "/opt/homebrew/opt/libgccjit/include"
+  "/usr/local/opt/libgccjit/include"
+  "/opt/homebrew/Cellar/libgccjit/*/include"
+  "/usr/local/Cellar/libgccjit/*/include"
+  "/usr/lib/gcc/*/*/include"
+)
+
+file(GLOB _homebrew_libgccjit_lib_dirs
+  "/opt/homebrew/opt/libgccjit/lib"
+  "/opt/homebrew/opt/libgccjit/lib/gcc/current"
+  "/opt/homebrew/opt/libgccjit/lib/gcc/*"
+  "/usr/local/opt/libgccjit/lib"
+  "/usr/local/opt/libgccjit/lib/gcc/current"
+  "/usr/local/opt/libgccjit/lib/gcc/*"
+  "/opt/homebrew/Cellar/libgccjit/*/lib/gcc/current"
+  "/usr/local/Cellar/libgccjit/*/lib/gcc/current"
+  "/usr/lib/gcc/*/*"
+)
+
 find_path(LibGCCJIT_INCLUDE_DIR
   NAMES libgccjit.h
+  HINTS
+    ENV EDG_LIBGCCJIT_INCLUDE_DIR
   PATHS 
     /usr/include 
     /usr/local/include 
     /opt/homebrew/include 
     /opt/local/include
+    ${_homebrew_libgccjit_include_dirs}
     "C:/msys64/mingw64/include"
+    "C:/msys64/ucrt64/include"
+    "C:/msys64/clang64/include"
+    "C:/msys64/clangarm64/include"
+    "${CMAKE_SOURCE_DIR}/win-gccjit-include"
+    "${CMAKE_SOURCE_DIR}/dev_tools/builtins"
     "C:/Program Files/GCC/include"
 )
 
 find_library(LibGCCJIT_LIBRARY
   NAMES gccjit libgccjit.dll.a
+  HINTS
+    ENV EDG_LIBGCCJIT_LIB_DIR
   PATHS 
     /usr/lib 
     /usr/local/lib 
@@ -23,6 +53,7 @@ find_library(LibGCCJIT_LIBRARY
     /opt/homebrew/lib
     /opt/homebrew/lib/gcc/current
     /opt/local/lib
+    ${_homebrew_libgccjit_lib_dirs}
     "C:/msys64/mingw64/lib"
     "C:/msys64/ucrt64/lib"
     "C:/msys64/clangarm64/lib"

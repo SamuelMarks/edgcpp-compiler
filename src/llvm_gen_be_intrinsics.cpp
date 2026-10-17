@@ -52,7 +52,7 @@ static llvm_gen_be_error_t emit_named_or_table_intrinsic(
 
   llvm::Intrinsic::ID id = llvm::Intrinsic::lookupIntrinsicID(llvm_intr_name);
   if (id != llvm::Intrinsic::not_intrinsic && !llvm::Intrinsic::isOverloaded(id)) {
-    llvm::Function* intr_func = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), id);
+    llvm::Function* intr_func = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), id);
     if (intr_func->arg_size() == args.size()) {
       bool types_match = true;
       for (size_t i = 0; i < args.size(); ++i) {
@@ -137,20 +137,20 @@ llvm_gen_be_error_t llvm_lower_x86_builtin(
 
   // 2. Packed FP sqrt, max, min, fma (sqrtps/sqrtpd, maxps/maxpd, minps/minpd, vfmadd*)
   if (sub.starts_with("sqrtp")) {
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), llvm::Intrinsic::sqrt, {args[0]->getType()});
     *out_val = be_state->builder->CreateCall(fn, {args[0]});
     return llvm_gen_be_error_t::ok;
   }
   if (sub.starts_with("maxp") || sub.starts_with("minp")) {
     llvm::Intrinsic::ID iid = sub.starts_with("maxp") ? llvm::Intrinsic::maxnum : llvm::Intrinsic::minnum;
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), iid, {args[0]->getType()});
     *out_val = be_state->builder->CreateCall(fn, {args[0], args[1]});
     return llvm_gen_be_error_t::ok;
   }
   if (sub.starts_with("vfmadd")) {
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), llvm::Intrinsic::fma, {args[0]->getType()});
     *out_val = be_state->builder->CreateCall(fn, {args[0], args[1], args[2]});
     return llvm_gen_be_error_t::ok;
@@ -169,7 +169,7 @@ llvm_gen_be_error_t llvm_lower_x86_builtin(
     } else if (sub.starts_with("psubus")) {
       iid = llvm::Intrinsic::usub_sat;
     }
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), iid, {args[0]->getType()});
     *out_val = be_state->builder->CreateCall(fn, {args[0], args[1]});
     return llvm_gen_be_error_t::ok;
@@ -238,14 +238,14 @@ llvm_gen_be_error_t llvm_lower_x86_builtin(
     return emit_named_or_table_intrinsic("llvm.x86.sse2." + sub.str(), args, callee_ty, out_val);
   }
   if (sub == "rdtsc") {
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), llvm::Intrinsic::readcyclecounter);
     *out_val = be_state->builder->CreateCall(fn);
     return llvm_gen_be_error_t::ok;
   }
   if (sub.starts_with("tzcnt") || sub.starts_with("lzcnt")) {
     llvm::Intrinsic::ID iid = sub.starts_with("tzcnt") ? llvm::Intrinsic::cttz : llvm::Intrinsic::ctlz;
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), iid, {args[0]->getType()});
     *out_val = be_state->builder->CreateCall(fn, {args[0], be_state->builder->getFalse()});
     return llvm_gen_be_error_t::ok;
@@ -343,7 +343,7 @@ llvm_gen_be_error_t llvm_lower_arm_aarch64_builtin(
     if (sub == "svcntb" || sub == "svcnth" || sub == "svcntw" || sub == "svcntd") {
       uint64_t base_elts = (sub == "svcntb") ? 16ULL : ((sub == "svcnth") ? 8ULL : ((sub == "svcntw") ? 4ULL : 2ULL));
       llvm::Type* i64_ty = llvm::Type::getInt64Ty(*be_state->context);
-      llvm::Function* vscale_fn = llvm::Intrinsic::getOrInsertDeclaration(
+      llvm::Function* vscale_fn = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::vscale, {i64_ty});
       llvm::Value* vscale_val = be_state->builder->CreateCall(vscale_fn, {});
       *out_val = be_state->builder->CreateMul(vscale_val, llvm::ConstantInt::get(i64_ty, base_elts), "sve.cnt");
@@ -444,13 +444,13 @@ llvm_gen_be_error_t llvm_lower_riscv_builtin(
     *out_handled = true;
     llvm::StringRef sub = rname.substr(16);
     if (sub == "rev8") {
-      llvm::Function* bswap = llvm::Intrinsic::getOrInsertDeclaration(
+      llvm::Function* bswap = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::bswap, {args[0]->getType()});
       *out_val = be_state->builder->CreateCall(bswap, {args[0]});
       return llvm_gen_be_error_t::ok;
     }
     if (sub == "clmul" || sub == "clmulh") {
-      llvm::Function* clmul = llvm::Intrinsic::getOrInsertDeclaration(
+      llvm::Function* clmul = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::clmul, {args[0]->getType()});
       *out_val = be_state->builder->CreateCall(clmul, {args[0], args[1]});
       return llvm_gen_be_error_t::ok;

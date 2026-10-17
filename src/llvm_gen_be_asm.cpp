@@ -318,8 +318,8 @@ llvm_gen_be_error_t llvm_lower_asm_stmt(a_statement_ptr stmt) noexcept {
     if (!first) constraints += ",";
     first = false;
 
-    bool output = aop->is_output_operand;
-    std::string constr = aop->constraints_string ? aop->constraints_string : "";
+    bool output = EDG_ASM_OP_IS_OUTPUT(aop);
+    std::string constr = EDG_ASM_OP_CONSTRAINT_STR(aop);
     bool is_memory = (constr.find("m") != std::string::npos);
     bool is_read_write_reg = (output && !is_memory && constr.find("+") != std::string::npos);
 

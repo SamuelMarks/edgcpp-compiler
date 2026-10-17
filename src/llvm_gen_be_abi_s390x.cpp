@@ -205,7 +205,7 @@ llvm_gen_be_error_t lower_s390x_va_start(
     
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   
-  llvm::Function* va_start_func = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* va_start_func = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
   
   *out_val = be_state->builder->CreateCall(va_start_func, {va_list_ptr});
@@ -261,7 +261,7 @@ llvm_gen_be_error_t lower_s390x_va_end(
   
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   
-  llvm::Function* va_end_func = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* va_end_func = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
   
   *out_val = be_state->builder->CreateCall(va_end_func, {va_list_ptr});
@@ -283,7 +283,7 @@ llvm_gen_be_error_t lower_s390x_va_copy(
   
   if (!dest_va_list_ptr || !src_va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
   
-  llvm::Function* va_copy_func = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* va_copy_func = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});
   
   *out_val = be_state->builder->CreateCall(va_copy_func, {dest_va_list_ptr, src_va_list_ptr});

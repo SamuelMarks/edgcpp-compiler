@@ -16,6 +16,7 @@
 
 #include "basic_hdrs.h"
 #include "llvm_gen_be_error.h"
+#include <llvm/Config/llvm-config.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Support/CodeGen.h>
@@ -23,6 +24,12 @@
 #include <optional>
 
 BEGIN_EDG_NAMESPACE
+
+#if LLVM_VERSION_MAJOR >= 18
+using llvm_codegen_opt_level_t = llvm::CodeGenOptLevel;
+#else
+using llvm_codegen_opt_level_t = llvm::CodeGenOpt::Level;
+#endif
 
 /**
  * @enum codegen_file_type_t
@@ -58,7 +65,7 @@ llvm_gen_be_error_t create_target_machine(
     const char* triple_str,
     const char* cpu,
     const char* features,
-    llvm::CodeGenOptLevel opt_level,
+    llvm_codegen_opt_level_t opt_level,
     std::optional<llvm::Reloc::Model> reloc_model,
     std::optional<llvm::CodeModel::Model> code_model,
     llvm::TargetMachine** out_tm) noexcept;

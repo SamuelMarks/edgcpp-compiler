@@ -2303,7 +2303,7 @@ llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) noexcept {
             "llvm.localescape", llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), {}, true));
         
         llvm::BasicBlock& entry_bb = func->getEntryBlock();
-        llvm::Instruction* terminator = entry_bb.getTerminatorOrNull();
+        llvm::Instruction* terminator = EDG_LLVM_GET_TERMINATOR(&entry_bb);
         if (terminator) {
             be_state->builder->SetInsertPoint(terminator);
         } else {
@@ -2317,7 +2317,7 @@ llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) noexcept {
 
     // Ensure all blocks have a terminator
     for (llvm::BasicBlock& bb : *func) {
-      if (!bb.getTerminatorOrNull()) {
+      if (!EDG_LLVM_GET_TERMINATOR(&bb)) {
         be_state->builder->SetInsertPoint(&bb);
         if (func->getReturnType()->isVoidTy()) {
           be_state->builder->CreateRetVoid();

@@ -137,7 +137,7 @@ llvm_gen_be_error_t llvm_lower_microsoft_try_stmt(a_statement_ptr stmt) noexcept
       be_state->cleanup_stack.cleanups.pop_back();
   }
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(leave_target_bb);
   }
 
@@ -339,7 +339,7 @@ llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
   llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
 
-  bool is_msvc = be_state->module->getTargetTriple().getTriple().find("windows-msvc") != std::string::npos;
+  bool is_msvc = llvm::Triple(be_state->module->getTargetTriple()).getTriple().find("windows-msvc") != std::string::npos;
 
   if (is_msvc) {
       llvm::FunctionCallee pers_fn = be_state->module->getOrInsertFunction("__CxxFrameHandler3",
@@ -363,7 +363,7 @@ llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
       be_state->current_landing_pads.pop_back();
       be_state->landing_pad_cleanup_depths.pop_back();
 
-      if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+      if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateBr(end_try_bb);
       }
 
@@ -415,7 +415,7 @@ llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
         }
         be_state->active_funclet_pads.pop_back();
 
-        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+        if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
           if (be_state->current_routine_is_ctor_or_dtor) {
             llvm::FunctionType* rethrow_ty = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*be_state->context), {int8_ptr_ty, int8_ptr_ty}, false);
@@ -496,7 +496,7 @@ llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
       be_state->current_landing_pads.pop_back();
       be_state->landing_pad_cleanup_depths.pop_back();
 
-      if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+      if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
         be_state->builder->CreateBr(end_try_bb);
       }
 
@@ -620,7 +620,7 @@ llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
 
         if (h->parameter && h->dynamic_init && h->dynamic_init->destructor) {
           be_state->cleanup_stack.cleanups.pop_back();
-          if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+          if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
             a_routine_ptr catch_dtor = h->dynamic_init->destructor;
             const char* dtor_name = catch_dtor->source_corresp.name ? catch_dtor->source_corresp.name : "catch_dtor";
             llvm::FunctionType* dtor_ty = llvm::FunctionType::get(
@@ -630,7 +630,7 @@ llvm_gen_be_error_t llvm_lower_try_block_stmt(a_statement_ptr stmt) noexcept {
           }
         }
 
-        if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+        if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
           if (be_state->current_routine_is_ctor_or_dtor) {
             llvm::FunctionType* rethrow_ty = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*be_state->context), false);
@@ -719,7 +719,7 @@ llvm_gen_be_error_t llvm_emit_exception_specification_lpad(
     llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
     llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
 
-    bool is_msvc = be_state->module->getTargetTriple().getTriple().find("windows-msvc") != std::string::npos;
+    bool is_msvc = llvm::Triple(be_state->module->getTargetTriple()).getTriple().find("windows-msvc") != std::string::npos;
 
     if (is_msvc) {
         // MSVC doesn't natively use landingpad for C++ exception specifications the same way Itanium does,
@@ -811,7 +811,7 @@ llvm_gen_be_error_t llvm_emit_cleanup_landing_pad(
     llvm::Function* func = be_state->builder->GetInsertBlock()->getParent();
     llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
     llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
-    bool is_msvc = be_state->module->getTargetTriple().getTriple().find("windows-msvc") != std::string::npos;
+    bool is_msvc = llvm::Triple(be_state->module->getTargetTriple()).getTriple().find("windows-msvc") != std::string::npos;
 
     llvm::BasicBlock* cleanup_bb = llvm::BasicBlock::Create(*be_state->context, "eh.cleanup.lpad", func);
     llvm::IRBuilder<>::InsertPoint saved_ip = be_state->builder->saveIP();

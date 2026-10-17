@@ -52,7 +52,7 @@ static llvm_gen_be_error_t llvm_emit_cleanups_until(size_t target_stack_size) no
                     local_addr
                 });
             } else if (cleanup.saved_stack_ptr) {
-                llvm::Function* stackrestore = llvm::Intrinsic::getOrInsertDeclaration(
+                llvm::Function* stackrestore = EDG_LLVM_GET_INTRINSIC_DECL(
                     be_state->module.get(), llvm::Intrinsic::stackrestore,
                     {llvm::PointerType::getUnqual(*be_state->context)});
                 be_state->builder->CreateCall(stackrestore, cleanup.saved_stack_ptr);
@@ -140,7 +140,7 @@ llvm_gen_be_error_t llvm_lower_if_stmt(a_statement_ptr stmt) noexcept {
   err = llvm_lower_statement(stmt->variant.if_stmt.then_statement);
   if (err != llvm_gen_be_error_t::ok) return err;
   
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(merge_bb);
   }
 
@@ -149,7 +149,7 @@ llvm_gen_be_error_t llvm_lower_if_stmt(a_statement_ptr stmt) noexcept {
     be_state->builder->SetInsertPoint(else_bb);
     err = llvm_lower_statement(stmt->variant.if_stmt.else_statement);
     if (err != llvm_gen_be_error_t::ok) return err;
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
       be_state->builder->CreateBr(merge_bb);
     }
   }
@@ -314,7 +314,7 @@ llvm_gen_be_error_t llvm_lower_while_stmt(a_statement_ptr stmt) noexcept {
   be_state->break_cleanup_depths.pop_back();
   be_state->continue_cleanup_depths.pop_back();
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(cond_bb);
   }
 
@@ -374,7 +374,7 @@ llvm_gen_be_error_t llvm_lower_for_stmt(a_statement_ptr stmt) noexcept {
   be_state->break_cleanup_depths.pop_back();
   be_state->continue_cleanup_depths.pop_back();
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(inc_bb);
   }
 
@@ -444,7 +444,7 @@ llvm_gen_be_error_t llvm_lower_range_based_for_stmt(a_statement_ptr stmt) noexce
   be_state->break_cleanup_depths.pop_back();
   be_state->continue_cleanup_depths.pop_back();
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
       be_state->builder->CreateBr(inc_bb);
   }
 
@@ -487,7 +487,7 @@ llvm_gen_be_error_t llvm_lower_label_stmt(a_statement_ptr stmt) noexcept {
     be_state->label_blocks[label] = label_bb;
   }
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(label_bb);
   }
   be_state->builder->SetInsertPoint(label_bb);
@@ -650,7 +650,7 @@ llvm_gen_be_error_t llvm_lower_switch_stmt(a_statement_ptr stmt) noexcept {
   be_state->break_blocks.pop_back();
   be_state->break_cleanup_depths.pop_back();
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(end_bb);
   }
 
@@ -672,7 +672,7 @@ llvm_gen_be_error_t llvm_lower_switch_case_stmt(a_statement_ptr stmt) noexcept {
     case_bb = be_state->case_blocks[c];
   }
   if (case_bb) {
-    if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+    if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
       be_state->builder->CreateBr(case_bb);
     }
     be_state->builder->SetInsertPoint(case_bb);
@@ -702,7 +702,7 @@ llvm_gen_be_error_t llvm_lower_vla_stmt(a_statement_ptr stmt) noexcept {
     if (!stmt->variant.vla.is_typedef_decl) {
         a_variable_ptr var = stmt->variant.vla.variant.variable;
         if (var && be_state->local_vars.count(var)) {
-            llvm::Function* stacksave = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::stacksave, {llvm::PointerType::getUnqual(*be_state->context)});
+            llvm::Function* stacksave = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::stacksave, {llvm::PointerType::getUnqual(*be_state->context)});
             llvm::Value* saved_stack = be_state->builder->CreateCall(stacksave);
             be_state->vla_saved_stacks[var] = saved_stack;
             ScopeCleanup vla_cleanup = {};
@@ -774,7 +774,7 @@ llvm_gen_be_error_t llvm_lower_end_test_while_stmt(a_statement_ptr stmt) noexcep
   be_state->break_cleanup_depths.pop_back();
   be_state->continue_cleanup_depths.pop_back();
 
-  if (!be_state->builder->GetInsertBlock()->getTerminatorOrNull()) {
+  if (!EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock())) {
     be_state->builder->CreateBr(cond_bb);
   }
 

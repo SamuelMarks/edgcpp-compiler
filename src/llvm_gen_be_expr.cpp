@@ -752,7 +752,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         llvm::Intrinsic::ID sat_id = (k == eok_add)
             ? (is_signed ? llvm::Intrinsic::sadd_sat : llvm::Intrinsic::uadd_sat)
             : (is_signed ? llvm::Intrinsic::ssub_sat : llvm::Intrinsic::usub_sat);
-        llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), sat_id, {fx_ty});
+        llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), sat_id, {fx_ty});
         *out_val = be_state->builder->CreateCall(fn, {v1, v2});
       } else {
         *out_val = (k == eok_add) ? be_state->builder->CreateAdd(v1, v2)
@@ -766,7 +766,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
                     : (is_signed ? llvm::Intrinsic::smul_fix : llvm::Intrinsic::umul_fix))
           : (is_sat ? (is_signed ? llvm::Intrinsic::sdiv_fix_sat : llvm::Intrinsic::udiv_fix_sat)
                     : (is_signed ? llvm::Intrinsic::sdiv_fix : llvm::Intrinsic::udiv_fix));
-      llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), fx_id, {fx_ty});
+      llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), fx_id, {fx_ty});
       *out_val = be_state->builder->CreateCall(fn, {v1, v2, scale_arg});
       return llvm_gen_be_error_t::ok;
     }
@@ -787,7 +787,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
       } else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
                  int_kind_is_signed[op1->type->variant.integer.int_kind]) {
         llvm::Value* zero = llvm::ConstantInt::get(v1->getType(), 0);
-        llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(
+        llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::ssub_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {zero, v1});
         llvm::Value* ovf = be_state->builder->CreateExtractValue(pair, 1);
@@ -813,7 +813,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
       } else if (v1->getType()->isFPOrFPVectorTy()) *out_val = be_state->builder->CreateFAdd(v1, v2);
       else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
                int_kind_is_signed[op1->type->variant.integer.int_kind]) {
-        llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(
+        llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::sadd_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {v1, v2});
         llvm::Value* ovf = be_state->builder->CreateExtractValue(pair, 1);
@@ -834,7 +834,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
       } else if (v1->getType()->isFPOrFPVectorTy()) *out_val = be_state->builder->CreateFSub(v1, v2);
       else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
                int_kind_is_signed[op1->type->variant.integer.int_kind]) {
-        llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(
+        llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::ssub_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {v1, v2});
         llvm::Value* ovf = be_state->builder->CreateExtractValue(pair, 1);
@@ -848,7 +848,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
       } else if (v1->getType()->isFPOrFPVectorTy()) *out_val = be_state->builder->CreateFMul(v1, v2);
       else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
                int_kind_is_signed[op1->type->variant.integer.int_kind]) {
-        llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(
+        llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::smul_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {v1, v2});
         llvm::Value* ovf = be_state->builder->CreateExtractValue(pair, 1);
@@ -1390,7 +1390,7 @@ static llvm_gen_be_error_t llvm_lower_overloaded_intrinsic_builtin(
   };
   for (const auto& entry : kUnaryEntries) {
     if (rname.starts_with(entry.first) && !rname.starts_with("__builtin_expect")) {
-      llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), entry.second, {args[0]->getType()});
+      llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), entry.second, {args[0]->getType()});
       *out_val = be_state->builder->CreateCall(intr, {args[0]});
       *out_handled = true;
       return llvm_gen_be_error_t::ok;
@@ -1402,7 +1402,7 @@ static llvm_gen_be_error_t llvm_lower_overloaded_intrinsic_builtin(
   };
   for (const auto& entry : kBinaryEntries) {
     if (rname.starts_with(entry.first)) {
-      llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), entry.second, {args[0]->getType()});
+      llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), entry.second, {args[0]->getType()});
       *out_val = be_state->builder->CreateCall(intr, {args[0], args[1]});
       *out_handled = true;
       return llvm_gen_be_error_t::ok;
@@ -1556,19 +1556,19 @@ llvm_gen_be_error_t llvm_lower_call_expression(
              LLVM_GEN_BE_ASSERT_OK(llvm_lower_overloaded_intrinsic_builtin(rname, args, out_val, &ov_handled));
              if (ov_handled) return llvm_gen_be_error_t::ok;
              if (rname == "__builtin_expect") {
-                 llvm::Function* exp = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::expect, {llvm::Type::getInt64Ty(*be_state->context)});
+                 llvm::Function* exp = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::expect, {llvm::Type::getInt64Ty(*be_state->context)});
                  *out_val = be_state->builder->CreateCall(exp, {args[0], args[1]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_expect_with_probability") {
-                 llvm::Function* exp_prob = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::expect_with_probability, {args[0]->getType()});
+                 llvm::Function* exp_prob = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::expect_with_probability, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(exp_prob, {args[0], args[1], args[2]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_frame_address") {
-                 llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::frameaddress, {llvm::PointerType::getUnqual(*be_state->context)});
+                 llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::frameaddress, {llvm::PointerType::getUnqual(*be_state->context)});
                  *out_val = be_state->builder->CreateCall(intr, {args[0]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_return_address") {
-                 llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::returnaddress, {llvm::PointerType::getUnqual(*be_state->context)});
+                 llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::returnaddress, {llvm::PointerType::getUnqual(*be_state->context)});
                  *out_val = be_state->builder->CreateCall(intr, {args[0]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_alloca") {
@@ -1609,7 +1609,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  }
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_assume") {
-                 llvm::Function* assume = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::assume);
+                 llvm::Function* assume = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::assume);
                  *out_val = be_state->builder->CreateCall(assume, {args[0]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_unreachable") {
@@ -1620,15 +1620,15 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  *out_val = be_state->builder->CreateUnreachable();
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_trap") {
-                 llvm::Function* trap = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::trap);
+                 llvm::Function* trap = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::trap);
                  *out_val = be_state->builder->CreateCall(trap);
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).ends_with("setjmp")) {
-                 llvm::Function* setjmp_func = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::eh_sjlj_setjmp);
+                 llvm::Function* setjmp_func = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::eh_sjlj_setjmp);
                  *out_val = be_state->builder->CreateCall(setjmp_func, {args[0]});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).ends_with("longjmp")) {
-                 llvm::Function* longjmp_func = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::eh_sjlj_longjmp);
+                 llvm::Function* longjmp_func = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::eh_sjlj_longjmp);
                  *out_val = be_state->builder->CreateCall(longjmp_func, {args[0]});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_cabs")) {
@@ -1639,18 +1639,22 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                      llvm::Value* r2 = be_state->builder->CreateFMul(r, r);
                      llvm::Value* i2 = be_state->builder->CreateFMul(i, i);
                      llvm::Value* sum = be_state->builder->CreateFAdd(r2, i2);
-                     llvm::Function* sqrt_func = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::sqrt, {r->getType()});
+                     llvm::Function* sqrt_func = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::sqrt, {r->getType()});
                      *out_val = be_state->builder->CreateCall(sqrt_func, {sum});
                  } else {
-                     llvm::Function* fabs_func = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::fabs, {v_cplx->getType()});
+                     llvm::Function* fabs_func = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::fabs, {v_cplx->getType()});
                      *out_val = be_state->builder->CreateCall(fabs_func, {v_cplx});
                  }
                  return llvm_gen_be_error_t::ok;
              }
              bool target_handled = false;
+#if BUILTIN_FUNCTIONS_ENABLED
+             a_builtin_function_kind bfk = static_cast<a_builtin_function_kind>(r->variant.builtin_function_kind);
+#else
+             a_builtin_function_kind bfk = 0;
+#endif
              LLVM_GEN_BE_ASSERT_OK(llvm_lower_target_builtin(
-                 expr, static_cast<a_builtin_function_kind>(r->variant.builtin_function_kind),
-                 rname, args, callee_ty, out_val, &target_handled));
+                 expr, bfk, rname, args, callee_ty, out_val, &target_handled));
              if (target_handled) {
                  return llvm_gen_be_error_t::ok;
              }
@@ -1669,7 +1673,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  else if (rname.find("sub") != std::string::npos) iid = is_signed ? llvm::Intrinsic::ssub_with_overflow : llvm::Intrinsic::usub_with_overflow;
                  else iid = is_signed ? llvm::Intrinsic::smul_with_overflow : llvm::Intrinsic::umul_with_overflow;
 
-                 llvm::Function* ofunc = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), iid, {op_ty});
+                 llvm::Function* ofunc = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), iid, {op_ty});
                  llvm::Value* res = be_state->builder->CreateCall(ofunc, {args[0], args[1]});
                  
                  // Store result
@@ -1687,25 +1691,25 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                                                : ((rname.find("sub") != std::string::npos)
                                                       ? llvm::Intrinsic::ssub_with_overflow
                                                       : llvm::Intrinsic::smul_with_overflow);
-                 llvm::Function* ofunc = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), iid, {op_ty});
+                 llvm::Function* ofunc = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), iid, {op_ty});
                  llvm::Value* res = be_state->builder->CreateCall(ofunc, {args[0], args[1]});
                  *out_val = be_state->builder->CreateExtractValue(res, 1);
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_popcount") ||
                         llvm::StringRef(rname).starts_with("__builtin_stdc_count_ones")) {
-                 llvm::Function* pop = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctpop, {args[0]->getType()});
+                 llvm::Function* pop = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctpop, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(pop, {args[0]});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_stdc_has_single_bit")) {
                  llvm::Type* arg_ty = args[0]->getType();
-                 llvm::Function* pop = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctpop, {arg_ty});
+                 llvm::Function* pop = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctpop, {arg_ty});
                  llvm::Value* cnt = be_state->builder->CreateCall(pop, {args[0]});
                  *out_val = be_state->builder->CreateICmpEQ(cnt, llvm::ConstantInt::get(arg_ty, 1));
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_stdc_bit_floor")) {
                  llvm::Type* arg_ty = args[0]->getType();
                  unsigned bw = arg_ty->getIntegerBitWidth();
-                 llvm::Function* clz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
+                 llvm::Function* clz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
                  llvm::Value* lz = be_state->builder->CreateCall(clz, {args[0], be_state->builder->getFalse()});
                  llvm::Value* shift = be_state->builder->CreateSub(llvm::ConstantInt::get(arg_ty, bw - 1), lz);
                  llvm::Value* pow2 = be_state->builder->CreateShl(llvm::ConstantInt::get(arg_ty, 1), shift);
@@ -1716,7 +1720,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  llvm::Type* arg_ty = args[0]->getType();
                  unsigned bw = arg_ty->getIntegerBitWidth();
                  llvm::Value* sub1 = be_state->builder->CreateSub(args[0], llvm::ConstantInt::get(arg_ty, 1));
-                 llvm::Function* clz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
+                 llvm::Function* clz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
                  llvm::Value* lz = be_state->builder->CreateCall(clz, {sub1, be_state->builder->getFalse()});
                  llvm::Value* shift = be_state->builder->CreateSub(llvm::ConstantInt::get(arg_ty, bw), lz);
                  llvm::Value* pow2 = be_state->builder->CreateShl(llvm::ConstantInt::get(arg_ty, 1), shift);
@@ -1725,12 +1729,12 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_stdc_count_zeros")) {
                  llvm::Value* inv = be_state->builder->CreateNot(args[0]);
-                 llvm::Function* pop = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctpop, {args[0]->getType()});
+                 llvm::Function* pop = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctpop, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(pop, {inv});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_stdc_bit_width")) {
                  llvm::Type* arg_ty = args[0]->getType();
-                 llvm::Function* clz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
+                 llvm::Function* clz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
                  llvm::Value* lz = be_state->builder->CreateCall(clz, {args[0], be_state->builder->getFalse()});
                  *out_val = be_state->builder->CreateSub(
                      llvm::ConstantInt::get(arg_ty, arg_ty->getIntegerBitWidth()), lz);
@@ -1741,7 +1745,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  llvm::Value* in_v = llvm::StringRef(rname).ends_with("zero")
                                          ? be_state->builder->CreateNot(args[0])
                                          : args[0];
-                 llvm::Function* clz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
+                 llvm::Function* clz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
                  llvm::Value* lz = be_state->builder->CreateCall(clz, {in_v, be_state->builder->getFalse()});
                  llvm::Value* is_zero = be_state->builder->CreateICmpEQ(in_v, llvm::ConstantInt::get(arg_ty, 0));
                  llvm::Value* idx1 = be_state->builder->CreateAdd(lz, llvm::ConstantInt::get(arg_ty, 1));
@@ -1753,7 +1757,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  llvm::Value* in_v = llvm::StringRef(rname).ends_with("zero")
                                          ? be_state->builder->CreateNot(args[0])
                                          : args[0];
-                 llvm::Function* ctz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::cttz, {arg_ty});
+                 llvm::Function* ctz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::cttz, {arg_ty});
                  llvm::Value* tz = be_state->builder->CreateCall(ctz, {in_v, be_state->builder->getFalse()});
                  llvm::Value* is_zero = be_state->builder->CreateICmpEQ(in_v, llvm::ConstantInt::get(arg_ty, 0));
                  llvm::Value* idx1 = be_state->builder->CreateAdd(tz, llvm::ConstantInt::get(arg_ty, 1));
@@ -1800,16 +1804,16 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                      llvm::Type::getInt32Ty(*be_state->context), expr->position.column ? expr->position.column : 1);
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_clz")) {
-                 llvm::Function* clz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctlz, {args[0]->getType()});
+                 llvm::Function* clz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctlz, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(clz, {args[0], be_state->builder->getTrue()});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_ctz")) {
-                 llvm::Function* ctz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::cttz, {args[0]->getType()});
+                 llvm::Function* ctz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::cttz, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(ctz, {args[0], be_state->builder->getTrue()});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_ffs")) {
                  llvm::Type* arg_ty = args[0]->getType();
-                 llvm::Function* ctz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::cttz, {arg_ty});
+                 llvm::Function* ctz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::cttz, {arg_ty});
                  llvm::Value* tz = be_state->builder->CreateCall(ctz, {args[0], be_state->builder->getFalse()});
                  llvm::Value* tz_plus_1 = be_state->builder->CreateAdd(tz, llvm::ConstantInt::get(arg_ty, 1));
                  llvm::Value* is_zero = be_state->builder->CreateICmpEQ(args[0], llvm::ConstantInt::get(arg_ty, 0));
@@ -1820,7 +1824,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  unsigned bw = arg_ty->getIntegerBitWidth();
                  llvm::Value* sign_mask = be_state->builder->CreateAShr(args[0], llvm::ConstantInt::get(arg_ty, bw - 1));
                  llvm::Value* xored = be_state->builder->CreateXor(args[0], sign_mask);
-                 llvm::Function* clz = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
+                 llvm::Function* clz = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctlz, {arg_ty});
                  llvm::Value* lz = be_state->builder->CreateCall(clz, {xored, be_state->builder->getFalse()});
                  *out_val = be_state->builder->CreateSub(lz, llvm::ConstantInt::get(arg_ty, 1));
                  return llvm_gen_be_error_t::ok;
@@ -1838,7 +1842,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  *out_val = be_state->builder->CreateCall(printf_fty, args[1], {fmt_str});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_assume_aligned") {
-                 llvm::Function* assume_fn = llvm::Intrinsic::getOrInsertDeclaration(
+                 llvm::Function* assume_fn = EDG_LLVM_GET_INTRINSIC_DECL(
                      be_state->module.get(), llvm::Intrinsic::assume);
                  llvm::Value* cond = be_state->builder->getTrue();
                  std::vector<llvm::Value*> bundle_args = {args[0], args[1]};
@@ -1957,7 +1961,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  *out_val = be_state->builder->CreateCall(cc, {args[0], args[1]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_readcyclecounter") {
-                 llvm::Function* rcc = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::readcyclecounter);
+                 llvm::Function* rcc = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::readcyclecounter);
                  *out_val = be_state->builder->CreateCall(rcc);
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_isnan") {
@@ -1966,7 +1970,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_isinf" || rname == "__builtin_isfinite" || rname == "__builtin_isnormal") {
                  unsigned mask = (rname == "__builtin_isinf") ? 516u : ((rname == "__builtin_isfinite") ? 504u : 264u);
-                 llvm::Function* fpcls = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::is_fpclass, {args[0]->getType()});
+                 llvm::Function* fpcls = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::is_fpclass, {args[0]->getType()});
                  llvm::Value* res = be_state->builder->CreateCall(fpcls, {args[0], llvm::ConstantInt::get(llvm::Type::getInt32Ty(*be_state->context), mask)});
                  *out_val = be_state->builder->CreateZExt(res, llvm::Type::getInt32Ty(*be_state->context));
                  return llvm_gen_be_error_t::ok;
@@ -1983,7 +1987,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  llvm::Value* zero = llvm::ConstantFP::get(x->getType(), 0.0);
                  llvm::Value* is_nan = be_state->builder->CreateFCmpUNO(x, x);
                  llvm::Value* is_zero = be_state->builder->CreateFCmpOEQ(x, zero);
-                 llvm::Function* fpcls = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::is_fpclass, {x->getType()});
+                 llvm::Function* fpcls = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::is_fpclass, {x->getType()});
                  llvm::Type* i32_ty = llvm::Type::getInt32Ty(*be_state->context);
                  llvm::Value* is_inf = be_state->builder->CreateCall(fpcls, {x, llvm::ConstantInt::get(i32_ty, 516u)});
                  llvm::Value* is_norm = be_state->builder->CreateCall(fpcls, {x, llvm::ConstantInt::get(i32_ty, 264u)});
@@ -1993,22 +1997,22 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  *out_val = be_state->builder->CreateSelect(is_nan, args[0], sel);
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_parity")) {
-                 llvm::Function* popcnt = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::ctpop, {args[0]->getType()});
+                 llvm::Function* popcnt = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::ctpop, {args[0]->getType()});
                  llvm::Value* pop = be_state->builder->CreateCall(popcnt, {args[0]});
                  *out_val = be_state->builder->CreateAnd(pop, llvm::ConstantInt::get(args[0]->getType(), 1));
                  return llvm_gen_be_error_t::ok;
              } else if (rname.find("__builtin_rotateleft") == 0 ||
                         rname.find("__builtin_stdc_rotate_left") == 0) {
-                 llvm::Function* rotl = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::fshl, {args[0]->getType()});
+                 llvm::Function* rotl = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::fshl, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(rotl, {args[0], args[0], args[1]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname.find("__builtin_rotateright") == 0 ||
                         rname.find("__builtin_stdc_rotate_right") == 0) {
-                 llvm::Function* rotr = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::fshr, {args[0]->getType()});
+                 llvm::Function* rotr = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::fshr, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(rotr, {args[0], args[0], args[1]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin_object_size" || rname == "__builtin_dynamic_object_size") {
-                 llvm::Function* objsize = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::objectsize, {llvm::Type::getInt64Ty(*be_state->context), args[0]->getType()});
+                 llvm::Function* objsize = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::objectsize, {llvm::Type::getInt64Ty(*be_state->context), args[0]->getType()});
                  // LLVM objectsize takes 4 args: ptr, min, nullunknown, dynamic
                  llvm::Value* min_val = be_state->builder->CreateAnd(args[1], llvm::ConstantInt::get(args[1]->getType(), 2));
                  llvm::Value* is_min = be_state->builder->CreateICmpNE(min_val, llvm::ConstantInt::get(args[1]->getType(), 0));
@@ -2016,7 +2020,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  *out_val = be_state->builder->CreateCall(objsize, {args[0], is_min, be_state->builder->getFalse(), dynamic});
                  return llvm_gen_be_error_t::ok;
              } else if (llvm::StringRef(rname).starts_with("__builtin_fma")) {
-                 llvm::Function* intr = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::fma, {args[0]->getType()});
+                 llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::fma, {args[0]->getType()});
                  *out_val = be_state->builder->CreateCall(intr, {args[0], args[1], args[2]});
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__builtin___emutls_get_address") {
@@ -2574,7 +2578,7 @@ static llvm_gen_be_error_t evaluate_type_trait_builtin(
   } else if (bok == bok_array_extent) {
     uint64_t dim_idx = 0;
     if (op2 && op2->kind == enk_constant && op2->variant.constant.ptr) {
-      dim_idx = static_cast<uint64_t>(op2->variant.constant.ptr->variant.integer_value);
+      dim_idx = EDG_INT_VAL_LOW64(op2->variant.constant.ptr->variant.integer_value);
     }
     a_type_ptr cur = t1;
     for (uint64_t d = 0; d < dim_idx && cur->kind == tk_array; ++d) {
@@ -2820,6 +2824,37 @@ llvm_gen_be_error_t llvm_lower_builtin_operation(
   return llvm_gen_be_error_t::unsupported_expr;
 }
 
+#if !BUILTIN_FUNCTIONS_ENABLED
+static constexpr an_expr_node_kind enk_builtin_choose_expr = static_cast<an_expr_node_kind>(250);
+#endif
+
+/**
+ * @brief Lowers a GNU `__builtin_choose_expr` node (`enk_builtin_choose_expr`) into LLVM IR.
+ * @details Evaluates either the second or third operand of `expr->variant.builtin_choose_expr`
+ *          depending on `choose_first`.
+ * @param[in] expr Pointer to the EDG `enk_builtin_choose_expr` expression node.
+ * @param[out] out_val Receives the lowered `llvm::Value*`.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if operands are missing.
+ */
+llvm_gen_be_error_t llvm_lower_builtin_choose_expr(
+    an_expr_node_ptr expr,
+    llvm::Value** out_val) noexcept {
+#if BUILTIN_FUNCTIONS_ENABLED
+  an_expr_node_ptr op1 = expr->variant.builtin_choose_expr.operands;
+  if (!op1 || !op1->next || !op1->next->next) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  an_expr_node_ptr chosen = expr->variant.builtin_choose_expr.choose_first
+                                ? op1->next
+                                : op1->next->next;
+  return llvm_lower_expression(chosen, out_val);
+#else
+  (void)expr;
+  (void)out_val;
+  return llvm_gen_be_error_t::invalid_argument;
+#endif
+}
+
 /**
  * @brief Lowers an arbitrary EDG expression node (`an_expr_node_ptr`) into an `llvm::Value*`.
  * @details Dispatches constants, variables, operations, conditions, temporaries, `new`/`delete`,
@@ -2879,7 +2914,7 @@ llvm_gen_be_error_t llvm_lower_expression(
   if (expr->kind == enk_vla_dealloc) {
     a_variable_ptr var = expr->variant.vla_variable;
     if (be_state->vla_saved_stacks.count(var)) {
-      llvm::Function* stackrestore = llvm::Intrinsic::getOrInsertDeclaration(
+      llvm::Function* stackrestore = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::stackrestore,
           {llvm::PointerType::getUnqual(*be_state->context)});
       be_state->builder->CreateCall(stackrestore, be_state->vla_saved_stacks[var]);
@@ -3340,7 +3375,7 @@ llvm_gen_be_error_t llvm_lower_expression(
            err = llvm_lower_expression(true_expr, &true_val);
            if (err != llvm_gen_be_error_t::ok) return err;
            llvm::BasicBlock* true_end_bb = be_state->builder->GetInsertBlock();
-           bool true_terminated = (true_end_bb->getTerminatorOrNull() != nullptr);
+           bool true_terminated = (EDG_LLVM_GET_TERMINATOR(true_end_bb) != nullptr);
            if (!true_terminated) {
              be_state->builder->CreateBr(end_bb);
            }
@@ -3351,7 +3386,7 @@ llvm_gen_be_error_t llvm_lower_expression(
            err = llvm_lower_expression(false_expr, &false_val);
            if (err != llvm_gen_be_error_t::ok) return err;
            llvm::BasicBlock* false_end_bb = be_state->builder->GetInsertBlock();
-           bool false_terminated = (false_end_bb->getTerminatorOrNull() != nullptr);
+           bool false_terminated = (EDG_LLVM_GET_TERMINATOR(false_end_bb) != nullptr);
            if (!false_terminated) {
              be_state->builder->CreateBr(end_bb);
            }
@@ -3479,16 +3514,8 @@ llvm_gen_be_error_t llvm_lower_expression(
     case enk_builtin_operation:
       return llvm_lower_builtin_operation(expr, out_val);
 
-    case enk_builtin_choose_expr: {
-      an_expr_node_ptr op1 = expr->variant.builtin_choose_expr.operands;
-      if (!op1 || !op1->next || !op1->next->next) {
-        return llvm_gen_be_error_t::invalid_argument;
-      }
-      an_expr_node_ptr chosen = expr->variant.builtin_choose_expr.choose_first
-                                    ? op1->next
-                                    : op1->next->next;
-      return llvm_lower_expression(chosen, out_val);
-    }
+    case enk_builtin_choose_expr:
+      return llvm_lower_builtin_choose_expr(expr, out_val);
 
     case enk_condition: {
       a_condition_supplement_ptr cond_supp = expr->variant.condition;
@@ -3537,7 +3564,7 @@ llvm_gen_be_error_t llvm_lower_expression(
                                         ? expr->variant.sizeof_info.variant.expr->type
                                         : nullptr);
       if (expr->kind == enk_alignof) {
-        uint64_t al = target_ty ? f_alignment_of_type(target_ty) : 1;
+        uint64_t al = target_ty ? EDG_ALIGN_OF_TYPE(target_ty) : 1;
         *out_val = llvm::ConstantInt::get(i64_ty, al);
         return llvm_gen_be_error_t::ok;
       }
@@ -3960,7 +3987,7 @@ llvm_gen_be_error_t llvm_lower_compound_assignment(
       case eok_bassign: {
           // Block assignment
           uint64_t size = op1->type->size;
-          llvm::Align align = llvm::Align(f_alignment_of_type(op1->type));
+          llvm::Align align = llvm::Align(EDG_ALIGN_OF_TYPE(op1->type));
           be_state->builder->CreateMemCpy(lhs_ptr, align, rhs_val, align, size);
           *out_val = lhs_ptr; // Yield destination pointer for bassign
           return llvm_gen_be_error_t::ok;
@@ -4023,7 +4050,7 @@ llvm_gen_be_error_t llvm_lower_fixed_point_binop(
   if (op_kind == eok_add) {
     if (is_saturating) {
       llvm::Intrinsic::ID id = is_signed ? llvm::Intrinsic::sadd_sat : llvm::Intrinsic::uadd_sat;
-      llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), id, {int_ty});
+      llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), id, {int_ty});
       *out_val = be_state->builder->CreateCall(fn, {lhs, rhs});
     } else {
       *out_val = be_state->builder->CreateAdd(lhs, rhs);
@@ -4033,7 +4060,7 @@ llvm_gen_be_error_t llvm_lower_fixed_point_binop(
   if (op_kind == eok_subtract) {
     if (is_saturating) {
       llvm::Intrinsic::ID id = is_signed ? llvm::Intrinsic::ssub_sat : llvm::Intrinsic::usub_sat;
-      llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), id, {int_ty});
+      llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), id, {int_ty});
       *out_val = be_state->builder->CreateCall(fn, {lhs, rhs});
     } else {
       *out_val = be_state->builder->CreateSub(lhs, rhs);
@@ -4044,13 +4071,13 @@ llvm_gen_be_error_t llvm_lower_fixed_point_binop(
     llvm::Intrinsic::ID id = is_saturating
                                  ? (is_signed ? llvm::Intrinsic::smul_fix_sat : llvm::Intrinsic::umul_fix_sat)
                                  : (is_signed ? llvm::Intrinsic::smul_fix : llvm::Intrinsic::umul_fix);
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), id, {int_ty});
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), id, {int_ty});
     *out_val = be_state->builder->CreateCall(fn, {lhs, rhs, scale_val});
     return llvm_gen_be_error_t::ok;
   }
   if (op_kind == eok_divide) {
     llvm::Intrinsic::ID id = is_signed ? llvm::Intrinsic::sdiv_fix : llvm::Intrinsic::udiv_fix;
-    llvm::Function* fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), id, {int_ty});
+    llvm::Function* fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), id, {int_ty});
     *out_val = be_state->builder->CreateCall(fn, {lhs, rhs, scale_val});
     return llvm_gen_be_error_t::ok;
   }

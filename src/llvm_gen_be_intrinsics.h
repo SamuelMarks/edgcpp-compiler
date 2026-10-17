@@ -27,6 +27,10 @@
 
 BEGIN_EDG_NAMESPACE
 
+#if !BUILTIN_FUNCTIONS_ENABLED
+typedef unsigned short a_builtin_function_kind;
+#endif
+
 /**
  * @brief Lowers an x86/x86_64 target builtin (`__builtin_ia32_*`) into LLVM IR.
  * @details Handles SSE/AVX/AVX-512 packed floating-point and integer arithmetic, saturating

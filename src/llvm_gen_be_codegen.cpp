@@ -60,7 +60,7 @@ llvm_gen_be_error_t create_target_machine(
     const char* triple_str,
     const char* cpu,
     const char* features,
-    llvm::CodeGenOptLevel opt_level,
+    llvm_codegen_opt_level_t opt_level,
     std::optional<llvm::Reloc::Model> reloc_model,
     std::optional<llvm::CodeModel::Model> code_model,
     llvm::TargetMachine** out_tm) noexcept

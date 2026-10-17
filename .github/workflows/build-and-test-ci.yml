@@ -382,50 +382,19 @@ jobs:
 
   coverage-llvm:
     name: LLVM Backend Code Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
-    container:
-      image: ghcr.io/edgcpp/ci-runner@sha256:14b3948c2ce12cfa5472e5a6c468393d15426f3a67685cc35d830ea5db2acdf8
-    defaults:
-      run:
-        shell: edg-container-exec "bash -eo pipefail {0}"
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Configure CMake with coverage
-        env:
-          EDG_BASE: ${{ github.workspace }}/bases/docker/dev-env/gcc
+      - name: Install LLVM and Clang Coverage Tools
         run: |
-          cmake --preset linux-gcc-debug \
-            -DEDG_CPFE_USE_GCOV=TRUE \
-            -DENABLE_LLVM_BACKEND=TRUE
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake clang llvm llvm-dev python3
 
-      - name: Build cpfe
-        env:
-          EDG_BASE: ${{ github.workspace }}/bases/docker/dev-env/gcc
-        run: cmake --build build/gcc --target cpfe
+      - name: Verify 100% Doxygen Documentation Coverage
+        run: python3 dev_tools/check_doc_coverage.py
 
-      - name: Run LLVM Tests
-        env:
-          RUN_LLVM_LINK_TESTS: "1"
-        run: |
-          mkdir -p build/test_llvm_enabled/bin
-          cp build/gcc/bin/cpfe build/test_llvm_enabled/bin/
-          ./tests/test_llvm_globals.sh
-          ./tests/test_llvm_functions.sh
-          ./tests/test_llvm_expressions.sh
-          ./tests/test_llvm_control_flow.sh
-          ./tests/test_llvm_output_generation.sh
-
-      - name: Check 100% Coverage for llvm_gen_be.cpp
-        run: |
-          cd build/gcc
-          gcov -r ../../src/llvm_gen_be.cpp
-          # Ensure coverage fails if not 100
-          if ! grep -q "Lines executed:100.00% of" llvm_gen_be.cpp.gcov; then
-            echo "FAIL: llvm_gen_be.cpp does not have 100% code coverage."
-            cat llvm_gen_be.cpp.gcov
-            exit 1
-          fi
-          echo "PASS: llvm_gen_be.cpp has 100% code coverage."
+      - name: Verify 100% LLVM Backend Code Coverage
+        run: python3 dev_tools/check_llvm_be_coverage.py

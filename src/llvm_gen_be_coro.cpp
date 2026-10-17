@@ -112,7 +112,7 @@ llvm_gen_be_error_t llvm_lower_coro_promise_alloc(
     bool is_msvc_target = target_triple.isWindowsMSVCEnvironment();
     bool is_32bit_target = target_triple.isArch32Bit();
     if (prom_align > 16) {
-      llvm::Function* coro_align = llvm::Intrinsic::getOrInsertDeclaration(
+      llvm::Function* coro_align = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::coro_align, {size_t_ty});
       llvm::Value* align_val = be_state->builder->CreateCall(coro_align, {}, "coro.align");
       const char* aligned_new_name =
@@ -253,7 +253,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
   llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
 
   // coro.id
-  llvm::Function* coro_id = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_id);
+  llvm::Function* coro_id = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_id);
   
   uint32_t prom_align = 0;
   if (descr->promise && descr->promise->type && descr->promise->type->alignment > 16) {
@@ -286,7 +286,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
   llvm::Value* id_val = be_state->builder->CreateCall(coro_id, {align, promise, coroutine_ptr, empty_struct}, "coro.id");
 
   // coro.alloc
-  llvm::Function* coro_alloc = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_alloc);
+  llvm::Function* coro_alloc = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_alloc);
   llvm::Value* need_alloc = be_state->builder->CreateCall(coro_alloc, {id_val}, "coro.need.alloc");
 
   llvm::BasicBlock* alloc_bb = llvm::BasicBlock::Create(*be_state->context, "coro.alloc", func);
@@ -298,7 +298,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
   // Allocation block
   be_state->builder->SetInsertPoint(alloc_bb);
   llvm::Type* size_t_ty = be_state->module->getDataLayout().getIntPtrType(*be_state->context);
-  llvm::Function* coro_size = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_size, {size_t_ty});
+  llvm::Function* coro_size = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_size, {size_t_ty});
   llvm::Value* size_val = be_state->builder->CreateCall(coro_size, {}, "coro.size");
   
   llvm::Value* raw_mem = nullptr;
@@ -330,7 +330,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
   mem_phi->addIncoming(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty)), pred_bb); 
   mem_phi->addIncoming(raw_mem, alloc_bb);
 
-  llvm::Function* coro_begin = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_begin);
+  llvm::Function* coro_begin = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_begin);
   llvm::Value* coro_hdl = be_state->builder->CreateCall(coro_begin, {id_val, mem_phi}, "coro.hdl");
   be_state->current_coro_handle = coro_hdl;
   be_state->current_coro_promise = promise;
@@ -378,7 +378,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
   {
     llvm::IRBuilder<>::InsertPoint saved_cleanup_ip = be_state->builder->saveIP();
     be_state->builder->SetInsertPoint(cleanup_bb);
-    llvm::Function* coro_free_fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* coro_free_fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), llvm::Intrinsic::coro_free);
     llvm::Value* mem_to_free = be_state->builder->CreateCall(coro_free_fn, {id_val, coro_hdl}, "coro.mem.free");
     llvm::Value* need_free = be_state->builder->CreateIsNotNull(mem_to_free, "coro.need.free");
@@ -395,7 +395,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
           del_args.push_back(size_val);
         }
         if (del_fn->arg_size() >= 3) {
-          llvm::Function* coro_align_fn = llvm::Intrinsic::getOrInsertDeclaration(
+          llvm::Function* coro_align_fn = EDG_LLVM_GET_INTRINSIC_DECL(
               be_state->module.get(), llvm::Intrinsic::coro_align, {size_t_ty});
           del_args.push_back(be_state->builder->CreateCall(coro_align_fn, {}, "coro.del.align"));
         }
@@ -406,7 +406,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
       const char* aligned_del_name = target_triple.isWindowsMSVCEnvironment()
                                          ? "??3@YAXPEAX_KW4align_val_t@std@@@Z"
                                          : "_ZdlPvmSt11align_val_t";
-      llvm::Function* coro_align_fn = llvm::Intrinsic::getOrInsertDeclaration(
+      llvm::Function* coro_align_fn = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::coro_align, {size_t_ty});
       llvm::Value* align_val = be_state->builder->CreateCall(coro_align_fn, {}, "coro.del.align.global");
       llvm::FunctionType* aligned_del_fty = llvm::FunctionType::get(
@@ -425,7 +425,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_stmt(a_statement_ptr stmt) noexcept {
     be_state->builder->CreateBr(end_bb);
 
     be_state->builder->SetInsertPoint(end_bb);
-    llvm::Function* coro_end_fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* coro_end_fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), llvm::Intrinsic::coro_end);
     be_state->builder->CreateCall(coro_end_fn, {coro_hdl, be_state->builder->getFalse()});
     if (func->getReturnType()->isVoidTy()) {
@@ -462,8 +462,8 @@ llvm_gen_be_error_t llvm_lower_coroutine_return_stmt(a_statement_ptr stmt) noexc
       if (err != llvm_gen_be_error_t::ok) return err;
   }
 
-  llvm::Function* coro_free = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_free);
-  llvm::Function* coro_id = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_id);
+  llvm::Function* coro_free = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_free);
+  llvm::Function* coro_id = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_id);
   llvm::Value* id_val = be_state->builder->CreateCall(coro_id, {
       llvm::ConstantInt::get(llvm::Type::getInt32Ty(*be_state->context), 0),
       llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty)),
@@ -476,7 +476,7 @@ llvm_gen_be_error_t llvm_lower_coroutine_return_stmt(a_statement_ptr stmt) noexc
       : llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty));
   llvm::Value* hdl = be_state->builder->CreateCall(coro_free, {id_val, active_hdl});
 
-  llvm::Function* coro_end = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::coro_end);
+  llvm::Function* coro_end = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::coro_end);
   llvm::Value* is_unwind = be_state->builder->getFalse();
   
   be_state->builder->CreateCall(coro_end, {hdl, is_unwind});
@@ -543,12 +543,12 @@ llvm_gen_be_error_t llvm_lower_coro_suspend(
 
   // 2. Suspend block: emit llvm.coro.save and llvm.coro.suspend
   be_state->builder->SetInsertPoint(suspend_bb);
-  llvm::Function* coro_save = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* coro_save = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::coro_save);
   llvm::Value* null_hdl = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(int8_ptr_ty));
   llvm::Value* save_token = be_state->builder->CreateCall(coro_save, {null_hdl}, "save_tok");
 
-  llvm::Function* coro_suspend = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* coro_suspend = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::coro_suspend);
   bool is_final = (be_state->current_coro_suspend_bb != nullptr);
   llvm::Value* susp_result = be_state->builder->CreateCall(
@@ -602,7 +602,7 @@ llvm_gen_be_error_t llvm_lower_coro_suspend(
       be_state->current_coro_cleanup_bb->getParent() == func) {
     be_state->builder->CreateBr(be_state->current_coro_cleanup_bb);
   } else {
-    llvm::Function* coro_free_fn = llvm::Intrinsic::getOrInsertDeclaration(
+    llvm::Function* coro_free_fn = EDG_LLVM_GET_INTRINSIC_DECL(
         be_state->module.get(), llvm::Intrinsic::coro_free);
     llvm::Value* active_hdl = (be_state->current_coro_handle &&
         llvm::cast<llvm::Instruction>(be_state->current_coro_handle)->getFunction() == func)
@@ -664,7 +664,7 @@ llvm_gen_be_error_t llvm_lower_coro_noop(llvm::Value** out_noop_hdl) noexcept {
   if (out_noop_hdl == nullptr) {
     return llvm_gen_be_error_t::invalid_argument;
   }
-  llvm::Function* coro_noop_fn = llvm::Intrinsic::getOrInsertDeclaration(
+  llvm::Function* coro_noop_fn = EDG_LLVM_GET_INTRINSIC_DECL(
       be_state->module.get(), llvm::Intrinsic::coro_noop);
   *out_noop_hdl = be_state->builder->CreateCall(coro_noop_fn, {}, "coro.noop.hdl");
   return llvm_gen_be_error_t::ok;

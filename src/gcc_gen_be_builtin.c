@@ -290,7 +290,8 @@ gcc_gen_be_error_t gcc_gen_be_validate_simd_immediate(
         imm_expr->variant.constant.ptr->kind != ck_integer) {
         return gcc_gen_be_report_diagnostic(GCC_GEN_BE_ERROR_SIMD_LOWERING_FAILED, intrinsic_name);
     }
-    long val = (long)imm_expr->variant.constant.ptr->variant.integer_value;
+    a_boolean ovf = FALSE;
+    long val = (long)value_of_integer_constant(imm_expr->variant.constant.ptr, &ovf);
     if (val < (long)min_val || val > (long)max_val) {
         return gcc_gen_be_report_diagnostic(GCC_GEN_BE_ERROR_SIMD_LOWERING_FAILED, intrinsic_name);
     }

@@ -45,13 +45,8 @@ llvm_gen_be_error_t llvm_const_from_integer(
   bool is_unsigned = (con->type->kind == tk_integer)
                          ? !int_kind_is_signed[con->type->variant.integer.int_kind]
                          : false;
-  uint64_t low = static_cast<uint64_t>(con->variant.integer_value);
-  uint64_t high = 0;
-#if INT128_EXTENSIONS_ALLOWED
-  if (sizeof(an_integer_value) > 8) {
-    high = static_cast<uint64_t>(con->variant.integer_value >> 64);
-  }
-#endif
+  uint64_t low = EDG_INT_VAL_LOW64(con->variant.integer_value);
+  uint64_t high = EDG_INT_VAL_HIGH64(con->variant.integer_value);
 
   if (expected_ty->isPointerTy()) {
     if (low == 0) {
@@ -205,6 +200,10 @@ llvm_gen_be_error_t llvm_const_from_imaginary(
       fk, &con->variant.float_value, fp_ty, out_const);
 }
 
+#if !GNU_EXTENSIONS_ALLOWED
+static constexpr a_constant_repr_kind ck_label_difference = static_cast<a_constant_repr_kind>(250);
+#endif
+
 /**
  * @brief Translates a GNU label-difference constant (`ck_label_difference`, `&&to - &&from`) into an `llvm::Constant*`.
  * @details Evaluates `to_address` and `from_address` as `llvm::BlockAddress*`, converts both via `getPtrToInt`,
@@ -218,6 +217,7 @@ llvm_gen_be_error_t llvm_const_from_label_difference(
     a_constant_ptr con,
     llvm::Type* expected_ty,
     llvm::Constant** out_const) noexcept {
+#if GNU_EXTENSIONS_ALLOWED
   if (!con || !expected_ty || !out_const ||
       !con->variant.label_difference.to_address ||
       !con->variant.label_difference.from_address) {
@@ -239,6 +239,12 @@ llvm_gen_be_error_t llvm_const_from_label_difference(
   llvm::Constant* from_int = llvm::ConstantExpr::getPtrToInt(from_addr, int_ty);
   *out_const = llvm::ConstantExpr::getSub(to_int, from_int);
   return llvm_gen_be_error_t::ok;
+#else
+  (void)con;
+  (void)expected_ty;
+  (void)out_const;
+  return llvm_gen_be_error_t::invalid_argument;
+#endif
 }
 
 /**
@@ -261,7 +267,7 @@ llvm_gen_be_error_t llvm_const_from_stack_offset(
 #if DO_IL_LOWERING && GENERATE_EH_TABLES && !DO_FULL_PORTABLE_EH_LOWERING
   off_val = static_cast<uint64_t>(con->variant.stack_offset.offset);
 #else
-  off_val = static_cast<uint64_t>(con->variant.integer_value);
+  off_val = EDG_INT_VAL_LOW64(con->variant.integer_value);
 #endif
   if (expected_ty->isIntegerTy()) {
     *out_const = llvm::ConstantInt::get(expected_ty, off_val);
@@ -335,7 +341,7 @@ llvm_gen_be_error_t llvm_const_from_template_param(
   if (tp_kind == tpck_sizeof || tp_kind == tpck_datasizeof || tp_kind == tpck_alignof) {
     a_type_ptr sz_ty = skip_typerefs(con->variant.template_param.variant.templ_sizeof.type);
     uint64_t val = (tp_kind == tpck_alignof)
-                       ? static_cast<uint64_t>(f_alignment_of_type(sz_ty))
+                       ? static_cast<uint64_t>(EDG_ALIGN_OF_TYPE(sz_ty))
                        : static_cast<uint64_t>(sz_ty->size);
     *out_const = llvm::ConstantInt::get(expected_ty, val);
     return llvm_gen_be_error_t::ok;
@@ -453,6 +459,7 @@ static llvm_gen_be_error_t get_or_create_uuidof_global(
     } else {
       sym_name = "__uuidof_anon";
     }
+#if MICROSOFT_EXTENSIONS_ALLOWED
     if (ut->kind == tk_class || ut->kind == tk_struct) {
       if (ut->variant.class_struct_union.extra_info != nullptr) {
         uuid_str = ut->variant.class_struct_union.extra_info->uuid_string;
@@ -461,6 +468,7 @@ static llvm_gen_be_error_t get_or_create_uuidof_global(
                ut->variant.integer.extra_info != nullptr) {
       uuid_str = ut->variant.integer.extra_info->uuid_string;
     }
+#endif
   }
 
   if (llvm::GlobalVariable* existing = be_state->module->getNamedGlobal(sym_name)) {
@@ -703,9 +711,9 @@ static llvm_gen_be_error_t resolve_array_designator_range(
   if (desig->variant.designator.is_generic) {
     a_constant_ptr sub = desig->variant.designator.variant.subscript;
     if (sub != nullptr) {
-      uint64_t first = static_cast<uint64_t>(sub->variant.integer_value);
+      uint64_t first = EDG_INT_VAL_LOW64(sub->variant.integer_value);
       uint64_t last = (sub->next != nullptr)
-                          ? static_cast<uint64_t>(sub->next->variant.integer_value)
+                          ? EDG_INT_VAL_LOW64(sub->next->variant.integer_value)
                           : first;
       *out_start = first;
       *out_end = (last >= first) ? last : first;
@@ -1064,7 +1072,7 @@ llvm_gen_be_error_t evaluate_constant(
         LLVM_GEN_BE_CHECK(llvm_type_from_edg_type(con->type, &fx_ty));
       }
       *out_const = llvm::ConstantInt::get(
-          fx_ty, static_cast<uint64_t>(con->variant.fixed_point_value));
+          fx_ty, EDG_INT_VAL_LOW64(con->variant.fixed_point_value));
       return llvm_gen_be_error_t::ok;
     }
 #endif

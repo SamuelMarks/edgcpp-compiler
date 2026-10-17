@@ -168,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           commit="${{ steps.softfloat-pin.outputs.commit }}"
-          mkdir softfloat-src
+          mkdir -p softfloat-src
           git -C softfloat-src init
           git -C softfloat-src remote add origin https://github.com/ucb-bar/berkeley-softfloat-3.git
           git -C softfloat-src fetch --depth 1 origin "${commit}"
@@ -192,7 +192,7 @@ jobs:
           set S=%SOURCE%
           set P=%SOURCE%\%SPECIALIZE_TYPE%
           del *.obj %LIB% 2>nul
-          cl -nologo -c -O2 -I. -I%S% -I%P% -I%S%include %SOFTFLOAT_OPTS% @sources.rsp
+          cl -nologo -c -O2 -I. -I%S% -I%P% -I%S%\include %SOFTFLOAT_OPTS% @sources.rsp
           if errorlevel 1 exit /b 1
           lib -nologo /out:%LIB% *.obj
           if errorlevel 1 exit /b 1
@@ -230,15 +230,26 @@ jobs:
         run: |
           set -euo pipefail
           extra_args=()
+          export EDG_SOFTFLOAT_INCLUDE_PATH="${GITHUB_WORKSPACE}/softfloat/include"
           if [ "${{ matrix.platform.os_name }}" = "windows" ]; then
-            export EDG_SOFTFLOAT_INCLUDE_PATH="${GITHUB_WORKSPACE}/softfloat/include"
             export EDG_SOFTFLOAT_LIB_PATH="${GITHUB_WORKSPACE}/softfloat/lib/softfloat.lib"
+            if [ "${{ matrix.platform.arch }}" = "arm64" ]; then
+              if [ -d "C:/msys64/clangarm64/lib/cmake/llvm" ]; then
+                extra_args+=("-DLLVM_DIR=C:/msys64/clangarm64/lib/cmake/llvm")
+              fi
+            else
+              if [ -d "C:/msys64/mingw64/lib/cmake/llvm" ]; then
+                extra_args+=("-DLLVM_DIR=C:/msys64/mingw64/lib/cmake/llvm")
+              fi
+            fi
             if [ ! -f "C:/msys64/mingw64/include/libgccjit.h" ]; then
               mkdir -p "${GITHUB_WORKSPACE}/win-gccjit-include"
               cp dev_tools/builtins/libgccjit.h "${GITHUB_WORKSPACE}/win-gccjit-include/" 2>/dev/null || true
             fi
+          else
+            export EDG_SOFTFLOAT_LIB_PATH="${GITHUB_WORKSPACE}/softfloat/lib/libsoftfloat.a"
           fi
-          cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DEDG_ENABLE_LLVM_BACKEND=${{ matrix.backend.enable_llvm }} -DEDG_ENABLE_GCC_BACKEND=${{ matrix.backend.enable_gcc }} -DEDG_BUILD_LIB=OFF -DBUILD_TESTING=OFF "${extra_args[@]}"
+          cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DEDG_ENABLE_LLVM_BACKEND=${{ matrix.backend.enable_llvm }} -DEDG_ENABLE_GCC_BACKEND=${{ matrix.backend.enable_gcc }} -DEDG_BUILD_LIB=OFF -DBUILD_TESTING=OFF ${extra_args[@]+"${extra_args[@]}"}
           cmake --build build/release --target cpfe cpfe-cp cdisp mk_errinfo edg_decode
 
       - name: Smoke-test built cpfe binary

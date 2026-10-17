@@ -550,7 +550,7 @@ llvm_gen_be_error_t lower_sysv_va_start(
     llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
-  llvm::Function* vastart_fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
+  llvm::Function* vastart_fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::vastart, {llvm::PointerType::getUnqual(*be_state->context)});
   llvm::Value* cast_ptr = be_state->builder->CreatePointerCast(va_list_ptr, llvm::PointerType::getUnqual(*be_state->context));
   *out_val = be_state->builder->CreateCall(vastart_fn, {cast_ptr});
   
@@ -733,7 +733,7 @@ llvm_gen_be_error_t lower_sysv_va_end(
     llvm::Value** out_val) noexcept {
   if (!va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
-  llvm::Function* vaend_fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
+  llvm::Function* vaend_fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::vaend, {llvm::PointerType::getUnqual(*be_state->context)});
   llvm::Value* cast_ptr = be_state->builder->CreatePointerCast(va_list_ptr, llvm::PointerType::getUnqual(*be_state->context));
   *out_val = be_state->builder->CreateCall(vaend_fn, {cast_ptr});
   
@@ -754,7 +754,7 @@ llvm_gen_be_error_t lower_sysv_va_copy(
     llvm::Value** out_val) noexcept {
   if (!dest_va_list_ptr || !src_va_list_ptr || !out_val) return llvm_gen_be_error_t::invalid_argument;
 
-  llvm::Function* vacopy_fn = llvm::Intrinsic::getOrInsertDeclaration(be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});
+  llvm::Function* vacopy_fn = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), llvm::Intrinsic::vacopy, {llvm::PointerType::getUnqual(*be_state->context)});
   llvm::Value* dest_cast = be_state->builder->CreatePointerCast(dest_va_list_ptr, llvm::PointerType::getUnqual(*be_state->context));
   llvm::Value* src_cast = be_state->builder->CreatePointerCast(src_va_list_ptr, llvm::PointerType::getUnqual(*be_state->context));
   *out_val = be_state->builder->CreateCall(vacopy_fn, {dest_cast, src_cast});
