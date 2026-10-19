@@ -11,16 +11,19 @@
 #include "fe_common.h"
 #include "gcc_gen_be_lib_loader.h"
 #include "error.h"
+#if defined(_WIN32)
+#define float32_t edg_win_arm64_neon_float32_t
+#define float64_t edg_win_arm64_neon_float64_t
+#include <windows.h>
+#undef float32_t
+#undef float64_t
+#endif
 
 #if BACK_END_IS_GCC_GEN_BE
 
 BEGIN_EDG_NAMESPACE
 
-
-
-
 #if defined(_WIN32)
-#include <windows.h>
 /** @brief Handle to the loaded libgccjit library. */
 static HMODULE libgccjit_handle = NULL;
 void *p_gcc_jit_context_acquire = NULL;
@@ -61,6 +64,7 @@ void *p_gcc_jit_function_get_address = NULL;
 void *p_gcc_jit_function_get_param = NULL;
 void *p_gcc_jit_function_get_param_count = NULL;
 void *p_gcc_jit_function_get_return_type = NULL;
+void *p_gcc_jit_function_get_name = NULL;
 void *p_gcc_jit_block_get_function = NULL;
 void *p_gcc_jit_block_add_eval = NULL;
 void *p_gcc_jit_block_add_assignment = NULL;
@@ -224,6 +228,7 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_function_get_param)
   LOAD_SYM(gcc_jit_function_get_param_count)
   LOAD_SYM(gcc_jit_function_get_return_type)
+  LOAD_SYM(gcc_jit_function_get_name)
   LOAD_SYM(gcc_jit_block_get_function)
   LOAD_SYM(gcc_jit_block_add_eval)
   LOAD_SYM(gcc_jit_block_add_assignment)

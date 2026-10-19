@@ -10,14 +10,17 @@
  */
 
 #include "fe_common.h"
+#include <libgccjit.h>
 #include "gcc_gen_be_context.h"
 #include "gcc_gen_be_cache.h"
 #include "gcc_gen_be_lib_loader.h"
-#include "gcc_gen_be_cache.h"
 #include "cmd_line.h"
-#include <libgccjit.h>
 #ifdef _WIN32
+#define float32_t edg_win_arm64_neon_float32_t
+#define float64_t edg_win_arm64_neon_float64_t
 #include <windows.h>
+#undef float32_t
+#undef float64_t
 #else
 #include <pthread.h>
 #include <stdint.h>

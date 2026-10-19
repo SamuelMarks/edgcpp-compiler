@@ -119,6 +119,8 @@ extern void *p_gcc_jit_function_get_param_count;
 #define gcc_jit_function_get_param_count(...) ((__typeof__(gcc_jit_function_get_param_count) *)p_gcc_jit_function_get_param_count)(__VA_ARGS__)
 extern void *p_gcc_jit_function_get_return_type;
 #define gcc_jit_function_get_return_type(...) ((__typeof__(gcc_jit_function_get_return_type) *)p_gcc_jit_function_get_return_type)(__VA_ARGS__)
+extern void *p_gcc_jit_function_get_name;
+#define gcc_jit_function_get_name(...) ((__typeof__(gcc_jit_function_get_name) *)p_gcc_jit_function_get_name)(__VA_ARGS__)
 extern void *p_gcc_jit_block_get_function;
 #define gcc_jit_block_get_function(...) ((__typeof__(gcc_jit_block_get_function) *)p_gcc_jit_block_get_function)(__VA_ARGS__)
 extern void *p_gcc_jit_block_add_eval;
@@ -215,6 +217,7 @@ extern void *p_gcc_jit_context_get_first_error;
 #define gcc_jit_context_new_bitcast(...) p_gcc_jit_context_new_bitcast(__VA_ARGS__)
 #define gcc_jit_context_new_struct_constructor(...) p_gcc_jit_context_new_struct_constructor(__VA_ARGS__)
 #define gcc_jit_context_new_union_constructor(...) p_gcc_jit_context_new_union_constructor(__VA_ARGS__)
+#define gcc_jit_rvalue_set_bool_require_tail_call(...) p_gcc_jit_rvalue_set_bool_require_tail_call(__VA_ARGS__)
 #define gcc_jit_type_get_vector(...) p_gcc_jit_type_get_vector(__VA_ARGS__)
 #endif
 

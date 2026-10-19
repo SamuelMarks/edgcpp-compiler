@@ -51,11 +51,15 @@
   llvm::Intrinsic::getOrInsertDeclaration(__VA_ARGS__)
 #define EDG_LLVM_GET_TERMINATOR(bb) \
   ((bb)->getTerminatorOrNull())
+#define EDG_LLVM_FIRST_INSERTION_PT(bb) \
+  ((bb)->getFirstNonPHIIt())
 #else
 #define EDG_LLVM_GET_INTRINSIC_DECL(...) \
   llvm::Intrinsic::getDeclaration(__VA_ARGS__)
 #define EDG_LLVM_GET_TERMINATOR(bb) \
   ((bb)->getTerminator())
+#define EDG_LLVM_FIRST_INSERTION_PT(bb) \
+  ((bb)->getFirstInsertionPt())
 #endif
 
 #if INTEGER_VALUE_REPR_IS_A_HOST_INTEGER

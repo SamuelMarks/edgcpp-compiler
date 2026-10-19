@@ -262,7 +262,7 @@ llvm_gen_be_error_t llvm_lower_microsoft_try_stmt(a_statement_ptr stmt) noexcept
  */
 llvm_gen_be_error_t llvm_lower_eh_exceptioncode(llvm::Value** out_val) noexcept {
   if (!out_val) return llvm_gen_be_error_t::invalid_argument;
-  auto it = be_state->builder->GetInsertBlock()->getFirstNonPHIIt();
+  auto it = EDG_LLVM_FIRST_INSERTION_PT(be_state->builder->GetInsertBlock());
   llvm::CatchPadInst* cpi = (it != be_state->builder->GetInsertBlock()->end()) ? llvm::dyn_cast<llvm::CatchPadInst>(&*it) : nullptr;
   llvm::Value* token = cpi ? static_cast<llvm::Value*>(cpi) : llvm::ConstantTokenNone::get(*be_state->context);
   llvm::FunctionCallee exc_code = be_state->module->getOrInsertFunction(

@@ -7,6 +7,8 @@
  * See https://edgcpp.org/LICENSE.txt for license information.
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
+#include "fe_common.h"
+#include <libgccjit.h>
 #include "gcc_gen_be_lib_loader.h"
 #include "gcc_gen_be_rtti.h"
 #include "func_def.h"
@@ -21,7 +23,6 @@
 #include "gcc_gen_be_type.h"
 #include "expr.h"
 #include "il_def.h"
-#include <libgccjit.h>
 #include <stdlib.h>
 
 #if BACK_END_IS_GCC_GEN_BE

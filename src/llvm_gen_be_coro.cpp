@@ -164,7 +164,7 @@ llvm_gen_be_error_t llvm_emit_coro_unhandled_exception_landing_pad(
   llvm::IRBuilder<>::InsertPoint saved_ip = be_state->builder->saveIP();
   be_state->builder->SetInsertPoint(coro_lpad);
 
-  llvm::Type* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
+  llvm::PointerType* int8_ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::FunctionType* catch_fn_ty = llvm::FunctionType::get(int8_ptr_ty, {int8_ptr_ty}, false);
   llvm::FunctionCallee begin_catch = be_state->module->getOrInsertFunction("__cxa_begin_catch", catch_fn_ty);
   llvm::FunctionCallee end_catch = be_state->module->getOrInsertFunction(

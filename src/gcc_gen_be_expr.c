@@ -20,8 +20,8 @@
 #include "gcc_gen_be_cache.h"
 #include "gcc_gen_be_type.h"
 #include "gcc_gen_be_decl.h"
-#include "gcc_gen_be_lib_loader.h"
 #include <libgccjit.h>
+#include "gcc_gen_be_lib_loader.h"
 #include <stdlib.h>
 
 #if BACK_END_IS_GCC_GEN_BE
@@ -4910,8 +4910,16 @@ gcc_gen_be_error_t gcc_gen_be_lower_float_constant(a_constant_ptr con, struct gc
         }
     }
 
+#if USE_SOFTFLOAT
+    a_host_fp_value host_fp = fetch_host_fp_value(fk, &con->variant.float_value);
+    float64_t f64_hi = f128_to_f64(host_fp);
+    double dbl_hi = 0.0;
+    memcpy(&dbl_hi, &f64_hi.v, sizeof(double));
+    long double ld_val = (long double)dbl_hi;
+#else
     long double ld_val = (long double)fetch_host_fp_value(fk, &con->variant.float_value);
     double dbl_hi = (double)ld_val;
+#endif
     gcc_jit_rvalue *hi_rval = gcc_jit_context_new_rvalue_from_double(ctx, flt_type, dbl_hi);
 
     if (fk == fk_long_double || fk == fk_float80 || fk == fk_float128 || fk == fk_std_float128) {

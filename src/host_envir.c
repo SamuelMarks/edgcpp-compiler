@@ -64,7 +64,11 @@ This version for UNIX, MS-DOS, VAX/VMS, and Windows NT.
 #define NOMCX
 #define NOCRYPT
 #define WIN32_LEAN_AND_MEAN
+#define float32_t edg_win_arm64_neon_float32_t
+#define float64_t edg_win_arm64_neon_float64_t
 #include <windows.h>
+#undef float32_t
+#undef float64_t
 #if !defined(ENABLE_VIRTUAL_TERMINAL_PROCESSING)
 /*
 If ENABLE_VIRTUAL_TERMINAL_PROCESSING was not defined (as is the case with

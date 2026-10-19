@@ -50,24 +50,6 @@ static llvm_gen_be_error_t emit_named_or_table_intrinsic(
     }
   }
 
-  llvm::Intrinsic::ID id = llvm::Intrinsic::lookupIntrinsicID(llvm_intr_name);
-  if (id != llvm::Intrinsic::not_intrinsic && !llvm::Intrinsic::isOverloaded(id)) {
-    llvm::Function* intr_func = EDG_LLVM_GET_INTRINSIC_DECL(be_state->module.get(), id);
-    if (intr_func->arg_size() == args.size()) {
-      bool types_match = true;
-      for (size_t i = 0; i < args.size(); ++i) {
-        if (intr_func->getFunctionType()->getParamType(static_cast<unsigned>(i)) != args[i]->getType()) {
-          types_match = false;
-          break;
-        }
-      }
-      if (types_match) {
-        *out_val = be_state->builder->CreateCall(intr_func, args);
-        return llvm_gen_be_error_t::ok;
-      }
-    }
-  }
-
   llvm::FunctionType* ft = callee_ty;
   if (!ft) {
     std::vector<llvm::Type*> param_tys;
@@ -447,12 +429,6 @@ llvm_gen_be_error_t llvm_lower_riscv_builtin(
       llvm::Function* bswap = EDG_LLVM_GET_INTRINSIC_DECL(
           be_state->module.get(), llvm::Intrinsic::bswap, {args[0]->getType()});
       *out_val = be_state->builder->CreateCall(bswap, {args[0]});
-      return llvm_gen_be_error_t::ok;
-    }
-    if (sub == "clmul" || sub == "clmulh") {
-      llvm::Function* clmul = EDG_LLVM_GET_INTRINSIC_DECL(
-          be_state->module.get(), llvm::Intrinsic::clmul, {args[0]->getType()});
-      *out_val = be_state->builder->CreateCall(clmul, {args[0], args[1]});
       return llvm_gen_be_error_t::ok;
     }
     return emit_named_or_table_intrinsic("llvm.riscv." + sub.str(), args, callee_ty, out_val);

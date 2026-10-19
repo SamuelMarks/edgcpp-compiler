@@ -270,12 +270,29 @@ jobs:
           cp -r include_c++ include_c99 LICENSE.txt README.md "dist/${pkg_name}/"
           mkdir -p artifacts
           if [ "${{ matrix.platform.archive_ext }}" = "zip" ]; then
-            (cd dist && 7z a "../artifacts/${pkg_name}.zip" "${pkg_name}")
-            shasum -a 256 "artifacts/${pkg_name}.zip" > "artifacts/${pkg_name}.zip.sha256"
+            archive_file="${pkg_name}.zip"
+            python3 - "${pkg_name}" "artifacts/${archive_file}" <<'PY'
+          import os, sys, zipfile
+          pkg, out_zip = sys.argv[1], sys.argv[2]
+          base = os.path.join("dist", pkg)
+          with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(base):
+              for f in sorted(files):
+                full = os.path.join(root, f)
+                rel = os.path.relpath(full, "dist")
+                zf.write(full, rel)
+          PY
           else
-            tar -C dist -czf "artifacts/${pkg_name}.tar.gz" "${pkg_name}"
-            shasum -a 256 "artifacts/${pkg_name}.tar.gz" > "artifacts/${pkg_name}.tar.gz.sha256"
+            archive_file="${pkg_name}.tar.gz"
+            tar -C dist -czf "artifacts/${archive_file}" "${pkg_name}"
           fi
+          python3 - "artifacts/${archive_file}" "${archive_file}" <<'PY'
+          import hashlib, sys
+          path, name = sys.argv[1], sys.argv[2]
+          digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+          with open(path + ".sha256", "w", encoding="utf-8") as f:
+            f.write(f"{digest}  {name}\n")
+          PY
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
