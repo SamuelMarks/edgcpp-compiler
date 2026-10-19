@@ -22,7 +22,13 @@ along with GCC; see the file COPYING3.  If not see
 
 #include <stdint.h>
 #include <stdio.h>
-#ifdef __has_include
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+typedef SSIZE_T ssize_t;
+#endif
+#elif defined(__has_include)
 #if __has_include (<sys/types.h>)
 #include <sys/types.h>
 #endif

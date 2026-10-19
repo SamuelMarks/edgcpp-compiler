@@ -35,11 +35,21 @@ where 8.x is currently either 8.0 or 8.1.
 
 #include "fe_common.h"
 
-#define float32_t edg_win_arm64_neon_float32_t
-#define float64_t edg_win_arm64_neon_float64_t
-#include <windows.h>
-#undef float32_t
-#undef float64_t
+#if !defined(_AMD64_) && (defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__))
+#define _AMD64_
+#elif !defined(_ARM64_) && (defined(_M_ARM64) || defined(__aarch64__))
+#define _ARM64_
+#elif !defined(_X86_) && (defined(_M_IX86) || defined(__i386__))
+#define _X86_
+#elif !defined(_ARM_) && (defined(_M_ARM) || defined(__arm__))
+#define _ARM_
+#endif
+#include <windef.h>
+#include <winbase.h>
+#include <winnls.h>
+#include <unknwn.h>
+#include <objbase.h>
+#include <oleauto.h>
 #include <metahost.h>
 #include <cor.h>
 #include <fusion.h>

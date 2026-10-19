@@ -25,50 +25,29 @@ This version for UNIX, MS-DOS, VAX/VMS, and Windows NT.
 #endif /* ifdef PCH_PRAGMA_GUARD */
 
 #if EDG_WIN32
-/* Disable unneeded features of <windows.h> for efficiency. */
-#define NOGDICAPMASKS
-#define NOVIRTUALKEYCODES
-#define NOWINMESSAGES
-#define NOWINSTYLES
-#define NOSYSMETRICS
-#define NOMENUS
-#define NOICONS
-#define NOKEYSTATES
-#define NOSYSCOMMANDS
-#define NORASTEROPS
-#define NOSHOWWINDOW
-#define OEMRESOURCE
-#define NOATOM
-#define NOCLIPBOARD
-#define NOCOLOR
-#define NOCTLMGR
-#define NODRAWTEXT
-#define NOGDI
-#define NOKERNEL
-#define NOMB
-#define NOMEMMGR
-#define NOMETAFILE
-#define NOMINMAX
-#define NOOPENFILE
-#define NOSCROLL
-#define NOSERVICE
-#define NOSOUND
-#define NOTEXTMETRIC
-#define NOWH
-#define NOWINOFFSETS
-#define NOCOMM
-#define NOKANJI
-#define NOHELP
-#define NOPROFILER
-#define NODEFERWINDOWPOS
-#define NOMCX
-#define NOCRYPT
-#define WIN32_LEAN_AND_MEAN
-#define float32_t edg_win_arm64_neon_float32_t
-#define float64_t edg_win_arm64_neon_float64_t
-#include <windows.h>
-#undef float32_t
-#undef float64_t
+#if !defined(_AMD64_) && (defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__))
+#define _AMD64_
+#elif !defined(_ARM64_) && (defined(_M_ARM64) || defined(__aarch64__))
+#define _ARM64_
+#elif !defined(_X86_) && (defined(_M_IX86) || defined(__i386__))
+#define _X86_
+#elif !defined(_ARM_) && (defined(_M_ARM) || defined(__arm__))
+#define _ARM_
+#endif
+#include <windef.h>
+#include <winbase.h>
+#include <winnls.h>
+#include <fileapi.h>
+#include <handleapi.h>
+#include <errhandlingapi.h>
+#include <processthreadsapi.h>
+#include <libloaderapi.h>
+#include <memoryapi.h>
+#include <sysinfoapi.h>
+#include <consoleapi.h>
+#include <processenv.h>
+#include <oleauto.h>
+#include <oaidl.h>
 #if !defined(ENABLE_VIRTUAL_TERMINAL_PROCESSING)
 /*
 If ENABLE_VIRTUAL_TERMINAL_PROCESSING was not defined (as is the case with

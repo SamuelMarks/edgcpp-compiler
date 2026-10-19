@@ -85,7 +85,11 @@ llvm_gen_be_error_t create_target_machine(
 
     std::string error_str;
     llvm::Triple theTriple(triple_str);
+#if LLVM_VERSION_MAJOR >= 21
     const llvm::Target* target = llvm::TargetRegistry::lookupTarget(theTriple, error_str);
+#else
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(theTriple.getTriple(), error_str);
+#endif
     if (!target) {
         return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Failed to lookup target: %s", error_str.c_str());
     }
@@ -93,7 +97,11 @@ llvm_gen_be_error_t create_target_machine(
     llvm::TargetOptions opt;
 
     llvm::TargetMachine* tm = target->createTargetMachine(
+#if LLVM_VERSION_MAJOR >= 21
         theTriple,
+#else
+        theTriple.getTriple(),
+#endif
         cpu_str,
         feat_str,
         opt,
@@ -153,10 +161,18 @@ llvm_gen_be_error_t emit_machine_code_to_file(
     llvm::CodeGenFileType cg_file_type;
     switch (file_type) {
         case codegen_file_type_t::assembly_file:
+#if LLVM_VERSION_MAJOR >= 18
             cg_file_type = llvm::CodeGenFileType::AssemblyFile;
+#else
+            cg_file_type = llvm::CGFT_AssemblyFile;
+#endif
             break;
         case codegen_file_type_t::object_file:
+#if LLVM_VERSION_MAJOR >= 18
             cg_file_type = llvm::CodeGenFileType::ObjectFile;
+#else
+            cg_file_type = llvm::CGFT_ObjectFile;
+#endif
             break;
         default:
             return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Unknown codegen_file_type_t");
@@ -237,10 +253,18 @@ llvm_gen_be_error_t emit_machine_code_to_memory_buffer(
     llvm::CodeGenFileType cg_file_type;
     switch (file_type) {
         case codegen_file_type_t::assembly_file:
+#if LLVM_VERSION_MAJOR >= 18
             cg_file_type = llvm::CodeGenFileType::AssemblyFile;
+#else
+            cg_file_type = llvm::CGFT_AssemblyFile;
+#endif
             break;
         case codegen_file_type_t::object_file:
+#if LLVM_VERSION_MAJOR >= 18
             cg_file_type = llvm::CodeGenFileType::ObjectFile;
+#else
+            cg_file_type = llvm::CGFT_ObjectFile;
+#endif
             break;
         default:
             return llvm_gen_be_set_error(&be_state->err_context, llvm_gen_be_error_t::invalid_argument, __FILE__, __LINE__, 0, "Invalid file_type for memory buffer emission");

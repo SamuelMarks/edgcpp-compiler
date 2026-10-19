@@ -2360,7 +2360,11 @@ precision.
 #if USE_SOFTFLOAT
 END_EDG_NAMESPACE  /* Conditionally close the "edg" namespace. */
 extern "C" {
+#define float32_t edg_softfloat32_t
+#define float64_t edg_softfloat64_t
 #include "softfloat.h"
+#undef float32_t
+#undef float64_t
 }  /* extern "C" */
 BEGIN_EDG_NAMESPACE  /* Conditionally open the "edg" namespace. */
 

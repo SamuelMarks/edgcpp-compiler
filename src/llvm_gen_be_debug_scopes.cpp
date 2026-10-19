@@ -136,8 +136,8 @@ llvm_gen_be_error_t create_di_subprogram(
     di_type = llvm::dyn_cast_or_null<llvm::DISubroutineType>(rout_di_ty);
   }
   if (!di_type) {
-    llvm::DITypeArray type_array = dbg_state->builder->getOrCreateTypeArray(llvm::ArrayRef<llvm::Metadata*>());
-    di_type = dbg_state->builder->createSubroutineType(type_array);
+    di_type = dbg_state->builder->createSubroutineType(
+        dbg_state->builder->getOrCreateTypeArray(llvm::ArrayRef<llvm::Metadata*>()));
   }
 
   *out_subprogram = dbg_state->builder->createFunction(

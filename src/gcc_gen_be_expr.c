@@ -4020,9 +4020,9 @@ if (op_t2->variant.float_kind == fk_float) dest_elem_type = gcc_jit_context_get_
                   a_boolean needs_cookie = FALSE;
                   size_t cookie_size = sizeof(size_t);
 
+                  size_t elem_bytes = (size_t)ndsp->type->size + 1;
+                  gcc_jit_rvalue *elem_size_cast = gcc_jit_context_new_rvalue_from_long(ctx, size_type, (long)elem_bytes);
                   if (ndsp->number_of_elements) {
-                      gcc_jit_rvalue *elem_size = gcc_jit_context_new_sizeof(ctx, type);
-                      gcc_jit_rvalue *elem_size_cast = gcc_jit_context_new_cast(ctx, loc, elem_size, size_type);
                       gcc_jit_rvalue *num_elems = NULL;
                       err = gcc_gen_be_lower_expr_rvalue(ndsp->number_of_elements, &num_elems);
                       if (err != GCC_GEN_BE_SUCCESS) return err;
@@ -4036,8 +4036,7 @@ if (op_t2->variant.float_kind == fk_float) dest_elem_type = gcc_jit_context_get_
                           alloc_size = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_PLUS, size_type, alloc_size, cookie_rval);
                       }
                   } else {
-                      alloc_size = gcc_jit_context_new_sizeof(ctx, type);
-                      alloc_size = gcc_jit_context_new_cast(ctx, loc, alloc_size, size_type);
+                      alloc_size = elem_size_cast;
                   }
                   
                   gcc_jit_rvalue *alloc_call = NULL;
@@ -4235,8 +4234,9 @@ if (op_t2->variant.float_kind == fk_float) dest_elem_type = gcc_jit_context_get_
                                   gcc_jit_rvalue *elem_count_val = gcc_jit_lvalue_as_rvalue(
                                       gcc_jit_rvalue_dereference(
                                           gcc_jit_context_new_cast(ctx, loc, cookie_raw_addr, size_ptr_type), loc));
-                                  gcc_jit_rvalue *elem_sz_val = gcc_jit_context_new_cast(
-                                      ctx, loc, gcc_jit_context_new_sizeof(ctx, type), size_type);
+                                  size_t del_elem_bytes = (size_t)ndsp->type->size + 1;
+                                  gcc_jit_rvalue *elem_sz_val = gcc_jit_context_new_rvalue_from_long(
+                                      ctx, size_type, (long)del_elem_bytes);
                                   gcc_jit_rvalue *cookie_sz_val = gcc_jit_context_new_rvalue_from_long(ctx, size_type, (long)cookie_sz);
                                   dealloc_total_size = gcc_jit_context_new_binary_op(
                                       ctx, loc, GCC_JIT_BINARY_OP_PLUS, size_type,
@@ -4321,7 +4321,8 @@ if (op_t2->variant.float_kind == fk_float) dest_elem_type = gcc_jit_context_get_
                               gcc_jit_param *param = gcc_jit_function_get_param(dealloc_func, idx);
                               gcc_jit_type *ptype = gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(param));
                               if (idx == 1) {
-                                  gcc_jit_rvalue *sz = dealloc_total_size ? dealloc_total_size : gcc_jit_context_new_sizeof(ctx, type);
+                                  size_t del_type_bytes = (size_t)ndsp->type->size + 1;
+                                  gcc_jit_rvalue *sz = dealloc_total_size ? dealloc_total_size : gcc_jit_context_new_rvalue_from_long(ctx, size_type, (long)del_type_bytes);
                                   dargs[idx] = gcc_jit_context_new_cast(ctx, loc, sz, ptype);
                               } else {
                                   long align_val = ndsp->type ? (long)ndsp->type->alignment : 8L;
@@ -4912,7 +4913,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_float_constant(a_constant_ptr con, struct gc
 
 #if USE_SOFTFLOAT
     a_host_fp_value host_fp = fetch_host_fp_value(fk, &con->variant.float_value);
-    float64_t f64_hi = f128_to_f64(host_fp);
+    edg_softfloat64_t f64_hi = f128_to_f64(host_fp);
     double dbl_hi = 0.0;
     memcpy(&dbl_hi, &f64_hi.v, sizeof(double));
     long double ld_val = (long double)dbl_hi;

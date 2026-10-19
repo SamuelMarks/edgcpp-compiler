@@ -265,23 +265,23 @@ static void store_host_fp_value(a_host_fp_value         temp,
 
 /* A union to map the float32_t SoftFloat type to "float". */
 typedef union softfloat32_t {
-  float32_t     soft;
-  float         hard;
+  edg_softfloat32_t soft;
+  float             hard;
 } softfloat32_t;
 
 /* A union to map the float64_t SoftFloat type to "double". */
 typedef union softfloat64_t {
-  float64_t     soft;
-  double        hard;
+  edg_softfloat64_t soft;
+  double            hard;
 } softfloat64_t;
 
 STATIC_THREAD float16_t
 		f16_zero;
 			/* The value 0.0F16. */
-STATIC_THREAD float32_t
+STATIC_THREAD edg_softfloat32_t
 		f32_zero;
 			/* The value 0.0F. */
-STATIC_THREAD float64_t
+STATIC_THREAD edg_softfloat64_t
 		f64_zero;
 			/* The value 0.0. */
 

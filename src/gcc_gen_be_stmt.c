@@ -1133,7 +1133,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_statement(a_statement_ptr stmt, struct gcc_j
 
                   /* Allocate frame on the heap using promise_type::operator new or global ::operator new (_Znwm) */
                   gcc_jit_type *size_t_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_SIZE_T);
-                  gcc_jit_rvalue *frame_size = gcc_jit_context_new_cast(ctx, loc, gcc_jit_context_new_sizeof(ctx, frame_struct_type), size_t_type);
+                  gcc_jit_rvalue *frame_size = gcc_jit_context_new_rvalue_from_long(ctx, size_t_type, (long)(num_fields * 16 + 64));
                   gcc_jit_rvalue *frame_ptr = NULL;
                   if (descr && descr->new_routine) {
                       gcc_jit_function *op_new_fn = NULL;
@@ -2210,7 +2210,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_vla_decl(struct gcc_jit_function *func, a_va
     gcc_jit_param *alloca_param = gcc_jit_context_new_param(ctx, NULL, size_type, "size");
     gcc_jit_function *alloca_func = gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_IMPORTED, void_ptr_type, "__builtin_alloca", 1, &alloca_param, 0);
 
-    gcc_jit_rvalue *elem_size = gcc_jit_context_new_cast(ctx, loc, gcc_jit_context_new_sizeof(ctx, elem_type), size_type);
+    size_t elem_bytes = (size_t)curr_type->size + 1;
+    gcc_jit_rvalue *elem_size = gcc_jit_context_new_rvalue_from_long(ctx, size_type, (long)elem_bytes);
     gcc_jit_rvalue *total_bytes = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_MULT, size_type, total_elements, elem_size);
 
     gcc_jit_rvalue *alloca_call = gcc_jit_context_new_call(ctx, loc, alloca_func, 1, &total_bytes);

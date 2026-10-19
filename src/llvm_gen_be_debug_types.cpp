@@ -908,7 +908,11 @@ llvm_gen_be_error_t createImportedModule(
     if (!dbg_state || !scope || !ns || !out_import) {
         return llvm_gen_be_error_t::invalid_argument;
     }
+#if LLVM_VERSION_MAJOR >= 21
     *out_import = dbg_state->builder->createImportedModule(scope, ns, file, line_no);
+#else
+    *out_import = dbg_state->builder->createImportedModule(scope, ns, file, line_no, llvm::DINodeArray());
+#endif
     return llvm_gen_be_error_t::ok;
 }
 

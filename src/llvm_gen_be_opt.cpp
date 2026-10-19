@@ -12,6 +12,7 @@
 #include "llvm_gen_be_opt.h"
 #include <string.h>
 
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
@@ -19,6 +20,7 @@
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/Support/Error.h>
+#include <llvm/Support/VirtualFileSystem.h>
 
 #include <llvm/Transforms/Instrumentation/AddressSanitizer.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
@@ -108,6 +110,7 @@ static llvm_gen_be_error_t add_pipeline_start_passes(
     out_mpm->addPass(llvm::MemorySanitizerPass(llvm::MemorySanitizerOptions{}));
   }
   if (opts->use_ubsan) {
+#if LLVM_VERSION_MAJOR >= 20
     llvm::BoundsCheckingPass::Options ubsan_opts;
     ubsan_opts.Rt = llvm::BoundsCheckingPass::Options::Runtime(
         false, // MinRuntime: false uses full __ubsan_handle_out_of_bounds handlers
@@ -115,6 +118,9 @@ static llvm_gen_be_error_t add_pipeline_start_passes(
         false  // HandlerPreserveAllRegs
     );
     out_mpm->addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass(ubsan_opts)));
+#else
+    out_mpm->addPass(llvm::createModuleToFunctionPassAdaptor(llvm::BoundsCheckingPass()));
+#endif
   }
   return llvm_gen_be_error_t::ok;
 }

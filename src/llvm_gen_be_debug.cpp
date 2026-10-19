@@ -223,8 +223,8 @@ llvm_gen_be_error_t build_pdb_symbol_records(
     if (r->storage_class == sc_static) {
       sp_flags |= llvm::DISubprogram::SPFlagLocalToUnit; // S_LPROC32 vs S_LPROC32
     }
-    llvm::DITypeArray param_arr = dbg->builder->getOrCreateTypeArray(llvm::ArrayRef<llvm::Metadata*>());
-    llvm::DISubroutineType* sub_ty = dbg->builder->createSubroutineType(param_arr);
+    llvm::DISubroutineType* sub_ty = dbg->builder->createSubroutineType(
+        dbg->builder->getOrCreateTypeArray(llvm::ArrayRef<llvm::Metadata*>()));
     llvm::DISubprogram* sp = dbg->builder->createFunction(
         di_file, fn_name, fn_name, di_file, fn_line, sub_ty, fn_line, llvm::DINode::FlagPrototyped, sp_flags);
     result_scope = sp;
