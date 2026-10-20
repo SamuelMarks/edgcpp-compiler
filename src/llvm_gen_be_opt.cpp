@@ -184,11 +184,18 @@ llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_o
 
   std::optional<llvm::PGOOptions> pgo_opts;
   extern a_const_char* fprofile_generate_path;
-  extern a_const_char* fprofile_use_path;
+  auto emplace_pgo = [](auto& opt_pgo, const char* path, llvm::PGOOptions::PGOAction action) {
+      using PGOType = typename std::decay_t<decltype(opt_pgo)>::value_type;
+      if constexpr (std::is_constructible_v<PGOType, const char*, const char*, const char*, const char*, llvm::PGOOptions::PGOAction>) {
+          opt_pgo.emplace(path, "", "", "", action);
+      } else {
+          opt_pgo.emplace(path, "", "", "", llvm::vfs::getRealFileSystem(), action);
+      }
+  };
   if (opts->pgo_generate) {
-      pgo_opts.emplace(fprofile_generate_path ? fprofile_generate_path : "default.profraw", "", "", "", llvm::PGOOptions::IRInstr);
+      emplace_pgo(pgo_opts, fprofile_generate_path ? fprofile_generate_path : "default.profraw", llvm::PGOOptions::IRInstr);
   } else if (opts->pgo_use_path) {
-      pgo_opts.emplace(opts->pgo_use_path, "", "", "", llvm::PGOOptions::IRUse);
+      emplace_pgo(pgo_opts, opts->pgo_use_path, llvm::PGOOptions::IRUse);
   }
 
   llvm::PassBuilder pb(nullptr, pto, pgo_opts, &pic);

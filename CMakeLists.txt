@@ -185,7 +185,7 @@ if(BUILD_TESTING AND EDG_ENABLE_LLVM_BACKEND)
   add_subdirectory(tests)
 endif()
 
-if(EDG_ENABLE_GCC_BACKEND)
+if(BUILD_TESTING AND EDG_ENABLE_GCC_BACKEND)
   add_subdirectory(tests/gcc_be)
 endif()
 

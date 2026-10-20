@@ -76,7 +76,6 @@ def smoke_test_binary(cpfe_bin: str, expect_llvm: bool, expect_gcc: bool) -> Non
                 has_gccjit_runtime = bool(
                     shutil.which("libgccjit-0.dll")
                     or shutil.which("libgccjit.dll")
-                    or os.path.exists(r"C:\msys64\mingw64\bin\libgccjit-0.dll")
                 )
             if has_gccjit_runtime:
                 asm_file = os.path.join(tmpdir, "smoke.s")

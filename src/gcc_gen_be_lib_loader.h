@@ -119,8 +119,6 @@ extern void *p_gcc_jit_function_get_param_count;
 #define gcc_jit_function_get_param_count(...) ((__typeof__(gcc_jit_function_get_param_count) *)p_gcc_jit_function_get_param_count)(__VA_ARGS__)
 extern void *p_gcc_jit_function_get_return_type;
 #define gcc_jit_function_get_return_type(...) ((__typeof__(gcc_jit_function_get_return_type) *)p_gcc_jit_function_get_return_type)(__VA_ARGS__)
-extern void *p_gcc_jit_function_get_name;
-#define gcc_jit_function_get_name(...) ((__typeof__(gcc_jit_function_get_name) *)p_gcc_jit_function_get_name)(__VA_ARGS__)
 extern void *p_gcc_jit_block_get_function;
 #define gcc_jit_block_get_function(...) ((__typeof__(gcc_jit_block_get_function) *)p_gcc_jit_block_get_function)(__VA_ARGS__)
 extern void *p_gcc_jit_block_add_eval;
@@ -159,8 +157,6 @@ extern void *p_gcc_jit_context_zero;
 #define gcc_jit_context_zero(...) ((__typeof__(gcc_jit_context_zero) *)p_gcc_jit_context_zero)(__VA_ARGS__)
 extern void *p_gcc_jit_context_one;
 #define gcc_jit_context_one(...) ((__typeof__(gcc_jit_context_one) *)p_gcc_jit_context_one)(__VA_ARGS__)
-extern void *p_gcc_jit_context_new_sizeof;
-#define gcc_jit_context_new_sizeof(...) ((__typeof__(gcc_jit_context_new_sizeof) *)p_gcc_jit_context_new_sizeof)(__VA_ARGS__)
 extern void *p_gcc_jit_context_new_unary_op;
 #define gcc_jit_context_new_unary_op(...) ((__typeof__(gcc_jit_context_new_unary_op) *)p_gcc_jit_context_new_unary_op)(__VA_ARGS__)
 extern void *p_gcc_jit_context_new_binary_op;
@@ -215,6 +211,7 @@ extern void *p_gcc_jit_context_get_first_error;
 #define gcc_jit_context_get_int_type(...) p_gcc_jit_context_get_int_type(__VA_ARGS__)
 #define gcc_jit_context_new_array_constructor(...) p_gcc_jit_context_new_array_constructor(__VA_ARGS__)
 #define gcc_jit_context_new_bitcast(...) p_gcc_jit_context_new_bitcast(__VA_ARGS__)
+#define gcc_jit_context_new_sizeof(...) p_gcc_jit_context_new_sizeof(__VA_ARGS__)
 #define gcc_jit_context_new_struct_constructor(...) p_gcc_jit_context_new_struct_constructor(__VA_ARGS__)
 #define gcc_jit_context_new_union_constructor(...) p_gcc_jit_context_new_union_constructor(__VA_ARGS__)
 #define gcc_jit_rvalue_set_bool_require_tail_call(...) p_gcc_jit_rvalue_set_bool_require_tail_call(__VA_ARGS__)
@@ -492,6 +489,14 @@ typedef void (*pfn_gcc_jit_context_add_top_level_asm)(
 
 /** @brief Function pointer for `gcc_jit_context_add_top_level_asm`. */
 extern pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm;
+
+/** @brief Function pointer type for optional `gcc_jit_context_new_sizeof`. */
+typedef struct gcc_jit_rvalue * (*pfn_gcc_jit_context_new_sizeof)(
+    struct gcc_jit_context *ctxt,
+    struct gcc_jit_type *type);
+
+/** @brief Function pointer for `gcc_jit_context_new_sizeof`. */
+extern pfn_gcc_jit_context_new_sizeof p_gcc_jit_context_new_sizeof;
 
 /**
  * @brief Loads the libgccjit dynamic library on Windows.

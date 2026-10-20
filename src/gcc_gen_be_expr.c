@@ -4913,7 +4913,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_float_constant(a_constant_ptr con, struct gc
 
 #if USE_SOFTFLOAT
     a_host_fp_value host_fp = fetch_host_fp_value(fk, &con->variant.float_value);
-    edg_softfloat64_t f64_hi = f128_to_f64(host_fp);
+    edg_softfloat64_t f64_hi = f128M_to_f64(&host_fp);
     double dbl_hi = 0.0;
     memcpy(&dbl_hi, &f64_hi.v, sizeof(double));
     long double ld_val = (long double)dbl_hi;

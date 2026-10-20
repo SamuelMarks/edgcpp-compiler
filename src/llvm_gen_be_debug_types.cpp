@@ -103,7 +103,9 @@ llvm_gen_be_error_t get_or_create_di_type(
                     align_in_bits,
                     elts_arr,
                     basic_int_ty,
+#if LLVM_VERSION_MAJOR >= 18
                     0,
+#endif
                     "",
                     ty->variant.integer.is_scoped_enum != 0);
             } else {
@@ -349,7 +351,9 @@ llvm_gen_be_error_t get_or_create_di_type(
                     llvm::DINode::FlagZero,
                     nullptr,
                     elements_array,
+#if LLVM_VERSION_MAJOR >= 18
                     0,
+#endif
                     nullptr,
                     tpl_params_array.get()
                 );
@@ -533,7 +537,11 @@ llvm_gen_be_error_t emit_dbg_value_for_variable(
             di_var,
             expr,
             loc,
+#if LLVM_VERSION_MAJOR >= 19
             insert_before->getIterator()
+#else
+            insert_before
+#endif
         );
     } else {
         dbg_state->builder->insertDbgValueIntrinsic(
@@ -855,7 +863,11 @@ llvm_gen_be_error_t createEnumerationType(
     
     *out_enum = dbg_state->builder->createEnumerationType(
         scope, name, file, line_no, size_in_bits, align_in_bits, elements,
-        underlying_type, 0 /* RunTimeLang */, unique_identifier ? unique_identifier : "", is_scoped);
+        underlying_type,
+#if LLVM_VERSION_MAJOR >= 18
+        0 /* RunTimeLang */,
+#endif
+        unique_identifier ? unique_identifier : "", is_scoped);
     return llvm_gen_be_error_t::ok;
 }
 

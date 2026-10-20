@@ -1011,7 +1011,7 @@ static gcc_gen_be_error_t lower_coro_builtin(const char *name, a_routine_ptr rou
             if (fsz > 0) {
                 *out_rval = gcc_jit_context_new_rvalue_from_long(ctx, size_t_type, (long)fsz);
             } else {
-                *out_rval = gcc_jit_context_new_cast(ctx, NULL, gcc_jit_context_new_sizeof(ctx, active_frame_type), size_t_type);
+                *out_rval = gcc_jit_context_new_cast(ctx, NULL, p_gcc_jit_context_new_sizeof(ctx, active_frame_type), size_t_type);
             }
         } else {
             *out_rval = gcc_jit_context_new_rvalue_from_long(ctx, size_t_type, 64);

@@ -224,7 +224,7 @@ llvm_gen_be_error_t initialize_llvm_targets(void) noexcept {
  * @param[out] out_tm Receives the created `TargetMachine*`.
  * @return llvm_gen_be_error_t::ok on success, or an error code.
  */
-llvm_gen_be_error_t create_target_machine(const char* triple, const char* cpu, const char* features, llvm::CodeGenOptLevel opt_level, std::optional<llvm::Reloc::Model> reloc_model, std::optional<llvm::CodeModel::Model> code_model, llvm::TargetMachine** out_tm) noexcept {
+llvm_gen_be_error_t create_target_machine(const char* triple, const char* cpu, const char* features, llvm_codegen_opt_level_t opt_level, std::optional<llvm::Reloc::Model> reloc_model, std::optional<llvm::CodeModel::Model> code_model, llvm::TargetMachine** out_tm) noexcept {
   (void)opt_level;
   (void)reloc_model;
   (void)code_model;
@@ -236,10 +236,18 @@ llvm_gen_be_error_t create_target_machine(const char* triple, const char* cpu, c
   if (!out_tm) return llvm_gen_be_error_t::invalid_argument;
   std::string err;
   llvm::Triple theTriple(triple);
+#if LLVM_VERSION_MAJOR >= 21
   const llvm::Target* target = llvm::TargetRegistry::lookupTarget(theTriple, err);
+#else
+  const llvm::Target* target = llvm::TargetRegistry::lookupTarget(theTriple.getTriple(), err);
+#endif
   if (!target) return llvm_gen_be_error_t::code_gen_failure;
   llvm::TargetOptions opt;
+#if LLVM_VERSION_MAJOR >= 21
   *out_tm = target->createTargetMachine(theTriple, cpu ? cpu : "generic", features ? features : "", opt, std::nullopt);
+#else
+  *out_tm = target->createTargetMachine(theTriple.getTriple(), cpu ? cpu : "generic", features ? features : "", opt, std::nullopt);
+#endif
   return llvm_gen_be_error_t::ok;
 }
 

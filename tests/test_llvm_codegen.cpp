@@ -61,17 +61,17 @@ int main(void) {
   assert(initialize_llvm_targets() == llvm_gen_be_error_t::ok);
 
   llvm::TargetMachine* tm = nullptr;
-  assert(create_target_machine("x86_64-pc-linux-gnu", "generic", "", llvm::CodeGenOptLevel::None, std::nullopt, std::nullopt, &tm) == llvm_gen_be_error_t::ok);
+  assert(create_target_machine("x86_64-pc-linux-gnu", "generic", "", llvm_codegen_opt_level_t::None, std::nullopt, std::nullopt, &tm) == llvm_gen_be_error_t::ok);
   assert(tm != nullptr);
 
   // Test caching
   llvm::TargetMachine* tm2 = nullptr;
-  assert(create_target_machine("x86_64-pc-linux-gnu", "generic", "", llvm::CodeGenOptLevel::None, std::nullopt, std::nullopt, &tm2) == llvm_gen_be_error_t::ok);
+  assert(create_target_machine("x86_64-pc-linux-gnu", "generic", "", llvm_codegen_opt_level_t::None, std::nullopt, std::nullopt, &tm2) == llvm_gen_be_error_t::ok);
   assert(tm == tm2); // Should return cached instance
 
   // Test explicit reloc and code models, plus null cpu/features
   llvm::TargetMachine* tm_pic = nullptr;
-  assert(create_target_machine("x86_64-pc-linux-gnu", nullptr, nullptr, llvm::CodeGenOptLevel::None, llvm::Reloc::PIC_, llvm::CodeModel::Small, &tm_pic) == llvm_gen_be_error_t::ok);
+  assert(create_target_machine("x86_64-pc-linux-gnu", nullptr, nullptr, llvm_codegen_opt_level_t::None, llvm::Reloc::PIC_, llvm::CodeModel::Small, &tm_pic) == llvm_gen_be_error_t::ok);
   assert(tm_pic != nullptr && tm_pic != tm); // Different parameters, different cache entry
 
   assert(emit_machine_code_to_file(state.module.get(), tm, codegen_file_type_t::llvm_ir_text, "/tmp/edg_cg_test.ll") == llvm_gen_be_error_t::ok);
@@ -81,7 +81,7 @@ int main(void) {
 
   // Test Mach-O TargetMachine emission with a function and global variable to cover Mach-O Comdat stripping
   llvm::TargetMachine* tm_macho = nullptr;
-  assert(create_target_machine("aarch64-apple-darwin", "generic", "", llvm::CodeGenOptLevel::None, std::nullopt, std::nullopt, &tm_macho) == llvm_gen_be_error_t::ok);
+  assert(create_target_machine("aarch64-apple-darwin", "generic", "", llvm_codegen_opt_level_t::None, std::nullopt, std::nullopt, &tm_macho) == llvm_gen_be_error_t::ok);
   state.module->setDataLayout(tm_macho->createDataLayout());
   llvm::Function* cg_fn = llvm::Function::Create(
       llvm::FunctionType::get(llvm::Type::getVoidTy(*state.context), false),
@@ -122,9 +122,9 @@ int main(void) {
   assert(emit_thinlto_summary(state.module.get(), "/invalid_path_that_does_not_exist/test.thinlto.bc") == llvm_gen_be_error_t::io_error);
   
   // Test invalid arguments and unknown file types
-  assert(create_target_machine(nullptr, nullptr, nullptr, llvm::CodeGenOptLevel::None, std::nullopt, std::nullopt, &tm) == llvm_gen_be_error_t::invalid_argument);
-  assert(create_target_machine("x86_64-pc-linux-gnu", nullptr, nullptr, llvm::CodeGenOptLevel::None, std::nullopt, std::nullopt, nullptr) == llvm_gen_be_error_t::invalid_argument);
-  assert(create_target_machine("invalid_arch_triple_xyz", nullptr, nullptr, llvm::CodeGenOptLevel::None, std::nullopt, std::nullopt, &tm) == llvm_gen_be_error_t::invalid_argument);
+  assert(create_target_machine(nullptr, nullptr, nullptr, llvm_codegen_opt_level_t::None, std::nullopt, std::nullopt, &tm) == llvm_gen_be_error_t::invalid_argument);
+  assert(create_target_machine("x86_64-pc-linux-gnu", nullptr, nullptr, llvm_codegen_opt_level_t::None, std::nullopt, std::nullopt, nullptr) == llvm_gen_be_error_t::invalid_argument);
+  assert(create_target_machine("invalid_arch_triple_xyz", nullptr, nullptr, llvm_codegen_opt_level_t::None, std::nullopt, std::nullopt, &tm) == llvm_gen_be_error_t::invalid_argument);
 
   assert(emit_machine_code_to_file(nullptr, tm, codegen_file_type_t::llvm_ir_text, "/tmp/edg_cg_test.ll") == llvm_gen_be_error_t::invalid_argument);
   assert(emit_machine_code_to_file(state.module.get(), tm, codegen_file_type_t::llvm_ir_text, nullptr) == llvm_gen_be_error_t::invalid_argument);

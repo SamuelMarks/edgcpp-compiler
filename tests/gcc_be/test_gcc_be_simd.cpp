@@ -98,6 +98,18 @@ a_targ_size_t f_size_of_type(a_type_ptr tp) {
 }
 
 /**
+ * @brief Stub for extracting signed integer constant in SIMD unit tests.
+ * @details Sets `*err` to `FALSE` and returns 0.
+ * @param[in] cp Constant pointer.
+ * @param[out] err Overflow flag.
+ * @return 0.
+ */
+a_host_large_integer value_of_integer_constant(a_constant_ptr cp, a_boolean *err) {
+    if (err) *err = FALSE;
+    return cp ? (a_host_large_integer)cp->variant.integer_value : 0;
+}
+
+/**
  * @brief Stub for type lowering in SIMD unit tests.
  * @details Lowers any type to `int` for testing purposes.
  * @param[in] tp The frontend type pointer.

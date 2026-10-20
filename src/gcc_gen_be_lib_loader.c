@@ -70,7 +70,6 @@ void *p_gcc_jit_function_get_address = NULL;
 void *p_gcc_jit_function_get_param = NULL;
 void *p_gcc_jit_function_get_param_count = NULL;
 void *p_gcc_jit_function_get_return_type = NULL;
-void *p_gcc_jit_function_get_name = NULL;
 void *p_gcc_jit_block_get_function = NULL;
 void *p_gcc_jit_block_add_eval = NULL;
 void *p_gcc_jit_block_add_assignment = NULL;
@@ -90,7 +89,6 @@ void *p_gcc_jit_context_new_string_literal = NULL;
 void *p_gcc_jit_context_null = NULL;
 void *p_gcc_jit_context_zero = NULL;
 void *p_gcc_jit_context_one = NULL;
-void *p_gcc_jit_context_new_sizeof = NULL;
 void *p_gcc_jit_context_new_unary_op = NULL;
 void *p_gcc_jit_context_new_binary_op = NULL;
 void *p_gcc_jit_context_new_comparison = NULL;
@@ -173,6 +171,8 @@ pfn_gcc_jit_context_new_eh_filter p_gcc_jit_context_new_eh_filter = NULL;
 pfn_gcc_jit_rvalue_set_bool_require_tail_call p_gcc_jit_rvalue_set_bool_require_tail_call = NULL;
 /** @brief Function pointer for `gcc_jit_context_add_top_level_asm`. */
 pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_sizeof`. */
+pfn_gcc_jit_context_new_sizeof p_gcc_jit_context_new_sizeof = NULL;
 
 gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
@@ -234,7 +234,6 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_function_get_param)
   LOAD_SYM(gcc_jit_function_get_param_count)
   LOAD_SYM(gcc_jit_function_get_return_type)
-  LOAD_SYM(gcc_jit_function_get_name)
   LOAD_SYM(gcc_jit_block_get_function)
   LOAD_SYM(gcc_jit_block_add_eval)
   LOAD_SYM(gcc_jit_block_add_assignment)
@@ -254,7 +253,6 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_SYM(gcc_jit_context_null)
   LOAD_SYM(gcc_jit_context_zero)
   LOAD_SYM(gcc_jit_context_one)
-  LOAD_SYM(gcc_jit_context_new_sizeof)
   LOAD_SYM(gcc_jit_context_new_unary_op)
   LOAD_SYM(gcc_jit_context_new_binary_op)
   LOAD_SYM(gcc_jit_context_new_comparison)
@@ -308,6 +306,7 @@ gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_eh_filter, gcc_jit_context_new_eh_filter)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_rvalue_set_bool_require_tail_call, gcc_jit_rvalue_set_bool_require_tail_call)
   LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_add_top_level_asm, gcc_jit_context_add_top_level_asm)
+  LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_sizeof, gcc_jit_context_new_sizeof)
 
   #undef LOAD_SYM
   #undef LOAD_OPTIONAL_SYM
@@ -378,6 +377,8 @@ pfn_gcc_jit_context_new_eh_filter p_gcc_jit_context_new_eh_filter = NULL;
 pfn_gcc_jit_rvalue_set_bool_require_tail_call p_gcc_jit_rvalue_set_bool_require_tail_call = NULL;
 /** @brief Function pointer for `gcc_jit_context_add_top_level_asm`. */
 pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm = NULL;
+/** @brief Function pointer for `gcc_jit_context_new_sizeof`. */
+pfn_gcc_jit_context_new_sizeof p_gcc_jit_context_new_sizeof = NULL;
 
 /** @brief Resolves an optional `libgccjit` symbol from `libgccjit_handle`. */
 #define LOAD_OPTIONAL_SYM(type, name) \
@@ -448,6 +449,7 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_eh_filter, gcc_jit_context_new_eh_filter)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_rvalue_set_bool_require_tail_call, gcc_jit_rvalue_set_bool_require_tail_call)
     LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_add_top_level_asm, gcc_jit_context_add_top_level_asm)
+    LOAD_OPTIONAL_SYM(pfn_gcc_jit_context_new_sizeof, gcc_jit_context_new_sizeof)
 
     #undef LOAD_OPTIONAL_SYM
 
