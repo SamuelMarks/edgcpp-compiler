@@ -3188,6 +3188,39 @@ int main(void) {
     gpu_rout.source_corresp.name = "spirv_kern";
     assert(llvm_lower_function_prototype(&gpu_rout) == llvm_gen_be_error_t::ok);
     state.module->setTargetTriple(llvm::Triple("x86_64-unknown-linux-gnu"));
+
+    // Test ak_alloc_size on a multi-argument function (F->arg_size() > 1)
+    an_attribute attr_alloc_sz = {};
+    attr_alloc_sz.kind = ak_alloc_size;
+    a_routine rout_realloc = {};
+    rout_realloc.source_corresp.name = "test_realloc_fn";
+    rout_realloc.type = &fn_ty;
+    rout_realloc.source_corresp.attributes = &attr_alloc_sz;
+    g_decl_proto_mode = 2;
+    assert(llvm_lower_function_prototype(&rout_realloc) == llvm_gen_be_error_t::ok);
+    g_decl_proto_mode = 0;
+
+    // Test tentative global definition replacement when existing global has a different type and existing uses
+    llvm::GlobalVariable* old_tentative = new llvm::GlobalVariable(
+        *state.module, llvm::Type::getInt8Ty(*state.context), false,
+        llvm::GlobalValue::InternalLinkage, llvm::ConstantInt::get(llvm::Type::getInt8Ty(*state.context), 0),
+        "tentative_arr_var");
+    llvm::GlobalVariable* user_gv = new llvm::GlobalVariable(
+        *state.module, llvm::PointerType::getUnqual(*state.context), false,
+        llvm::GlobalValue::InternalLinkage, old_tentative, "tentative_arr_user");
+    (void)user_gv;
+    a_variable completed_var = {};
+    completed_var.source_corresp.name = "tentative_arr_var";
+    completed_var.storage_class = sc_static;
+    completed_var.type = &local_int_ty;
+    a_constant comp_con = {};
+    an_initializer comp_init = {};
+    comp_init.constant = &comp_con;
+    g_decl_init_kind = initk_static;
+    g_decl_init_ptr = &comp_init;
+    assert(llvm_lower_global_variable(&completed_var) == llvm_gen_be_error_t::ok);
+    g_decl_init_kind = initk_none;
+    g_decl_init_ptr = nullptr;
   }
 
   printf("PASS\n");

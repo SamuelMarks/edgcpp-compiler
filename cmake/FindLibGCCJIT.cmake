@@ -21,6 +21,16 @@ file(GLOB _homebrew_libgccjit_lib_dirs
   "/usr/lib/gcc/*/*"
 )
 
+set(_msys2_libgccjit_include_dirs)
+if(NOT MSVC)
+  list(APPEND _msys2_libgccjit_include_dirs
+    "C:/msys64/mingw64/include"
+    "C:/msys64/ucrt64/include"
+    "C:/msys64/clang64/include"
+    "C:/msys64/clangarm64/include"
+  )
+endif()
+
 find_path(LibGCCJIT_INCLUDE_DIR
   NAMES libgccjit.h
   HINTS
@@ -31,12 +41,9 @@ find_path(LibGCCJIT_INCLUDE_DIR
     /opt/homebrew/include 
     /opt/local/include
     ${_homebrew_libgccjit_include_dirs}
-    "C:/msys64/mingw64/include"
-    "C:/msys64/ucrt64/include"
-    "C:/msys64/clang64/include"
-    "C:/msys64/clangarm64/include"
     "${CMAKE_SOURCE_DIR}/win-gccjit-include"
     "${CMAKE_SOURCE_DIR}/dev_tools/builtins"
+    ${_msys2_libgccjit_include_dirs}
     "C:/Program Files/GCC/include"
 )
 

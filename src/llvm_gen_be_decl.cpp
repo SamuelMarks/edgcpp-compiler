@@ -171,10 +171,7 @@ static llvm_gen_be_error_t apply_llvm_attributes(llvm::GlobalObject* global, an_
             } else if (attr->kind == ak_warn_unused_result || attr->kind == ak_nodiscard) {
                 F->addFnAttr("warn-unused-result");
             } else if (attr->kind == ak_alloc_size) {
-                unsigned alloc_arg_idx = (F->arg_size() > 1 && F->getArg(0)->getType()->isPointerTy()) ? 1u : 0u;
-                if (alloc_arg_idx + 1 < F->arg_size() && F->getArg(alloc_arg_idx)->getType()->isPointerTy()) {
-                    alloc_arg_idx += 1u;
-                }
+                unsigned alloc_arg_idx = (F->arg_size() > 1) ? static_cast<unsigned>(F->arg_size() - 1) : 0u;
                 F->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(F->getContext(), alloc_arg_idx, std::nullopt));
 #if MICROSOFT_EXTENSIONS_ALLOWED
             } else if (attr->kind == ak_no_sanitize_address) {

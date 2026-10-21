@@ -57,7 +57,7 @@ llvm_gen_be_error_t llvm_extract_edg_int128(
   (void)is_signed;
 #endif
 #else
-#if INT_VALUE_PARTS_PER_INTEGER_VALUE < 8
+#if !INT128_EXTENSIONS_ALLOWED && !FIXED_POINT_ALLOWED
   if (!is_signed) {
     high = 0ULL;
   }

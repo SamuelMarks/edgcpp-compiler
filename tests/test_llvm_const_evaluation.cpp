@@ -1241,6 +1241,17 @@ int main(void) {
     assert(ext_lo == 99 && ext_hi == 0);
     assert(llvm_extract_edg_int128(c_fval.variant.integer_value, false, &ext_lo, &ext_hi) == llvm_gen_be_error_t::ok);
     assert(ext_lo == 99 && ext_hi == 0);
+
+    // Test ck_address with expected_ty->isIntegerTy() (e.g. pointer-to-integer constant expression)
+    a_constant addr_str_c = {};
+    addr_str_c.kind = ck_string;
+    addr_str_c.variant.string.value = "ptr_int_str";
+    addr_str_c.variant.string.length = 12;
+    a_constant addr_int_con = {};
+    addr_int_con.kind = ck_address;
+    addr_int_con.variant.address.kind = abk_constant;
+    addr_int_con.variant.address.variant.constant = &addr_str_c;
+    assert(evaluate_constant(&addr_int_con, i32_ty, &out) == llvm_gen_be_error_t::ok);
   }
   
   printf("All passed\n");

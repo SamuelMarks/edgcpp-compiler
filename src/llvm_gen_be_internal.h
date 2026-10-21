@@ -76,7 +76,7 @@
    (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 2]) << 16) | \
    (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 3]) << 32) | \
    (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 4]) << 48))
-#if INT_VALUE_PARTS_PER_INTEGER_VALUE >= 8
+#if INT128_EXTENSIONS_ALLOWED || FIXED_POINT_ALLOWED
 #define EDG_INT_VAL_HIGH64(val) \
   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 5]) | \
    (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 6]) << 16) | \

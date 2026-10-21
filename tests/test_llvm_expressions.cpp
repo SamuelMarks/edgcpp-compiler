@@ -4854,6 +4854,164 @@ int main(void) {
     as_cast_expr.variant.operation.operands = &ptr_as0_op;
     assert(llvm_lower_cast_expression(&as_cast_expr, &val) == llvm_gen_be_error_t::ok);
 
+    // Test enk_constant lvalue expression (ck_string success, non-string error, null constant error)
+    a_constant str_lval_con = {};
+    str_lval_con.kind = ck_string;
+    an_expr_node con_lval_expr = {};
+    con_lval_expr.kind = enk_constant;
+    con_lval_expr.type = &ptr_type;
+    con_lval_expr.variant.constant.ptr = nullptr;
+    assert(llvm_lower_lvalue_expression(&con_lval_expr, &val) == llvm_gen_be_error_t::unsupported_expr);
+    a_constant int_lval_con = {};
+    int_lval_con.kind = ck_integer;
+    con_lval_expr.variant.constant.ptr = &int_lval_con;
+    assert(llvm_lower_lvalue_expression(&con_lval_expr, &val) == llvm_gen_be_error_t::unsupported_expr);
+    con_lval_expr.variant.constant.ptr = &str_lval_con;
+    assert(llvm_lower_lvalue_expression(&con_lval_expr, &val) == llvm_gen_be_error_t::ok);
+
+    // Test eok_array_to_pointer in llvm_lower_expression and eok_subscript on tk_array in llvm_lower_lvalue_expression
+    a_type arr_1d_ty = {};
+    arr_1d_ty.kind = tk_array;
+    arr_1d_ty.size = 16;
+    arr_1d_ty.variant.array.element_type = &int_type;
+    arr_1d_ty.variant.array.variant.number_of_elements = 4;
+    state.type_cache[&arr_1d_ty] = llvm::ArrayType::get(llvm::Type::getInt32Ty(*state.context), 4);
+    a_variable arr_1d_var = {};
+    arr_1d_var.type = &arr_1d_ty;
+    state.local_vars[&arr_1d_var] = state.builder->CreateAlloca(state.type_cache[&arr_1d_ty]);
+    an_expr_node arr_1d_op = {};
+    arr_1d_op.kind = enk_variable;
+    arr_1d_op.type = &arr_1d_ty;
+    arr_1d_op.variant.variable.ptr = &arr_1d_var;
+
+    an_expr_node arr_to_ptr_expr = {};
+    arr_to_ptr_expr.kind = enk_operation;
+    arr_to_ptr_expr.type = &ptr_type;
+    arr_to_ptr_expr.variant.operation.kind = eok_array_to_pointer;
+    arr_to_ptr_expr.variant.operation.operands = &arr_1d_op;
+    assert(llvm_lower_expression(&arr_to_ptr_expr, &val) == llvm_gen_be_error_t::ok);
+
+    an_expr_node idx_op = static_op1;
+    idx_op.next = nullptr;
+    arr_1d_op.next = &idx_op;
+    an_expr_node sub_arr_expr = {};
+    sub_arr_expr.kind = enk_operation;
+    sub_arr_expr.type = &int_type;
+    sub_arr_expr.variant.operation.kind = eok_subscript;
+    sub_arr_expr.variant.operation.operands = &arr_1d_op;
+    assert(llvm_lower_expression(&sub_arr_expr, &val) == llvm_gen_be_error_t::ok);
+    arr_1d_op.next = nullptr;
+
+    // Test compound assignment (+= and <<=) where integer RHS has different bitwidth (i64) than LHS (i32)
+    a_variable lhs_i32_var = {};
+    lhs_i32_var.type = &int_type;
+    state.local_vars[&lhs_i32_var] = state.builder->CreateAlloca(llvm::Type::getInt32Ty(*state.context));
+    a_variable i64_rhs_var = {};
+    i64_rhs_var.type = &i64_ty;
+    state.type_cache[&i64_ty] = llvm::Type::getInt64Ty(*state.context);
+    state.local_vars[&i64_rhs_var] = state.builder->CreateAlloca(llvm::Type::getInt64Ty(*state.context));
+    an_expr_node lhs_i32_op = {};
+    lhs_i32_op.kind = enk_variable;
+    lhs_i32_op.type = &int_type;
+    lhs_i32_op.variant.variable.ptr = &lhs_i32_var;
+    an_expr_node rhs_i64_op = {};
+    rhs_i64_op.kind = enk_variable;
+    rhs_i64_op.type = &i64_ty;
+    rhs_i64_op.variant.variable.ptr = &i64_rhs_var;
+    lhs_i32_op.next = &rhs_i64_op;
+    an_expr_node comp_cast_expr = {};
+    comp_cast_expr.kind = enk_operation;
+    comp_cast_expr.type = &int_type;
+    comp_cast_expr.variant.operation.kind = eok_add_assign;
+    comp_cast_expr.variant.operation.operands = &lhs_i32_op;
+    assert(llvm_lower_compound_assignment(&comp_cast_expr, &val) == llvm_gen_be_error_t::ok);
+    comp_cast_expr.variant.operation.kind = eok_shiftl_assign;
+    assert(llvm_lower_compound_assignment(&comp_cast_expr, &val) == llvm_gen_be_error_t::ok);
+
+    // Test fortified __builtin___*_chk calls and __va_start
+    assert(call_test_builtin("__builtin___memcpy_chk", &ptr_type, {&va_var_node, &va_var_node, &rhs_i64_op}) == llvm_gen_be_error_t::ok);
+    assert(call_test_builtin("__builtin___memmove_chk", &ptr_type, {&va_var_node, &va_var_node, &rhs_i64_op}) == llvm_gen_be_error_t::ok);
+    assert(call_test_builtin("__builtin___memset_chk", &ptr_type, {&va_var_node, &lhs_i32_op, &rhs_i64_op}) == llvm_gen_be_error_t::ok);
+    assert(call_test_builtin("__builtin___snprintf_chk", &int_type, {&va_var_node, &rhs_i64_op}) == llvm_gen_be_error_t::ok);
+    assert(call_test_builtin("__builtin___custom_no_suffix", &int_type, {&lhs_i32_op}) == llvm_gen_be_error_t::ok);
+    assert(call_test_builtin("__va_start", &ptr_type, {&va_var_node}) == llvm_gen_be_error_t::ok);
+
+    // Additional coverage for lvalue eok_array_to_pointer, default lvalue kind, eok_indirect on tk_routine, eok_subscript error paths, and compound assignment pointer/unsigned/shiftr cases
+    assert(llvm_lower_lvalue_expression(&arr_to_ptr_expr, &val) == llvm_gen_be_error_t::ok);
+    an_expr_node unsup_lval_expr = {};
+    unsup_lval_expr.kind = enk_routine;
+    assert(llvm_lower_lvalue_expression(&unsup_lval_expr, &val) == llvm_gen_be_error_t::unsupported_expr);
+
+    an_expr_node bad_comma_expr = {};
+    bad_comma_expr.kind = enk_operation;
+    bad_comma_expr.type = &int_type;
+    bad_comma_expr.variant.operation.kind = eok_comma;
+    bad_comma_expr.variant.operation.operands = &bad_op;
+    assert(llvm_lower_expression(&bad_comma_expr, &val) == llvm_gen_be_error_t::unsupported_expr);
+
+    // eok_subscript error paths: get_llvm_type failure on op1->type, and lower_binary_operands failure on vector subscript
+    an_expr_node bad_sub_op1 = {};
+    bad_sub_op1.kind = enk_variable;
+    bad_sub_op1.type = &bad_ty;
+    bad_sub_op1.next = &idx_op;
+    sub_arr_expr.variant.operation.operands = &bad_sub_op1;
+    assert(llvm_lower_expression(&sub_arr_expr, &val) == llvm_gen_be_error_t::unsupported_type);
+
+    an_expr_node bad_vec_op1 = {};
+    bad_vec_op1.kind = enk_constant;
+    bad_vec_op1.type = &edg_vec2i32_ty;
+    bad_vec_op1.variant.constant.ptr = &bad_con;
+    bad_vec_op1.next = &idx_op;
+    sub_arr_expr.variant.operation.operands = &bad_vec_op1;
+    assert(llvm_lower_expression(&sub_arr_expr, &val) == llvm_gen_be_error_t::unsupported_expr);
+
+    // eok_indirect on tk_routine (dereferencing function pointer)
+    an_expr_node deref_fn_expr = {};
+    deref_fn_expr.kind = enk_operation;
+    deref_fn_expr.type = &rout_ty;
+    deref_fn_expr.variant.operation.kind = eok_indirect;
+    va_var_node.next = nullptr;
+    deref_fn_expr.variant.operation.operands = &va_var_node;
+    assert(llvm_lower_expression(&deref_fn_expr, &val) == llvm_gen_be_error_t::ok);
+
+    // Pointer eok_pre_incr (op2 == nullptr with pointer loaded_val)
+    an_expr_node ptr_incr_op = va_var_node;
+    ptr_incr_op.next = nullptr;
+    an_expr_node ptr_incr_expr = {};
+    ptr_incr_expr.kind = enk_operation;
+    ptr_incr_expr.type = &ptr_type;
+    ptr_incr_expr.variant.operation.kind = eok_pre_incr;
+    ptr_incr_expr.variant.operation.operands = &ptr_incr_op;
+    assert(llvm_lower_compound_assignment(&ptr_incr_expr, &val) == llvm_gen_be_error_t::ok);
+
+    // Compound assignment shiftr_assign and unsigned add_assign with i64 RHS
+    comp_cast_expr.variant.operation.kind = eok_shiftr_assign;
+    assert(llvm_lower_compound_assignment(&comp_cast_expr, &val) == llvm_gen_be_error_t::ok);
+    lhs_i32_op.type = &unsigned_type;
+    comp_cast_expr.type = &unsigned_type;
+    comp_cast_expr.variant.operation.kind = eok_add_assign;
+    assert(llvm_lower_compound_assignment(&comp_cast_expr, &val) == llvm_gen_be_error_t::ok);
+    lhs_i32_op.type = &int_type;
+
+    // Pointer compound assignment where raw_op1_ty->kind != tk_pointer (e.g. pointer-cached non-tk_pointer type)
+    a_type custom_ptr_ty = {};
+    custom_ptr_ty.kind = tk_integer;
+    state.type_cache[&custom_ptr_ty] = llvm::PointerType::getUnqual(*state.context);
+    a_variable custom_ptr_var = {};
+    custom_ptr_var.type = &custom_ptr_ty;
+    state.local_vars[&custom_ptr_var] = state.builder->CreateAlloca(llvm::PointerType::getUnqual(*state.context));
+    an_expr_node custom_ptr_lhs = {};
+    custom_ptr_lhs.kind = enk_variable;
+    custom_ptr_lhs.type = &custom_ptr_ty;
+    custom_ptr_lhs.variant.variable.ptr = &custom_ptr_var;
+    custom_ptr_lhs.next = &rhs_i64_op;
+    comp_cast_expr.type = &custom_ptr_ty;
+    comp_cast_expr.variant.operation.operands = &custom_ptr_lhs;
+    comp_cast_expr.variant.operation.kind = eok_padd_assign;
+    assert(llvm_lower_compound_assignment(&comp_cast_expr, &val) == llvm_gen_be_error_t::ok);
+    comp_cast_expr.variant.operation.kind = eok_psubtract_assign;
+    assert(llvm_lower_compound_assignment(&comp_cast_expr, &val) == llvm_gen_be_error_t::ok);
+
 #if FIXED_POINT_ALLOWED
     // Workstream 9: Test fixed-point arithmetic (add, subtract, multiply, divide, saturating & non-saturating, signed & unsigned) and conversions
     a_type fx_s16 = {}, fx_u16 = {}, fx_s32 = {}, fx_u32 = {};

@@ -731,6 +731,17 @@ int main(void) {
     blk_s.variant.block.statements = &bad_s;
     assert(llvm_lower_statement(&blk_s) == llvm_gen_be_error_t::unsupported_stmt);
 
+    // Statements after a terminator in a block: stmk_label and stmk_switch_case vs normal statement
+    a_label lbl_after_ret = {};
+    a_statement stmt_ret1 = {}, stmt_lbl_after = {}, stmt_ret2 = {}, stmt_case_after = {};
+    stmt_ret1.kind = stmk_return; stmt_ret1.next = &stmt_lbl_after;
+    stmt_lbl_after.kind = stmk_label; stmt_lbl_after.variant.label.ptr = &lbl_after_ret; stmt_lbl_after.next = &stmt_ret2;
+    stmt_ret2.kind = stmk_return; stmt_ret2.next = &stmt_case_after;
+    a_switch_case_entry sw_case_entry = {};
+    stmt_case_after.kind = stmk_switch_case; stmt_case_after.variant.switch_case.extra_info = &sw_case_entry; stmt_case_after.next = nullptr;
+    blk_s.variant.block.statements = &stmt_ret1;
+    assert(llvm_lower_statement(&blk_s) == llvm_gen_be_error_t::ok);
+
     // 5. llvm_lower_while_stmt & llvm_lower_end_test_while_stmt:
     a_statement while_s = {}; while_s.kind = stmk_while; while_s.expr = &ret_e; while_s.variant.loop_statement = &empty_s;
     g_cf_fail_expr = 1;
