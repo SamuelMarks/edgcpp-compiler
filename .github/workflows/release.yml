@@ -147,6 +147,18 @@ jobs:
           mv "${llvm_pkg}" "${GITHUB_WORKSPACE}/llvm-msvc"
           rm -f llvm.tar.zst llvm.tar
 
+      - name: Install libgccjit on Windows (MSYS2)
+        if: matrix.platform.os_name == 'windows' && matrix.backend.enable_gcc == 'ON'
+        shell: bash
+        run: |
+          if [ -x "/c/msys64/usr/bin/pacman.exe" ]; then
+            if [ "${{ matrix.platform.arch }}" = "arm64" ]; then
+              /c/msys64/usr/bin/pacman.exe -S --noconfirm --needed mingw-w64-clang-aarch64-libgccjit || true
+            else
+              /c/msys64/usr/bin/pacman.exe -S --noconfirm --needed mingw-w64-ucrt-x86_64-libgccjit mingw-w64-x86_64-libgccjit || true
+            fi
+          fi
+
       - name: Build SoftFloat (Linux / macOS)
         if: matrix.platform.os_name != 'windows' && steps.cache-softfloat.outputs.cache-hit != 'true'
         shell: bash
@@ -256,6 +268,16 @@ jobs:
           exe="build/release/bin/cpfe"
           if [ "${{ matrix.platform.os_name }}" = "windows" ]; then
             exe="build/release/bin/cpfe.exe"
+            if [ "${{ matrix.backend.enable_gcc }}" = "ON" ]; then
+              for msys_bin in "/c/msys64/ucrt64/bin" "/c/msys64/clangarm64/bin" "/c/msys64/mingw64/bin"; do
+                if [ -f "${msys_bin}/libgccjit-0.dll" ]; then
+                  cp -f "${msys_bin}"/libgccjit*.dll build/release/bin/ || true
+                  cp -f "${msys_bin}"/libgcc_s*.dll "${msys_bin}"/libwinpthread*.dll "${msys_bin}"/libstdc++*.dll "${msys_bin}"/libgmp*.dll "${msys_bin}"/libmpc*.dll "${msys_bin}"/libmpfr*.dll "${msys_bin}"/libisl*.dll "${msys_bin}"/libzstd*.dll "${msys_bin}"/zlib1.dll build/release/bin/ 2>/dev/null || true
+                  export PATH="${msys_bin}:${PATH}"
+                  break
+                fi
+              done
+            fi
           fi
           python3 dev_tools/verify_backend_modes.py --cpfe "${exe}" --llvm "${{ matrix.backend.expect_llvm }}" --gcc "${{ matrix.backend.expect_gcc }}"
 

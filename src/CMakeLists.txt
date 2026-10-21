@@ -306,6 +306,7 @@ add_src_file_if_present(ifc_modules_read.c)
 add_src_file_if_present(ifc_modules_templ.c)
 add_src_file_if_present(ifc_modules_write.c)
 add_src_file_if_present(unicode_name_fsm.c)
+add_src_file_if_present(linux_libc_compat.c)
 
 if(ENABLE_LLVM_BACKEND)
     add_src_file_if_present(llvm_gen_be.cpp)

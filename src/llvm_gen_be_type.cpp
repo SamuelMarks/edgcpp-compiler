@@ -378,8 +378,9 @@ llvm_gen_be_error_t llvm_type_from_struct(
     uint64_t max_size = 0;
     for (a_field_ptr field = edg_type->variant.class_struct_union.field_list;
          field != nullptr; field = field->next) {
-      if (field->type->size > max_size) {
-        max_size = field->type->size;
+      a_targ_size_t f_sz = skip_typerefs(field->type)->size;
+      if (f_sz > max_size) {
+        max_size = f_sz;
         llvm_gen_be_error_t err = llvm_type_from_edg_type(field->type, &largest_elem);
         if (err != llvm_gen_be_error_t::ok) {
           return err;
@@ -424,6 +425,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
   uint64_t current_offset = 0;
   for (a_field_ptr field = edg_type->variant.class_struct_union.field_list;
        field != nullptr; field = field->next) {
+    a_targ_size_t field_size = skip_typerefs(field->type)->size;
     if (field->offset > current_offset) {
       elem_tys.push_back(llvm::ArrayType::get(
           llvm::Type::getInt8Ty(*be_state->context),
@@ -431,8 +433,8 @@ llvm_gen_be_error_t llvm_type_from_struct(
       current_offset = field->offset;
     } else if (field->offset < current_offset) {
       if (!field->is_bit_field &&
-          static_cast<uint64_t>(field->offset + field->type->size) > current_offset) {
-        uint64_t extra_bytes = static_cast<uint64_t>(field->offset + field->type->size) - current_offset;
+          static_cast<uint64_t>(field->offset + field_size) > current_offset) {
+        uint64_t extra_bytes = static_cast<uint64_t>(field->offset + field_size) - current_offset;
         elem_tys.push_back(llvm::ArrayType::get(
             llvm::Type::getInt8Ty(*be_state->context), extra_bytes));
         current_offset += extra_bytes;
@@ -446,7 +448,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
       llvm::Triple triple(be_state->module->getTargetTriple());
       bool is_msvc = triple.isWindowsMSVCEnvironment();
       
-      uint64_t container_bytes = (field->type->size > 0) ? field->type->size : 1;
+      uint64_t container_bytes = (field_size > 0) ? field_size : 1;
       uint64_t run_byte_end = current_offset + container_bytes;
 
       if (!is_msvc) {
@@ -479,7 +481,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
     llvm::Type* ty = nullptr;
     llvm_gen_be_error_t err = llvm_type_from_edg_type(field->type, &ty);
     elem_tys.push_back(ty);
-    current_offset += field->type->size;
+    current_offset += field_size;
   }
 
   if (current_offset < static_cast<uint64_t>(edg_type->size)) {

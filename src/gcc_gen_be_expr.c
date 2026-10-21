@@ -830,12 +830,22 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_l
                   err = gcc_gen_be_lower_type(op1->type, &type);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
                   
-                  gcc_jit_rvalue *one = gcc_jit_context_new_rvalue_from_int(ctx, type, 1);
                   gcc_jit_block *cblock = NULL;
                   GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (cblock) {
-                      gcc_jit_block_add_assignment_op(cblock, NULL, l1, 
-                          op == eok_pre_incr ? GCC_JIT_BINARY_OP_PLUS : GCC_JIT_BINARY_OP_MINUS, one);
+                      if (gcc_jit_type_is_pointer(type) != NULL) {
+                          gcc_jit_type *int_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT);
+                          gcc_jit_rvalue *delta = gcc_jit_context_new_rvalue_from_int(
+                              ctx, int_type, op == eok_pre_incr ? 1 : -1);
+                          gcc_jit_lvalue *arr_acc = gcc_jit_context_new_array_access(
+                              ctx, loc, gcc_jit_lvalue_as_rvalue(l1), delta);
+                          gcc_jit_rvalue *new_ptr = gcc_jit_lvalue_get_address(arr_acc, NULL);
+                          gcc_jit_block_add_assignment(cblock, loc, l1, new_ptr);
+                      } else {
+                          gcc_jit_rvalue *one = gcc_jit_context_new_rvalue_from_int(ctx, type, 1);
+                          gcc_jit_block_add_assignment_op(cblock, NULL, l1, 
+                              op == eok_pre_incr ? GCC_JIT_BINARY_OP_PLUS : GCC_JIT_BINARY_OP_MINUS, one);
+                      }
                   }
                   *out_lval = l1;
                   return GCC_GEN_BE_SUCCESS;
@@ -847,10 +857,27 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_lvalue(an_expr_node_ptr expr, gcc_jit_l
       case enk_constant:
           {
               if (expr->variant.constant.ptr) {
+                  a_constant_ptr con = expr->variant.constant.ptr;
                   gcc_jit_type *ctype = NULL;
                   GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(expr->type, &ctype));
+                  if (con->kind == ck_string && ctype) {
+                      void *existing_str_g = NULL;
+                      if (cache_lookup(GCC_GEN_BE_CACHE_VAR, con, &existing_str_g) == GCC_GEN_BE_SUCCESS && existing_str_g) {
+                          *out_lval = (gcc_jit_lvalue *)existing_str_g;
+                          return GCC_GEN_BE_SUCCESS;
+                      }
+                      char gname[128];
+                      snprintf(gname, sizeof(gname), "__str_lit_global_%p", (void *)con);
+                      gcc_jit_lvalue *g_lval = gcc_jit_context_new_global(ctx, NULL, GCC_JIT_GLOBAL_INTERNAL, ctype, gname);
+                      if (con->variant.string.length > 0 && con->variant.string.value) {
+                          gcc_jit_global_set_initializer(g_lval, con->variant.string.value, (size_t)con->variant.string.length);
+                      }
+                      GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, con, g_lval));
+                      *out_lval = g_lval;
+                      return GCC_GEN_BE_SUCCESS;
+                  }
                   gcc_jit_rvalue *crval = NULL;
-                  GCC_GEN_BE_CHECK(gcc_gen_be_lower_constant_rvalue(expr->variant.constant.ptr, ctype, &crval));
+                  GCC_GEN_BE_CHECK(gcc_gen_be_lower_constant_rvalue(con, ctype, &crval));
                   gcc_jit_block *cblock = NULL;
                   GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
                   if (cblock && crval && ctype) {
@@ -1128,6 +1155,7 @@ static gcc_gen_be_error_t gcc_gen_be_lower_bitfield_assignment(an_expr_node_ptr 
     gcc_jit_rvalue *cleared_word = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_BITWISE_AND, word_type, old_word, clear_mask);
     
     gcc_jit_rvalue *new_word = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_BITWISE_OR, word_type, cleared_word, shifted_rhs);
+    GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
     if (cblock) {
         gcc_jit_block_add_assignment(cblock, loc, word_lval, new_word);
     }
@@ -1173,18 +1201,40 @@ static gcc_gen_be_error_t safe_ptr_or_int_cast(gcc_jit_context *ctx, gcc_jit_rva
         return GCC_GEN_BE_SUCCESS;
     }
     if (gcc_jit_type_is_pointer(dest_type) != NULL && gcc_jit_type_is_pointer(src_type) == NULL) {
-        if (p_gcc_jit_context_new_bitcast) {
-            gcc_jit_type *uptr_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG);
-            gcc_jit_rvalue *uval = (src_type == uptr_type) ? val : gcc_jit_context_new_cast(ctx, NULL, val, uptr_type);
-            *out_rval = p_gcc_jit_context_new_bitcast(ctx, NULL, uval, dest_type);
+        gcc_jit_type *uptr_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG);
+        gcc_jit_rvalue *uval = (src_type == uptr_type) ? val : gcc_jit_context_new_cast(ctx, NULL, val, uptr_type);
+        gcc_jit_block *cblock = NULL;
+        if (gcc_gen_be_get_current_block(&cblock) == GCC_GEN_BE_SUCCESS && cblock) {
+            gcc_jit_function *func = gcc_jit_block_get_function(cblock);
+            gcc_jit_lvalue *tmp = gcc_jit_function_new_local(func, NULL, uptr_type, "int2ptr_tmp");
+            gcc_jit_block_add_assignment(cblock, NULL, tmp, uval);
+            gcc_jit_rvalue *addr = gcc_jit_lvalue_get_address(tmp, NULL);
+            gcc_jit_rvalue *dptr = gcc_jit_context_new_cast(ctx, NULL, addr, gcc_jit_type_get_pointer(dest_type));
+            *out_rval = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(dptr, NULL));
             return GCC_GEN_BE_SUCCESS;
         }
-        *out_rval = gcc_jit_context_null(ctx, dest_type);
+        gcc_jit_type *char_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
+        gcc_jit_type *char_ptr_t = gcc_jit_type_get_pointer(char_t);
+        gcc_jit_rvalue *null_cp = gcc_jit_context_null(ctx, char_ptr_t);
+        gcc_jit_lvalue *elem = gcc_jit_context_new_array_access(ctx, NULL, null_cp, uval);
+        gcc_jit_rvalue *addr = gcc_jit_lvalue_get_address(elem, NULL);
+        *out_rval = (dest_type == char_ptr_t) ? addr : gcc_jit_context_new_cast(ctx, NULL, addr, dest_type);
         return GCC_GEN_BE_SUCCESS;
     }
     if (gcc_jit_type_is_pointer(dest_type) == NULL && gcc_jit_type_is_pointer(src_type) != NULL) {
+        gcc_jit_type *uptr_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG);
+        gcc_jit_block *cblock = NULL;
+        if (gcc_gen_be_get_current_block(&cblock) == GCC_GEN_BE_SUCCESS && cblock) {
+            gcc_jit_function *func = gcc_jit_block_get_function(cblock);
+            gcc_jit_lvalue *tmp = gcc_jit_function_new_local(func, NULL, src_type, "ptr2int_tmp");
+            gcc_jit_block_add_assignment(cblock, NULL, tmp, val);
+            gcc_jit_rvalue *addr = gcc_jit_lvalue_get_address(tmp, NULL);
+            gcc_jit_rvalue *uptr = gcc_jit_context_new_cast(ctx, NULL, addr, gcc_jit_type_get_pointer(uptr_type));
+            gcc_jit_rvalue *uval = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(uptr, NULL));
+            *out_rval = (dest_type == uptr_type) ? uval : gcc_jit_context_new_cast(ctx, NULL, uval, dest_type);
+            return GCC_GEN_BE_SUCCESS;
+        }
         if (p_gcc_jit_context_new_bitcast) {
-            gcc_jit_type *uptr_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG);
             gcc_jit_rvalue *uval = p_gcc_jit_context_new_bitcast(ctx, NULL, val, uptr_type);
             *out_rval = (dest_type == uptr_type) ? uval : gcc_jit_context_new_cast(ctx, NULL, uval, dest_type);
             return GCC_GEN_BE_SUCCESS;
@@ -1196,6 +1246,8 @@ static gcc_gen_be_error_t safe_ptr_or_int_cast(gcc_jit_context *ctx, gcc_jit_rva
         return GCC_GEN_BE_SUCCESS;
     }
     if (p_gcc_jit_context_new_bitcast &&
+        gcc_jit_type_is_pointer(src_type) == NULL &&
+        gcc_jit_type_is_pointer(dest_type) == NULL &&
         gcc_jit_type_is_struct(src_type) == NULL &&
         gcc_jit_type_is_struct(dest_type) == NULL) {
         ssize_t s1 = gcc_jit_type_get_size(src_type);
@@ -1271,6 +1323,45 @@ static gcc_gen_be_error_t lower_address_constant(a_constant_ptr con, gcc_jit_typ
         }
     } else if (con->variant.address.kind == abk_constant || con->variant.address.kind == abk_temporary) {
         a_constant_ptr inner_con = con->variant.address.variant.constant;
+        gcc_jit_block *cblock = NULL;
+        GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
+        if (inner_con && inner_con->kind == ck_string && expected_type &&
+            gcc_jit_type_is_pointer(expected_type) != NULL) {
+            gcc_jit_type *const_char_ptr_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CONST_CHAR_PTR);
+            if (expected_type == const_char_ptr_t && con->variant.address.offset == 0) {
+                *out_rval = gcc_jit_context_new_string_literal(ctx, (const char *)inner_con->variant.string.value);
+                return GCC_GEN_BE_SUCCESS;
+            }
+            gcc_jit_type *char_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
+            gcc_jit_type *uchar_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_CHAR);
+            gcc_jit_type *schar_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_SIGNED_CHAR);
+            gcc_jit_type *elem_t = char_t;
+            if (expected_type == gcc_jit_type_get_pointer(uchar_t)) elem_t = uchar_t;
+            else if (expected_type == gcc_jit_type_get_pointer(schar_t)) elem_t = schar_t;
+            else if (expected_type == gcc_jit_type_get_pointer(gcc_jit_type_get_const(char_t))) elem_t = gcc_jit_type_get_const(char_t);
+            else if (expected_type == gcc_jit_type_get_pointer(gcc_jit_type_get_const(uchar_t))) elem_t = gcc_jit_type_get_const(uchar_t);
+            size_t slen = (size_t)inner_con->variant.string.length;
+            if (slen == 0) slen = 1;
+            gcc_jit_type *arr_t = gcc_jit_context_new_array_type(ctx, NULL, elem_t, (int)slen);
+            char gname[128];
+            snprintf(gname, sizeof(gname), "__abk_str_global_%p", (void *)con);
+            void *existing_g = NULL;
+            gcc_jit_lvalue *g_lval = NULL;
+            if (cache_lookup(GCC_GEN_BE_CACHE_VAR, con, &existing_g) == GCC_GEN_BE_SUCCESS && existing_g) {
+                g_lval = (gcc_jit_lvalue *)existing_g;
+            } else {
+                g_lval = gcc_jit_context_new_global(ctx, NULL, GCC_JIT_GLOBAL_INTERNAL, arr_t, gname);
+                if (inner_con->variant.string.length > 0 && inner_con->variant.string.value) {
+                    gcc_jit_global_set_initializer(g_lval, inner_con->variant.string.value, (size_t)inner_con->variant.string.length);
+                }
+                GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, con, g_lval));
+            }
+            gcc_jit_type *long_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG);
+            gcc_jit_rvalue *idx_rval = gcc_jit_context_new_rvalue_from_long(ctx, long_type, (long)con->variant.address.offset);
+            gcc_jit_lvalue *elem_lval = gcc_jit_context_new_array_access(ctx, NULL, gcc_jit_lvalue_as_rvalue(g_lval), idx_rval);
+            *out_rval = gcc_jit_lvalue_get_address(elem_lval, NULL);
+            return GCC_GEN_BE_SUCCESS;
+        }
         gcc_jit_type *inner_type = expected_type;
         if (inner_con && inner_con->type) {
             GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(inner_con->type, &inner_type));
@@ -1278,8 +1369,6 @@ static gcc_gen_be_error_t lower_address_constant(a_constant_ptr con, gcc_jit_typ
         gcc_jit_rvalue *inner_val = NULL;
         gcc_gen_be_error_t lower_err = gcc_gen_be_lower_constant_rvalue(inner_con, inner_type, &inner_val);
         if (lower_err != GCC_GEN_BE_SUCCESS) return lower_err;
-        gcc_jit_block *cblock = NULL;
-        GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
         if (cblock && inner_val && inner_type && con->variant.address.offset == 0) {
             gcc_jit_function *func = gcc_jit_block_get_function(cblock);
             gcc_jit_lvalue *tmp_lval = gcc_jit_function_new_local(func, NULL, inner_type, "abk_const_tmp");
@@ -1307,7 +1396,8 @@ static gcc_gen_be_error_t lower_address_constant(a_constant_ptr con, gcc_jit_typ
         return gcc_gen_be_get_zero_rvalue(con->type, expected_type, out_rval);
     }
 
-    if (con->variant.address.offset != 0) {
+    if (con->variant.address.offset != 0 ||
+        (expected_type && gcc_jit_rvalue_get_type(base_rval) != expected_type)) {
         if (con->variant.address.kind == abk_variable && con->variant.address.variant.variable) {
             a_variable_ptr var = con->variant.address.variant.variable;
             a_type_ptr vtp = var->type;
@@ -1348,9 +1438,7 @@ static gcc_gen_be_error_t lower_address_constant(a_constant_ptr con, gcc_jit_typ
                                 long rem_off = (long)con->variant.address.offset - (long)fld->offset;
                                 a_type_ptr ftp = fld->type;
                                 while (ftp && ftp->kind == tk_typeref) ftp = ftp->variant.typeref.type;
-                                if (rem_off == 0) {
-                                    return safe_ptr_or_int_cast(ctx, gcc_jit_lvalue_get_address(fld_lval, NULL), expected_type, out_rval);
-                                } else if (ftp && ftp->kind == tk_array && ftp->variant.array.element_type) {
+                                if (ftp && ftp->kind == tk_array && ftp->variant.array.element_type) {
                                     long elem_sz = (long)size_of_type(ftp->variant.array.element_type);
                                     if (elem_sz > 0 && (rem_off % elem_sz) == 0) {
                                         gcc_jit_type *long_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG);
@@ -1359,11 +1447,17 @@ static gcc_gen_be_error_t lower_address_constant(a_constant_ptr con, gcc_jit_typ
                                         return safe_ptr_or_int_cast(ctx, gcc_jit_lvalue_get_address(elem_lval, NULL), expected_type, out_rval);
                                     }
                                 }
+                                if (rem_off == 0) {
+                                    return safe_ptr_or_int_cast(ctx, gcc_jit_lvalue_get_address(fld_lval, NULL), expected_type, out_rval);
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+        if (con->variant.address.offset == 0) {
+            return safe_ptr_or_int_cast(ctx, base_rval, expected_type, out_rval);
         }
         gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_CHAR);
         gcc_jit_type *char_ptr_type = gcc_jit_type_get_pointer(char_type);
@@ -1550,10 +1644,14 @@ static gcc_gen_be_error_t lower_aggregate_constant(a_constant_ptr con, gcc_jit_t
 
                 if (f && (f->is_bit_field || f->bit_size > 0) && val_c && val_c->kind == ck_integer) {
                     /* Pack all adjacent bitfield constants sharing the same container field `jit_f` */
+                    void *cached_bf_ft = NULL;
+                    if (jit_f && cache_lookup(GCC_GEN_BE_CACHE_TYPE, jit_f, &cached_bf_ft) == GCC_GEN_BE_SUCCESS && cached_bf_ft) {
+                        f_type = (gcc_jit_type *)cached_bf_ft;
+                    }
                     unsigned long unit_sz = (unsigned long)gcc_jit_type_get_size(f_type);
                     if (unit_sz == 0) unit_sz = (unsigned long)size_of_type(f->type);
                     if (unit_sz == 0) unit_sz = 4;
-                    if (unit_sz < 8UL &&
+                    if (!cached_bf_ft && unit_sz < 8UL &&
                         ((unsigned long)f->offset_bit_remainder + (unsigned long)f->bit_size) > (unit_sz * 8UL) &&
                         con_tp && (f->offset + 8UL) <= con_tp->size) {
                         f_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG_LONG);
@@ -1779,7 +1877,21 @@ gcc_gen_be_error_t gcc_gen_be_lower_constant_rvalue(a_constant_ptr con, gcc_jit_
         } else {
             val = (long)value_of_integer_constant(con, &local_err);
         }
-        if (val == 0) {
+        a_type_ptr con_t = con->type;
+        while (con_t && con_t->kind == tk_typeref) con_t = con_t->variant.typeref.type;
+        a_boolean is_direct_int_type = expected_type != NULL &&
+            (!con_t || con_t->kind == tk_integer) &&
+            gcc_jit_type_is_pointer(expected_type) == NULL &&
+            gcc_jit_type_is_struct(expected_type) == NULL &&
+            expected_type != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID) &&
+            expected_type != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_FLOAT) &&
+            expected_type != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_DOUBLE) &&
+            expected_type != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG_DOUBLE);
+        if (is_direct_int_type) {
+            *out_rval = gcc_jit_context_new_rvalue_from_long(ctx, expected_type, val);
+        } else if (val == 0 && expected_type && gcc_jit_type_is_pointer(expected_type) != NULL) {
+            *out_rval = gcc_jit_context_null(ctx, expected_type);
+        } else if (val == 0) {
             gcc_gen_be_error_t cast_err = safe_ptr_or_int_cast(ctx, gcc_jit_context_new_rvalue_from_long(ctx, gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG), 0), expected_type, out_rval);
             if (cast_err != GCC_GEN_BE_SUCCESS || !*out_rval) {
                 GCC_GEN_BE_CHECK(gcc_gen_be_get_zero_rvalue(con->type, expected_type, out_rval));
@@ -2046,6 +2158,18 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
               if (err != GCC_GEN_BE_SUCCESS) return err;
 
               if (op == eok_dot_field || op == eok_points_to_field || op == eok_subscript || op == eok_indirect || op == eok_ref_indirect) {
+                  a_type_ptr etype_chk = expr->type;
+                  while (etype_chk && etype_chk->kind == tk_typeref) etype_chk = etype_chk->variant.typeref.type;
+                  a_type_ptr op1_t_chk = op1 ? op1->type : NULL;
+                  while (op1_t_chk && op1_t_chk->kind == tk_typeref) op1_t_chk = op1_t_chk->variant.typeref.type;
+                  a_type_ptr op1_pts_chk = (op1_t_chk && op1_t_chk->kind == tk_pointer) ? op1_t_chk->variant.pointer.type : NULL;
+                  while (op1_pts_chk && op1_pts_chk->kind == tk_typeref) op1_pts_chk = op1_pts_chk->variant.typeref.type;
+                  if ((op == eok_indirect || op == eok_ref_indirect) &&
+                      ((etype_chk && etype_chk->kind == tk_routine) ||
+                       (op1_t_chk && op1_t_chk->kind == tk_routine) ||
+                       (op1_pts_chk && op1_pts_chk->kind == tk_routine))) {
+                      return gcc_gen_be_lower_expr_rvalue(op1, out_rval);
+                  }
                   if ((op == eok_dot_field || op == eok_points_to_field) &&
                       op2 && op2->kind == enk_field && op2->variant.field.ptr &&
                       (op2->variant.field.ptr->is_bit_field || op2->variant.field.ptr->bit_size > 0)) {
@@ -2263,6 +2387,10 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                                       if (f0_t == r2_t) {
                                           l1 = l1_f0;
                                       }
+                                  } else if (gcc_jit_type_is_struct(l1_t) == NULL &&
+                                             gcc_jit_type_is_struct(r2_t) == NULL &&
+                                             r2_t != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID)) {
+                                      GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, l1_t, &r2));
                                   }
                               }
                               if (r2_t != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID)) {
@@ -2295,6 +2423,12 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                               case eok_xor_assign: jit_op = GCC_JIT_BINARY_OP_BITWISE_XOR; break;
                               default: return GCC_GEN_BE_ERROR_INTERNAL;
                           }
+                          if (l1 && r2) {
+                              gcc_jit_type *l1_t = gcc_jit_rvalue_get_type(gcc_jit_lvalue_as_rvalue(l1));
+                              if (l1_t && gcc_jit_rvalue_get_type(r2) != l1_t) {
+                                  GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, l1_t, &r2));
+                              }
+                          }
                           gcc_jit_block_add_assignment_op(cblock, NULL, l1, jit_op, r2);
                       }
                   }
@@ -2304,6 +2438,8 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
               
               gcc_jit_rvalue *r1 = NULL;
               if (op1 && op != eok_address_of &&
+                  op != eok_pre_incr && op != eok_pre_decr &&
+                  op != eok_post_incr && op != eok_post_decr &&
                   !(op == eok_call || op == eok_dot_member_call || op == eok_points_to_member_call)) {
                   err = gcc_gen_be_lower_expr_rvalue(op1, &r1);
                   if (err != GCC_GEN_BE_SUCCESS) return err;
@@ -2345,15 +2481,27 @@ gcc_gen_be_error_t gcc_gen_be_lower_expr_rvalue(an_expr_node_ptr expr, gcc_jit_r
                   case eok_pdiff:
                       {
                           gcc_jit_type *long_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_LONG);
-                          gcc_jit_rvalue *c1 = gcc_jit_context_new_cast(ctx, loc, r1, long_type);
-                          gcc_jit_rvalue *c2 = gcc_jit_context_new_cast(ctx, loc, r2, long_type);
+                          gcc_jit_rvalue *c1 = NULL;
+                          gcc_jit_rvalue *c2 = NULL;
+                          GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r1, long_type, &c1));
+                          GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, long_type, &c2));
                           gcc_jit_rvalue *diff = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_MINUS, long_type, c1, c2);
                           
-                          a_type_ptr elem_type = op1->type->variant.pointer.type;
-                          long sz = (long)size_of_type(elem_type);
+                          a_type_ptr op1_t = op1 ? op1->type : NULL;
+                          while (op1_t && op1_t->kind == tk_typeref) op1_t = op1_t->variant.typeref.type;
+                          a_type_ptr elem_type = (op1_t && op1_t->kind == tk_array)
+                              ? op1_t->variant.array.element_type
+                              : (op1_t && op1_t->kind == tk_pointer ? op1_t->variant.pointer.type : NULL);
+                          long sz = elem_type ? (long)size_of_type(elem_type) : 1L;
+                          if (sz <= 0) sz = 1L;
                           gcc_jit_rvalue *sz_val = gcc_jit_context_new_rvalue_from_long(ctx, long_type, sz);
                           
-                          *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_DIVIDE, long_type, diff, sz_val);
+                          gcc_jit_rvalue *res_diff = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_DIVIDE, long_type, diff, sz_val);
+                          if (type && type != long_type) {
+                              GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, res_diff, type, out_rval));
+                          } else {
+                              *out_rval = res_diff;
+                          }
                           return GCC_GEN_BE_SUCCESS;
                       }
                   case eok_spaceship:
@@ -2504,13 +2652,38 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                               if (op == eok_subtract) jit_op = GCC_JIT_BINARY_OP_MINUS;
                               else if (op == eok_multiply) jit_op = GCC_JIT_BINARY_OP_MULT;
                               else if (op == eok_divide) jit_op = GCC_JIT_BINARY_OP_DIVIDE;
+                              if (r1 && gcc_jit_rvalue_get_type(r1) != type) {
+                                  GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r1, type, &r1));
+                              }
+                              if (r2 && gcc_jit_rvalue_get_type(r2) != type) {
+                                  GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, type, &r2));
+                              }
                               *out_rval = gcc_jit_context_new_binary_op(ctx, loc, jit_op, type, r1, r2);
                               return GCC_GEN_BE_SUCCESS;
                           }
                       }
-                  case eok_remainder: *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_MODULO, type, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_shiftl: *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_LSHIFT, type, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_shiftr: *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_RSHIFT, type, r1, r2); return GCC_GEN_BE_SUCCESS;
+                  case eok_remainder:
+                  case eok_shiftl:
+                  case eok_shiftr:
+                  case eok_and:
+                  case eok_or:
+                  case eok_xor:
+                      {
+                          enum gcc_jit_binary_op jit_op = GCC_JIT_BINARY_OP_MODULO;
+                          if (op == eok_shiftl) jit_op = GCC_JIT_BINARY_OP_LSHIFT;
+                          else if (op == eok_shiftr) jit_op = GCC_JIT_BINARY_OP_RSHIFT;
+                          else if (op == eok_and) jit_op = GCC_JIT_BINARY_OP_BITWISE_AND;
+                          else if (op == eok_or) jit_op = GCC_JIT_BINARY_OP_BITWISE_OR;
+                          else if (op == eok_xor) jit_op = GCC_JIT_BINARY_OP_BITWISE_XOR;
+                          if (r1 && gcc_jit_rvalue_get_type(r1) != type) {
+                              GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r1, type, &r1));
+                          }
+                          if (r2 && gcc_jit_rvalue_get_type(r2) != type) {
+                              GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, type, &r2));
+                          }
+                          *out_rval = gcc_jit_context_new_binary_op(ctx, loc, jit_op, type, r1, r2);
+                          return GCC_GEN_BE_SUCCESS;
+                      }
                   case eok_comma:
                       {
                           gcc_jit_block *cblock = NULL;
@@ -2519,9 +2692,6 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                           *out_rval = r2;
                           return GCC_GEN_BE_SUCCESS;
                       }
-                  case eok_and: *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_BITWISE_AND, type, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_or: *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_BITWISE_OR, type, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_xor: *out_rval = gcc_jit_context_new_binary_op(ctx, loc, GCC_JIT_BINARY_OP_BITWISE_XOR, type, r1, r2); return GCC_GEN_BE_SUCCESS;
                       
                   case eok_eq:
                   case eok_ne:
@@ -2562,14 +2732,30 @@ if (op1_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type
                               }
                               return GCC_GEN_BE_SUCCESS;
                           } else {
-                              *out_rval = gcc_jit_context_new_comparison(ctx, loc, op == eok_eq ? GCC_JIT_COMPARISON_EQ : GCC_JIT_COMPARISON_NE, r1, r2);
+                              if (r1 && r2 && gcc_jit_rvalue_get_type(r1) != gcc_jit_rvalue_get_type(r2)) {
+                                  GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, gcc_jit_rvalue_get_type(r1), &r2));
+                              }
+                              gcc_jit_rvalue *cmp = gcc_jit_context_new_comparison(ctx, loc, op == eok_eq ? GCC_JIT_COMPARISON_EQ : GCC_JIT_COMPARISON_NE, r1, r2);
+                              *out_rval = (type && gcc_jit_rvalue_get_type(cmp) != type) ? gcc_jit_context_new_cast(ctx, loc, cmp, type) : cmp;
                               return GCC_GEN_BE_SUCCESS;
                           }
                       }
-                  case eok_lt: *out_rval = gcc_jit_context_new_comparison(ctx, loc, GCC_JIT_COMPARISON_LT, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_le: *out_rval = gcc_jit_context_new_comparison(ctx, loc, GCC_JIT_COMPARISON_LE, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_gt: *out_rval = gcc_jit_context_new_comparison(ctx, loc, GCC_JIT_COMPARISON_GT, r1, r2); return GCC_GEN_BE_SUCCESS;
-                  case eok_ge: *out_rval = gcc_jit_context_new_comparison(ctx, loc, GCC_JIT_COMPARISON_GE, r1, r2); return GCC_GEN_BE_SUCCESS;
+                  case eok_lt:
+                  case eok_le:
+                  case eok_gt:
+                  case eok_ge:
+                      {
+                          enum gcc_jit_comparison cmp_op = GCC_JIT_COMPARISON_LT;
+                          if (op == eok_le) cmp_op = GCC_JIT_COMPARISON_LE;
+                          else if (op == eok_gt) cmp_op = GCC_JIT_COMPARISON_GT;
+                          else if (op == eok_ge) cmp_op = GCC_JIT_COMPARISON_GE;
+                          if (r1 && r2 && gcc_jit_rvalue_get_type(r1) != gcc_jit_rvalue_get_type(r2)) {
+                              GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r2, gcc_jit_rvalue_get_type(r1), &r2));
+                          }
+                          gcc_jit_rvalue *cmp = gcc_jit_context_new_comparison(ctx, loc, cmp_op, r1, r2);
+                          *out_rval = (type && gcc_jit_rvalue_get_type(cmp) != type) ? gcc_jit_context_new_cast(ctx, loc, cmp, type) : cmp;
+                          return GCC_GEN_BE_SUCCESS;
+                      }
                   
                   case eok_fjadd:
                   case eok_jfadd:
@@ -2799,9 +2985,19 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                           
                           gcc_jit_block_add_assignment(cblock, loc, temp, gcc_jit_lvalue_as_rvalue(l1));
                           
-                          gcc_jit_rvalue *one = gcc_jit_context_new_rvalue_from_int(ctx, type, 1);
-                          gcc_jit_block_add_assignment_op(cblock, NULL, l1, 
-                              op == eok_post_incr ? GCC_JIT_BINARY_OP_PLUS : GCC_JIT_BINARY_OP_MINUS, one);
+                          if (gcc_jit_type_is_pointer(type) != NULL) {
+                              gcc_jit_type *int_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT);
+                              gcc_jit_rvalue *delta = gcc_jit_context_new_rvalue_from_int(
+                                  ctx, int_type, op == eok_post_incr ? 1 : -1);
+                              gcc_jit_lvalue *arr_acc = gcc_jit_context_new_array_access(
+                                  ctx, loc, gcc_jit_lvalue_as_rvalue(l1), delta);
+                              gcc_jit_rvalue *new_ptr = gcc_jit_lvalue_get_address(arr_acc, NULL);
+                              gcc_jit_block_add_assignment(cblock, loc, l1, new_ptr);
+                          } else {
+                              gcc_jit_rvalue *one = gcc_jit_context_new_rvalue_from_int(ctx, type, 1);
+                              gcc_jit_block_add_assignment_op(cblock, NULL, l1, 
+                                  op == eok_post_incr ? GCC_JIT_BINARY_OP_PLUS : GCC_JIT_BINARY_OP_MINUS, one);
+                          }
                               
                           *out_rval = gcc_jit_lvalue_as_rvalue(temp);
                           return GCC_GEN_BE_SUCCESS;
@@ -2994,7 +3190,13 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                               a_routine_ptr rout = op1->variant.routine.ptr;
                               err = gcc_gen_be_lower_builtin_call(rout, num_args, args, out_rval);
                               if (args) free(args);
-                              return err;
+                              if (err != GCC_GEN_BE_SUCCESS) return err;
+                              if (*out_rval && type &&
+                                  type != gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID) &&
+                                  gcc_jit_rvalue_get_type(*out_rval) != type) {
+                                  GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, *out_rval, type, out_rval));
+                              }
+                              return GCC_GEN_BE_SUCCESS;
                           }
 
                             if (is_member && op1->kind != enk_routine && num_args > 0) {
@@ -3351,8 +3553,10 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                                   gcc_jit_rvalue *ap_base = gcc_jit_context_new_cast(
                                       ctx, loc, gcc_jit_lvalue_get_address(ap_lval, loc), char_ptr_type);
 
-                                  size_t type_size = (size_t)gcc_jit_type_get_size(type);
-                                  if (type_size == 0 && expr->type) type_size = (size_t)size_of_type(expr->type);
+                                  size_t type_size = expr->type ? (size_t)size_of_type(expr->type) : 0;
+                                  if (type_size == 0 && gcc_jit_type_is_pointer(type) == NULL && gcc_jit_type_is_struct(type) == NULL) {
+                                      type_size = (size_t)gcc_jit_type_get_size(type);
+                                  }
                                   if (type_size == 0) type_size = 8;
                                   size_t type_align = expr->type ? (size_t)expr->type->alignment : 8;
                                   if (type_align < 8) type_align = 8;
@@ -3639,10 +3843,12 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                               gcc_jit_rvalue *ap_char_ptr = gcc_jit_context_new_cast(ctx, loc, ap_val, char_ptr_type);
                               
                               /* size of type aligned to pointer size */
-                              size_t type_size = (size_t)gcc_jit_type_get_size(type);
-                              if (type_size == 0 && expr->type) type_size = (size_t)size_of_type(expr->type);
-                              size_t ptr_size = (size_t)gcc_jit_type_get_size(gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID_PTR));
-                              if (ptr_size == 0) ptr_size = 8;
+                              size_t type_size = expr->type ? (size_t)size_of_type(expr->type) : 0;
+                              if (type_size == 0 && gcc_jit_type_is_pointer(type) == NULL && gcc_jit_type_is_struct(type) == NULL) {
+                                  type_size = (size_t)gcc_jit_type_get_size(type);
+                              }
+                              if (type_size == 0) type_size = 8;
+                              size_t ptr_size = (target_abi == GCC_GEN_BE_TARGET_ABI_SYSV_I386) ? 4 : 8;
                               size_t align = (target_abi == GCC_GEN_BE_TARGET_ABI_SYSV_I386) ? 4 : ptr_size;
 
                               a_boolean is_indirect_agg = FALSE;
@@ -3662,66 +3868,83 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
                               /* Compute next ap: next_ap = ap_char_ptr + offset */
                               gcc_jit_lvalue *next_ap_lval = gcc_jit_context_new_array_access(ctx, loc, ap_char_ptr, offset);
                               gcc_jit_rvalue *next_ap = gcc_jit_lvalue_get_address(next_ap_lval, NULL);
-                              
-                              /* Save next_ap back to ap_lval */
                               gcc_jit_rvalue *next_ap_casted = gcc_jit_context_new_cast(ctx, loc, next_ap, gcc_jit_rvalue_get_type(ap_val));
-                              if (cblock) {
-                                  gcc_jit_block_add_assignment(cblock, loc, ap_lval, next_ap_casted);
-                              }
                               
-                              /* Cast original ap_val to type* (or type** if indirect aggregate) and dereference */
+                              /* Cast original ap_val to type* (or type** if indirect aggregate) and dereference before updating ap_lval */
                               gcc_jit_type *type_ptr = gcc_jit_type_get_pointer(type);
+                              gcc_jit_rvalue *deref_val = NULL;
                               if (is_indirect_agg) {
                                   gcc_jit_type *type_ptr_ptr = gcc_jit_type_get_pointer(type_ptr);
                                   gcc_jit_rvalue *ind_ptr = gcc_jit_lvalue_as_rvalue(
                                       gcc_jit_rvalue_dereference(
                                           gcc_jit_context_new_cast(ctx, loc, ap_val, type_ptr_ptr), loc));
-                                  *out_rval = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(ind_ptr, loc));
+                                  deref_val = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(ind_ptr, loc));
                               } else {
                                   gcc_jit_rvalue *typed_ptr = gcc_jit_context_new_cast(ctx, loc, ap_val, type_ptr);
-                                  *out_rval = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(typed_ptr, loc));
+                                  deref_val = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(typed_ptr, loc));
+                              }
+                              if (cblock) {
+                                  gcc_jit_function *func = gcc_jit_block_get_function(cblock);
+                                  gcc_jit_lvalue *va_res = gcc_jit_function_new_local(func, loc, type, "va_arg_scalar_res");
+                                  gcc_jit_block_add_assignment(cblock, loc, va_res, deref_val);
+                                  gcc_jit_block_add_assignment(cblock, loc, ap_lval, next_ap_casted);
+                                  *out_rval = gcc_jit_lvalue_as_rvalue(va_res);
+                              } else {
+                                  *out_rval = deref_val;
                               }
                               
                               return GCC_GEN_BE_SUCCESS;
                           }
-                          const char *bname = NULL;
-                          if (op == eok_va_start || op == eok_va_start_single_operand) {
-                              bname = "__builtin_va_start";
-                          } else if (op == eok_va_end) {
-                              bname = "__builtin_va_end";
-                          } else if (op == eok_va_copy) {
-                              bname = "__builtin_va_copy";
-                          }
-                          
-                          gcc_jit_function *bfunc = bname ? gcc_jit_context_get_builtin_function(ctx, bname) : NULL;
-                          if (bfunc) {
-                              int num_args = 0;
-                              an_expr_node_ptr arg = op1;
-                              while (arg) {
-                                  num_args++;
-                                  arg = arg->next;
-                              }
-                              
-                              gcc_jit_rvalue **args = NULL;
-                              if (num_args > 0) {
-                                  args = (gcc_jit_rvalue **)malloc((size_t)num_args * sizeof(gcc_jit_rvalue *));
-                                  if (!args) return GCC_GEN_BE_ERROR_OOM;
-                                  int i = 0;
-                                  arg = op1;
-                                  while (arg) {
-                                      err = gcc_gen_be_lower_expr_rvalue(arg, &args[i]);
-                                      if (err != GCC_GEN_BE_SUCCESS) { free(args); return err; }
-                                      i++;
-                                      arg = arg->next;
+                          if ((op == eok_va_start || op == eok_va_start_single_operand) && op1) {
+                              gcc_jit_lvalue *ap_lval = NULL;
+                              err = gcc_gen_be_lower_expr_lvalue(op1, &ap_lval);
+                              if (err == GCC_GEN_BE_SUCCESS && ap_lval) {
+                                  gcc_jit_block *cblock = NULL;
+                                  GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
+                                  gcc_jit_function *next_arg_fn = p_gcc_jit_context_get_builtin_function
+                                      ? p_gcc_jit_context_get_builtin_function(ctx, "__builtin_next_arg")
+                                      : NULL;
+                                  if (cblock && next_arg_fn) {
+                                      gcc_jit_rvalue *last_arg = NULL;
+                                      if (op2) {
+                                          (void)gcc_gen_be_lower_expr_rvalue(op2, &last_arg);
+                                      }
+                                      gcc_jit_rvalue *va_ptr = gcc_jit_context_new_call(
+                                          ctx, loc, next_arg_fn, last_arg ? 1 : 0, last_arg ? &last_arg : NULL);
+                                      gcc_jit_type *ap_t = gcc_jit_rvalue_get_type(gcc_jit_lvalue_as_rvalue(ap_lval));
+                                      if (ap_t && gcc_jit_type_is_pointer(ap_t) != NULL && va_ptr) {
+                                          gcc_jit_rvalue *cast_va = (gcc_jit_rvalue_get_type(va_ptr) == ap_t)
+                                              ? va_ptr
+                                              : gcc_jit_context_new_cast(ctx, loc, va_ptr, ap_t);
+                                          gcc_jit_block_add_assignment(cblock, loc, ap_lval, cast_va);
+                                      }
                                   }
                               }
-                              
-                              *out_rval = gcc_jit_context_new_call(ctx, loc, bfunc, num_args, args);
-                              if (args) free(args);
+                          }
+                          if (op == eok_va_copy && op1 && op2) {
+                              gcc_jit_lvalue *dst_lval = NULL;
+                              gcc_jit_rvalue *src_rval = NULL;
+                              err = gcc_gen_be_lower_expr_lvalue(op1, &dst_lval);
+                              if (err == GCC_GEN_BE_SUCCESS && dst_lval) {
+                                  err = gcc_gen_be_lower_expr_rvalue(op2, &src_rval);
+                                  if (err == GCC_GEN_BE_SUCCESS && src_rval) {
+                                      gcc_jit_block *cblock = NULL;
+                                      GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&cblock));
+                                      if (cblock) {
+                                          gcc_jit_type *dst_t = gcc_jit_rvalue_get_type(gcc_jit_lvalue_as_rvalue(dst_lval));
+                                          gcc_jit_type *src_t = gcc_jit_rvalue_get_type(src_rval);
+                                          if (dst_t && src_t && dst_t == src_t) {
+                                              gcc_jit_block_add_assignment(cblock, loc, dst_lval, src_rval);
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                          if (type == gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID)) {
+                              *out_rval = NULL;
                               return GCC_GEN_BE_SUCCESS;
                           }
-                          *out_rval = gcc_jit_context_zero(ctx, type);
-                          return GCC_GEN_BE_SUCCESS;
+                          return gcc_gen_be_get_zero_rvalue(expr->type, type, out_rval);
                       }
                       
                   case eok_await:
@@ -3741,6 +3964,10 @@ if (op_t2->variant.float_kind == fk_float) elem_type = gcc_jit_context_get_type(
 
                   case eok_array_to_pointer:
                       {
+                          if (op1 && op1->kind == enk_constant && op1->variant.constant.ptr &&
+                              op1->variant.constant.ptr->kind == ck_string) {
+                              return gcc_gen_be_lower_constant_rvalue(op1->variant.constant.ptr, type, out_rval);
+                          }
                           gcc_jit_lvalue *l1 = NULL;
                           err = gcc_gen_be_lower_expr_lvalue(op1, &l1);
                           if (err != GCC_GEN_BE_SUCCESS) return err;
@@ -3863,7 +4090,7 @@ if (op_t2->variant.float_kind == fk_float) dest_elem_type = gcc_jit_context_get_
                               if (gcc_jit_rvalue_get_type(r1) == type) {
                                   *out_rval = r1;
                               } else {
-                                  *out_rval = gcc_jit_context_new_cast(ctx, loc, r1, type);
+                                  GCC_GEN_BE_CHECK(safe_ptr_or_int_cast(ctx, r1, type, out_rval));
                               }
                           } else {
                               GCC_GEN_BE_CHECK(gcc_gen_be_get_zero_rvalue(expr->type, type, out_rval));

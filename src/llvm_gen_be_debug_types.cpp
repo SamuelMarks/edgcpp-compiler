@@ -41,17 +41,12 @@ llvm_gen_be_error_t get_or_create_di_type(
         ty = ty->variant.typeref.type;
     }
 
-    if (quals == 0 && orig_ty == ty) {
-        auto it = dbg_state->di_types_map.find(ty);
-        if (it != dbg_state->di_types_map.end()) {
-            *out_di_type = it->second;
-            return llvm_gen_be_error_t::ok;
-        }
-    }
-
     llvm::DIType* di_ty = nullptr;
-
-    switch (ty->kind) {
+    auto it = dbg_state->di_types_map.find(ty);
+    if (it != dbg_state->di_types_map.end()) {
+        di_ty = it->second;
+    } else {
+        switch (ty->kind) {
         case tk_void: {
             di_ty = dbg_state->builder->createUnspecifiedType("void");
         } break;
@@ -364,9 +359,10 @@ llvm_gen_be_error_t get_or_create_di_type(
         default: {
             di_ty = dbg_state->builder->createBasicType("unknown", ty->size * 8, llvm::dwarf::DW_ATE_unsigned);
         } break;
-    }
+        }
 
-    dbg_state->di_types_map[ty] = di_ty;
+        dbg_state->di_types_map[ty] = di_ty;
+    }
     if ((quals & TQ_CONST) != 0) {
         di_ty = dbg_state->builder->createQualifiedType(llvm::dwarf::DW_TAG_const_type, di_ty);
     }

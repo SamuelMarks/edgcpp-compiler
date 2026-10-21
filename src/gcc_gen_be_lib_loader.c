@@ -174,16 +174,61 @@ pfn_gcc_jit_context_add_top_level_asm p_gcc_jit_context_add_top_level_asm = NULL
 /** @brief Function pointer for `gcc_jit_context_new_sizeof`. */
 pfn_gcc_jit_context_new_sizeof p_gcc_jit_context_new_sizeof = NULL;
 
+/**
+ * @brief Dynamically loads `libgccjit` on Windows systems.
+ * @details Checks the `EDG_LIBGCCJIT_PATH` environment variable first, then searches
+ * relative to the current executable directory (`<exe_dir>\libgccjit-0.dll`, `<exe_dir>\libgccjit.dll`,
+ * `<exe_dir>\..\lib\libgccjit-0.dll`) using `LoadLibraryExA(..., LOAD_WITH_ALTERED_SEARCH_PATH)`,
+ * followed by standard `PATH` and MSYS2 locations (`ucrt64`, `clangarm64`, `mingw64`).
+ * @return `GCC_GEN_BE_SUCCESS` if loaded and all required symbols resolved, or an error code otherwise.
+ */
 gcc_gen_be_error_t load_libgccjit_windows(void) GCC_GEN_BE_NOEXCEPT {
   if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
+  const char *env_path = getenv("EDG_LIBGCCJIT_PATH");
+  if (env_path && env_path[0] != '\0') {
+      libgccjit_handle = LoadLibraryExA(env_path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+      if (!libgccjit_handle) {
+          libgccjit_handle = LoadLibraryA(env_path);
+      }
+  }
+  if (!libgccjit_handle) {
+      char exe_path[1024];
+      DWORD len = GetModuleFileNameA(NULL, exe_path, (DWORD)(sizeof(exe_path) - 64));
+      if (len > 0 && len < (DWORD)(sizeof(exe_path) - 64)) {
+          char *last_sep = NULL;
+          for (DWORD idx = 0; idx < len; ++idx) {
+              if (exe_path[idx] == '\\' || exe_path[idx] == '/') {
+                  last_sep = &exe_path[idx];
+              }
+          }
+          if (last_sep != NULL) {
+              const char *rel_suffixes[] = {
+                  "\\libgccjit-0.dll",
+                  "\\libgccjit.dll",
+                  "\\..\\lib\\libgccjit-0.dll",
+                  "\\..\\bin\\libgccjit-0.dll"
+              };
+              for (size_t s = 0; s < sizeof(rel_suffixes) / sizeof(rel_suffixes[0]); ++s) {
+                  *last_sep = '\0';
+                  strncat(exe_path, rel_suffixes[s], sizeof(exe_path) - strlen(exe_path) - 1);
+                  libgccjit_handle = LoadLibraryExA(exe_path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+                  if (libgccjit_handle) break;
+              }
+          }
+      }
+  }
   const char* candidates[] = {
+      "libgccjit-0.dll",
       "libgccjit.dll",
-      "C:\\msys64\\mingw64\\bin\\libgccjit-0.dll",
-      "libgccjit-0.dll"
+      "C:\\msys64\\ucrt64\\bin\\libgccjit-0.dll",
+      "C:\\msys64\\clangarm64\\bin\\libgccjit-0.dll",
+      "C:\\msys64\\mingw64\\bin\\libgccjit-0.dll"
   };
-  for (int i = 0; i < sizeof(candidates)/sizeof(candidates[0]); i++) {
-      libgccjit_handle = LoadLibraryA(candidates[i]);
-      if (libgccjit_handle) break;
+  for (size_t i = 0; !libgccjit_handle && i < sizeof(candidates)/sizeof(candidates[0]); i++) {
+      libgccjit_handle = LoadLibraryExA(candidates[i], NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+      if (!libgccjit_handle) {
+          libgccjit_handle = LoadLibraryA(candidates[i]);
+      }
   }
   if (!libgccjit_handle) {
       return GCC_GEN_BE_ERROR_LIBGCCJIT_LOAD_FAILED;
@@ -391,6 +436,10 @@ pfn_gcc_jit_context_new_sizeof p_gcc_jit_context_new_sizeof = NULL;
  */
 gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
     if (libgccjit_handle) return GCC_GEN_BE_SUCCESS;
+    const char *env_path = getenv("EDG_LIBGCCJIT_PATH");
+    if (env_path && env_path[0] != '\0') {
+        libgccjit_handle = dlopen(env_path, RTLD_NOW | RTLD_GLOBAL);
+    }
     const char *candidates[] = {
 #if defined(__APPLE__)
         "libgccjit.0.dylib",
@@ -405,11 +454,12 @@ gcc_gen_be_error_t load_libgccjit_posix(void) GCC_GEN_BE_NOEXCEPT {
         "/usr/lib/x86_64-linux-gnu/libgccjit.so.0",
         "/usr/lib/aarch64-linux-gnu/libgccjit.so.0",
         "/usr/lib64/libgccjit.so.0",
+        "/usr/lib/libgccjit.so.0",
         "/usr/local/lib/libgccjit.so.0",
 #endif
         NULL
     };
-    for (int i = 0; candidates[i] != NULL; ++i) {
+    for (int i = 0; !libgccjit_handle && candidates[i] != NULL; ++i) {
         libgccjit_handle = dlopen(candidates[i], RTLD_NOW | RTLD_GLOBAL);
         if (libgccjit_handle) break;
     }
@@ -526,6 +576,13 @@ gcc_gen_be_error_t gcc_gen_be_resolve_eh_entrypoints(
     return GCC_GEN_BE_SUCCESS;
 }
 
+/**
+ * @brief Probes `libgccjit` for extended floating-point type support (`_Float16`, `__bf16`, `__float128`).
+ * @details Queries `gcc_jit_context_get_type` to verify that floating-point type descriptors are active.
+ * @param[in] ctx The active `libgccjit` context.
+ * @param[out] out_has_ext_float Pointer to receive `TRUE` if extended float types are supported, `FALSE` otherwise.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or `GCC_GEN_BE_ERROR_INVALID_ARGUMENT` if arguments are NULL.
+ */
 gcc_gen_be_error_t gcc_gen_be_probe_extended_float_types(
     struct gcc_jit_context *ctx,
     a_boolean *out_has_ext_float) GCC_GEN_BE_NOEXCEPT {

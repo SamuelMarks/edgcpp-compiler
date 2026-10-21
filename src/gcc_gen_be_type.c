@@ -24,8 +24,376 @@
 
 BEGIN_EDG_NAMESPACE
 
+/**
+ * @brief Tracks an opaque struct whose field population has been deferred across a pointer edge.
+ * @details Prevents cycles through pointer fields from attempting to instantiate by-value fields
+ *          or arrays of an enclosing struct whose `gcc_jit_struct_set_fields` has not completed yet.
+ */
+typedef struct {
+    a_type_ptr tp;              /**< @brief The EDG struct/class type node. */
+    gcc_jit_struct *jit_struct; /**< @brief The opaque `gcc_jit_struct` handle. */
+    gcc_jit_type *jit_type;     /**< @brief The `gcc_jit_type` view of `jit_struct`. */
+    a_boolean in_progress;      /**< @brief `TRUE` while `populate_struct_fields` is active on `tp`. */
+    a_boolean completed;        /**< @brief `TRUE` once `gcc_jit_struct_set_fields` has completed. */
+} deferred_struct_entry_t;
 
+/** @brief Queue of opaque struct types whose field population was deferred across pointer edges. */
+static deferred_struct_entry_t deferred_structs[4096];
+/** @brief Number of active entries in `deferred_structs`. */
+static int deferred_structs_count = 0;
+/** @brief Active recursion depth of by-value struct field lowering. */
+static int struct_field_lowering_depth = 0;
+/** @brief Last seen `gcc_jit_context` pointer used to reset `deferred_structs_count` on new contexts. */
+static gcc_jit_context *last_type_ctx = NULL;
 
+/**
+ * @brief Returns the byte size of an EDG type after unwrapping `tk_typeref` nodes.
+ * @param[in] tp The EDG type pointer.
+ * @return The size in bytes of the underlying type, or 0 if `tp` is NULL.
+ */
+static unsigned long edg_type_byte_size(a_type_ptr tp) GCC_GEN_BE_NOEXCEPT {
+    while (tp && tp->kind == tk_typeref) {
+        tp = tp->variant.typeref.type;
+    }
+    return tp ? (unsigned long)tp->size : 0UL;
+}
+
+/**
+ * @brief Populates the fields of an opaque struct or union type in topological by-value order.
+ * @details Increments `struct_field_lowering_depth` while lowering member fields and base classes,
+ *          calls `gcc_jit_struct_set_fields` (or `gcc_jit_context_new_union_type`), and drains any
+ *          pointer-referenced structs queued in `deferred_structs` once the outermost struct completes.
+ * @param[in] ctx The active `gcc_jit_context`.
+ * @param[in] tp The EDG struct, class, or union type.
+ * @param[in] s The opaque `gcc_jit_struct` to populate.
+ * @param[in,out] io_res Pointer to the resulting `gcc_jit_type*`.
+ * @return `GCC_GEN_BE_SUCCESS` on success, or an error code on failure.
+ */
+GCC_GEN_BE_NODISCARD static gcc_gen_be_error_t populate_struct_fields(
+    gcc_jit_context *ctx,
+    a_type_ptr tp,
+    gcc_jit_struct *s,
+    gcc_jit_type **io_res) GCC_GEN_BE_NOEXCEPT {
+    if (!ctx || !tp || !s || !io_res) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+    gcc_gen_be_error_t err = GCC_GEN_BE_SUCCESS;
+    a_const_char *name = tp->source_corresp.name ? tp->source_corresp.name : "unnamed_struct";
+    gcc_jit_type *res = *io_res;
+
+    struct_field_lowering_depth++;
+
+    typedef struct {
+        int is_base;
+        void *ptr; /* a_field_ptr or a_base_class_ptr */
+        unsigned long offset;
+        unsigned int bit_rem;
+    } layout_entry_t;
+
+    int num_entries = 0;
+    a_boolean has_lowered_base_fields = FALSE;
+    for (a_field_ptr f = tp->variant.class_struct_union.field_list; f != NULL; f = f->next) {
+        num_entries++;
+        if (f->source_corresp.name && strncmp(f->source_corresp.name, "__b_", 4) == 0) {
+            has_lowered_base_fields = TRUE;
+        }
+    }
+    if (!has_lowered_base_fields && (tp->kind == tk_class || tp->kind == tk_struct)) {
+        a_class_type_supplement_ptr extra = tp->variant.class_struct_union.extra_info;
+        if (extra) {
+            for (a_base_class_ptr b = extra->direct_base_classes; b != NULL; b = b->next_direct) num_entries++;
+            for (a_base_class_ptr b = extra->base_classes; b != NULL; b = b->next) {
+                if (b->is_virtual && !b->direct) num_entries++;
+            }
+        }
+    }
+
+    layout_entry_t *entries = NULL;
+    if (num_entries > 0) {
+        entries = (layout_entry_t *)malloc((size_t)num_entries * sizeof(layout_entry_t));
+        if (!entries) {
+            struct_field_lowering_depth--;
+            return GCC_GEN_BE_ERROR_OOM;
+        }
+
+        int i = 0;
+        for (a_field_ptr f = tp->variant.class_struct_union.field_list; f != NULL; f = f->next) {
+            entries[i].is_base = 0;
+            entries[i].ptr = f;
+            entries[i].offset = (unsigned long)f->offset;
+            entries[i].bit_rem = f->offset_bit_remainder;
+            i++;
+        }
+        if (!has_lowered_base_fields && (tp->kind == tk_class || tp->kind == tk_struct)) {
+            a_class_type_supplement_ptr extra = tp->variant.class_struct_union.extra_info;
+            if (extra) {
+                for (a_base_class_ptr b = extra->direct_base_classes; b != NULL; b = b->next_direct) {
+                    entries[i].is_base = 1;
+                    entries[i].ptr = b;
+                    entries[i].offset = (unsigned long)b->offset;
+                    entries[i].bit_rem = 0;
+                    i++;
+                }
+                for (a_base_class_ptr b = extra->base_classes; b != NULL; b = b->next) {
+                    if (b->is_virtual && !b->direct) {
+                        entries[i].is_base = 1;
+                        entries[i].ptr = b;
+                        entries[i].offset = (unsigned long)b->offset;
+                        entries[i].bit_rem = 0;
+                        i++;
+                    }
+                }
+            }
+        }
+
+        for (int pass = 0; pass < num_entries - 1; pass++) {
+            for (int j = 0; j < num_entries - pass - 1; j++) {
+                if (entries[j].offset > entries[j + 1].offset ||
+                    (entries[j].offset == entries[j + 1].offset && entries[j].bit_rem > entries[j + 1].bit_rem)) {
+                    layout_entry_t tmp = entries[j];
+                    entries[j] = entries[j + 1];
+                    entries[j + 1] = tmp;
+                }
+            }
+        }
+    }
+
+    int max_fields = num_entries * 2 + 1;
+    gcc_jit_field **fields = NULL;
+    if (max_fields > 0) {
+        fields = (gcc_jit_field **)malloc((size_t)max_fields * sizeof(gcc_jit_field *));
+        if (!fields) {
+            if (entries) free(entries);
+            struct_field_lowering_depth--;
+            return GCC_GEN_BE_ERROR_OOM;
+        }
+
+        int num_jit_fields = 0;
+        unsigned long current_offset = 0;
+
+        for (int k = 0; k < num_entries; k++) {
+            layout_entry_t *entry = &entries[k];
+
+            if (entry->offset > current_offset && tp->kind != tk_union) {
+                unsigned long pad_size = entry->offset - current_offset;
+                gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
+                gcc_jit_type *pad_type = gcc_jit_context_new_array_type(ctx, NULL, char_type, (int)pad_size);
+                char pad_name[32];
+                snprintf(pad_name, sizeof(pad_name), "__pad_%lu", current_offset);
+                fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, pad_type, pad_name);
+                current_offset = entry->offset;
+            }
+
+            if (entry->is_base) {
+                a_base_class_ptr b = (a_base_class_ptr)entry->ptr;
+                gcc_jit_type *btype = NULL;
+                err = gcc_gen_be_lower_type(b->type, &btype);
+                if (err != GCC_GEN_BE_SUCCESS) { free(fields); free(entries); struct_field_lowering_depth--; return err; }
+
+                if (!b->is_optimized_empty_base) {
+                    char bname[64];
+                    a_const_char *tname = b->type->source_corresp.name;
+                    snprintf(bname, sizeof(bname), "__base_%s", tname ? tname : "unnamed");
+
+                    unsigned long bsize = edg_type_byte_size(b->type);
+                    if (b->type->kind == tk_class || b->type->kind == tk_struct) {
+                        a_class_type_supplement_ptr b_extra = b->type->variant.class_struct_union.extra_info;
+                        if (b_extra && b_extra->size_without_virtual_base_classes > 0 &&
+                            b_extra->size_without_virtual_base_classes < bsize) {
+                            bsize = (unsigned long)b_extra->size_without_virtual_base_classes;
+                        }
+                    }
+                    if (k + 1 < num_entries && entries[k + 1].offset >= entry->offset &&
+                        entries[k + 1].offset < entry->offset + bsize) {
+                        bsize = entries[k + 1].offset - entry->offset;
+                    }
+
+                    if (bsize == 0) {
+                        /* Zero-size packed base subobject */
+                    } else if (bsize < edg_type_byte_size(b->type)) {
+                        gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
+                        gcc_jit_type *subobj_type = gcc_jit_context_new_array_type(ctx, NULL, char_type, (int)bsize);
+                        fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, subobj_type, bname);
+                        GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, b, fields[num_jit_fields]));
+                        num_jit_fields++;
+                        current_offset = entry->offset + bsize;
+                    } else {
+                        fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, btype, bname);
+                        GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, b, fields[num_jit_fields]));
+                        num_jit_fields++;
+                        current_offset = entry->offset + bsize;
+                    }
+                }
+            } else {
+                a_field_ptr f = (a_field_ptr)entry->ptr;
+                a_const_char *fname = f->source_corresp.name ? f->source_corresp.name : "unnamed_field";
+
+                gcc_jit_type *ftype = NULL;
+                err = gcc_gen_be_lower_type(f->type, &ftype);
+                if (err != GCC_GEN_BE_SUCCESS) { free(fields); free(entries); struct_field_lowering_depth--; return err; }
+
+                if (f->is_optimized_empty_class) {
+                    /* Skip 0-size field */
+                } else if (f->is_bit_field || f->bit_size > 0) {
+                    a_boolean is_zero_width = (f->bit_size == 0) ? TRUE : FALSE;
+                    unsigned long f_end = (unsigned long)f->offset +
+                        (((unsigned long)f->offset_bit_remainder + (unsigned long)f->bit_size + 7UL) / 8UL);
+                    a_boolean container_already_emitted = FALSE;
+                    if (tp->kind != tk_union && current_offset >= f_end && current_offset > f->offset) {
+                        container_already_emitted = TRUE;
+                    }
+
+                    if (!container_already_emitted && !is_zero_width) {
+                        int m = k + 1;
+                        while (m < num_entries && !entries[m].is_base) {
+                            a_field_ptr fm = (a_field_ptr)entries[m].ptr;
+                            if (!(fm->is_bit_field || fm->bit_size > 0)) break;
+                            m++;
+                        }
+                        unsigned long limit_offset = (m < num_entries) ? entries[m].offset : (unsigned long)tp->size;
+                        unsigned long max_bf_end = f_end;
+                        for (int bfi = k + 1; bfi < m; ++bfi) {
+                            a_field_ptr nbf = (a_field_ptr)entries[bfi].ptr;
+                            if (nbf->bit_size > 0) {
+                                unsigned long nbf_end = (unsigned long)nbf->offset +
+                                    (((unsigned long)nbf->offset_bit_remainder + (unsigned long)nbf->bit_size + 7UL) / 8UL);
+                                if (nbf_end <= limit_offset && (nbf_end - current_offset) <= 8UL && nbf_end > max_bf_end) {
+                                    max_bf_end = nbf_end;
+                                }
+                            }
+                        }
+                        unsigned long unit_sz = edg_type_byte_size(f->type);
+                        if (unit_sz == 0 && gcc_jit_type_is_pointer(ftype) == NULL && gcc_jit_type_is_struct(ftype) == NULL) {
+                            unit_sz = (unsigned long)gcc_jit_type_get_size(ftype);
+                        }
+                        if (unit_sz > 0 && unit_sz < 8 &&
+                            ((unsigned long)f->offset_bit_remainder + (unsigned long)f->bit_size) > (unit_sz * 8UL) &&
+                            (f->offset + 8UL) <= tp->size) {
+                            ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG_LONG);
+                            unit_sz = 8UL;
+                        }
+                        unsigned long avail = (limit_offset > current_offset) ? (limit_offset - current_offset) : 1UL;
+                        unsigned long req = (max_bf_end > current_offset) ? (max_bf_end - current_offset) : 1UL;
+                        if (tp->kind != tk_union &&
+                            (unit_sz == 0 || unit_sz > avail || (current_offset % unit_sz) != 0 || unit_sz < req)) {
+                            if (req <= 1UL && avail >= 1UL) {
+                                unit_sz = 1UL;
+                                ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_CHAR);
+                            } else if (req <= 2UL && avail >= 2UL && (current_offset % 2UL) == 0) {
+                                unit_sz = 2UL;
+                                ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_SHORT);
+                            } else if (req <= 4UL && avail >= 4UL && (current_offset % 4UL) == 0) {
+                                unit_sz = 4UL;
+                                ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_INT);
+                            } else if (req <= 8UL && avail >= 8UL && (current_offset % 8UL) == 0) {
+                                unit_sz = 8UL;
+                                ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG_LONG);
+                            } else {
+                                unit_sz = 1UL;
+                                ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_CHAR);
+                            }
+                        }
+                        char cname[64];
+                        snprintf(cname, sizeof(cname), "__bf_container_%lu_%d", current_offset, num_jit_fields);
+                        fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, ftype, cname);
+                        GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[num_jit_fields]));
+                        GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, fields[num_jit_fields], ftype));
+                        num_jit_fields++;
+                        if (tp->kind != tk_union) {
+                            current_offset += unit_sz;
+                            while (current_offset < f_end && current_offset < limit_offset) {
+                                if (num_jit_fields + 2 >= max_fields) {
+                                    max_fields = max_fields * 2 + 8;
+                                    gcc_jit_field **new_fields = (gcc_jit_field **)realloc(fields, (size_t)max_fields * sizeof(gcc_jit_field *));
+                                    if (!new_fields) { free(fields); free(entries); struct_field_lowering_depth--; return GCC_GEN_BE_ERROR_OOM; }
+                                    fields = new_fields;
+                                }
+                                gcc_jit_type *uch_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_CHAR);
+                                snprintf(cname, sizeof(cname), "__bf_cont_ext_%lu_%d", current_offset, num_jit_fields);
+                                fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, uch_t, cname);
+                                current_offset += 1UL;
+                            }
+                        }
+                    } else if (num_jit_fields > 0) {
+                        GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[num_jit_fields - 1]));
+                    }
+                } else {
+                    unsigned long fsize = edg_type_byte_size(f->type);
+                    fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, ftype, fname);
+                    GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[num_jit_fields]));
+                    if (has_lowered_base_fields && (tp->kind == tk_class || tp->kind == tk_struct) &&
+                        tp->variant.class_struct_union.extra_info) {
+                        a_class_type_supplement_ptr extra = tp->variant.class_struct_union.extra_info;
+                        for (a_base_class_ptr b = extra->base_classes ? extra->base_classes : extra->direct_base_classes;
+                             b != NULL;
+                             b = extra->base_classes ? b->next : b->next_direct) {
+                            if (b->offset == f->offset) {
+                                GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, b, fields[num_jit_fields]));
+                            }
+                        }
+                    }
+                    a_type_ptr f_tp = f->type;
+                    while (f_tp && f_tp->kind == tk_typeref) f_tp = f_tp->variant.typeref.type;
+                    if (f->is_anonymous_parent_object && f_tp &&
+                        (f_tp->kind == tk_union || f_tp->kind == tk_struct || f_tp->kind == tk_class)) {
+                        for (a_field_ptr subf = f_tp->variant.class_struct_union.field_list; subf != NULL; subf = subf->next) {
+                            void *sub_cached = NULL;
+                            err = cache_lookup(GCC_GEN_BE_CACHE_FIELD, subf, &sub_cached);
+                            if (err != GCC_GEN_BE_SUCCESS || !sub_cached) {
+                                GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, subf, fields[num_jit_fields]));
+                            }
+                        }
+                    }
+                    num_jit_fields++;
+                    current_offset = entry->offset + fsize;
+                }
+            }
+        }
+
+        if (current_offset < tp->size && tp->kind != tk_union) {
+            unsigned long pad_size = (unsigned long)tp->size - current_offset;
+            gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
+            gcc_jit_type *pad_type = gcc_jit_context_new_array_type(ctx, NULL, char_type, (int)pad_size);
+            fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, pad_type, "__tail_pad");
+        } else if (num_jit_fields == 0) {
+            gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
+            fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, char_type, "__empty_pad");
+        }
+
+        if (entries) free(entries);
+
+        if (tp->kind == tk_union) {
+            res = gcc_jit_context_new_union_type(ctx, NULL, name, num_jit_fields, fields);
+            err = cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res);
+            if (err != GCC_GEN_BE_SUCCESS) { free(fields); struct_field_lowering_depth--; return err; }
+        } else {
+            gcc_jit_struct_set_fields(s, NULL, num_jit_fields, fields);
+        }
+        free(fields);
+    }
+
+    GCC_GEN_BE_CHECK(gcc_gen_be_emit_type_debug_info(tp, res));
+
+    struct_field_lowering_depth--;
+    if (struct_field_lowering_depth == 0) {
+        a_boolean progress = TRUE;
+        while (progress) {
+            progress = FALSE;
+            for (int i = 0; i < deferred_structs_count; ++i) {
+                if (!deferred_structs[i].completed && !deferred_structs[i].in_progress) {
+                    deferred_structs[i].in_progress = TRUE;
+                    gcc_jit_type *def_type = deferred_structs[i].jit_type;
+                    err = populate_struct_fields(ctx, deferred_structs[i].tp, deferred_structs[i].jit_struct, &def_type);
+                    deferred_structs[i].completed = TRUE;
+                    deferred_structs[i].in_progress = FALSE;
+                    if (err != GCC_GEN_BE_SUCCESS) return err;
+                    progress = TRUE;
+                }
+            }
+        }
+    }
+
+    *io_res = res;
+    return GCC_GEN_BE_SUCCESS;
+}
 
 /**
  * @brief Lowers an EDG frontend type into a libgccjit type.
@@ -42,12 +410,31 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
   gcc_jit_context *ctx = NULL;
   GCC_GEN_BE_CHECK(gcc_gen_be_get_context(&ctx));
   if (!ctx) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
+  if (ctx != last_type_ctx) {
+      last_type_ctx = ctx;
+      deferred_structs_count = 0;
+      struct_field_lowering_depth = 0;
+  }
 
   void *cached = NULL;
   gcc_gen_be_error_t err = cache_lookup(GCC_GEN_BE_CACHE_TYPE, tp, &cached);
   if (err != GCC_GEN_BE_SUCCESS) return err;
   if (cached) {
-      *out_type = (gcc_jit_type *)cached;
+      gcc_jit_type *cached_type = (gcc_jit_type *)cached;
+      if (tp->kind == tk_class || tp->kind == tk_struct) {
+          for (int i = 0; i < deferred_structs_count; ++i) {
+              if (deferred_structs[i].tp == tp) {
+                  if (!deferred_structs[i].completed && !deferred_structs[i].in_progress) {
+                      deferred_structs[i].in_progress = TRUE;
+                      GCC_GEN_BE_CHECK(populate_struct_fields(ctx, tp, deferred_structs[i].jit_struct, &cached_type));
+                      deferred_structs[i].completed = TRUE;
+                      deferred_structs[i].in_progress = FALSE;
+                  }
+                  break;
+              }
+          }
+      }
+      *out_type = cached_type;
       return GCC_GEN_BE_SUCCESS;
   }
   
@@ -206,6 +593,28 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
           while (pts_to && pts_to->kind == tk_typeref) pts_to = pts_to->variant.typeref.type;
           if (!pts_to || pts_to->kind == tk_void) {
               res = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID_PTR);
+          } else if (struct_field_lowering_depth > 0 &&
+                     (pts_to->kind == tk_class || pts_to->kind == tk_struct)) {
+              void *pts_cached = NULL;
+              GCC_GEN_BE_CHECK(cache_lookup(GCC_GEN_BE_CACHE_TYPE, pts_to, &pts_cached));
+              gcc_jit_type *elem = (gcc_jit_type *)pts_cached;
+              if (!elem) {
+                  a_const_char *sname = pts_to->source_corresp.name ? pts_to->source_corresp.name : "unnamed_struct";
+                  gcc_jit_location *sloc = NULL;
+                  GCC_GEN_BE_CHECK(gcc_gen_be_get_location_from_type(pts_to, &sloc));
+                  gcc_jit_struct *s = gcc_jit_context_new_opaque_struct(ctx, sloc, sname);
+                  elem = gcc_jit_struct_as_type(s);
+                  GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, pts_to, elem));
+                  if (deferred_structs_count < 4096) {
+                      deferred_structs[deferred_structs_count].tp = pts_to;
+                      deferred_structs[deferred_structs_count].jit_struct = s;
+                      deferred_structs[deferred_structs_count].jit_type = elem;
+                      deferred_structs[deferred_structs_count].in_progress = FALSE;
+                      deferred_structs[deferred_structs_count].completed = FALSE;
+                      deferred_structs_count++;
+                  }
+              }
+              res = gcc_jit_type_get_pointer(elem);
           } else {
               gcc_jit_type *elem = NULL;
               GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(tp->variant.pointer.type, &elem));
@@ -250,255 +659,19 @@ gcc_gen_be_error_t gcc_gen_be_lower_type(a_type_ptr tp, gcc_jit_type **out_type)
          gcc_jit_struct *s = gcc_jit_context_new_opaque_struct(ctx, type_loc, name);
          res = gcc_jit_struct_as_type(s);
          GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res));
-         GCC_GEN_BE_CHECK(gcc_gen_be_emit_type_debug_info(tp, res));
-         
-         typedef struct {
-             int is_base;
-             void *ptr; /* a_field_ptr or a_base_class_ptr */
-             unsigned long offset;
-             unsigned int bit_rem;
-         } layout_entry_t;
-         
-         int num_entries = 0;
-         a_boolean has_lowered_base_fields = FALSE;
-         for (a_field_ptr f = tp->variant.class_struct_union.field_list; f != NULL; f = f->next) {
-             num_entries++;
-             if (f->source_corresp.name && strncmp(f->source_corresp.name, "__b_", 4) == 0) {
-                 has_lowered_base_fields = TRUE;
-             }
+         int def_idx = -1;
+         if ((tp->kind == tk_class || tp->kind == tk_struct) && deferred_structs_count < 4096) {
+             def_idx = deferred_structs_count++;
+             deferred_structs[def_idx].tp = tp;
+             deferred_structs[def_idx].jit_struct = s;
+             deferred_structs[def_idx].jit_type = res;
+             deferred_structs[def_idx].in_progress = TRUE;
+             deferred_structs[def_idx].completed = FALSE;
          }
-         if (!has_lowered_base_fields && (tp->kind == tk_class || tp->kind == tk_struct)) {
-             a_class_type_supplement_ptr extra = tp->variant.class_struct_union.extra_info;
-             if (extra) {
-                 for (a_base_class_ptr b = extra->direct_base_classes; b != NULL; b = b->next_direct) num_entries++;
-                 for (a_base_class_ptr b = extra->base_classes; b != NULL; b = b->next) {
-                     if (b->is_virtual && !b->direct) num_entries++;
-                 }
-             }
-         }
-         
-         layout_entry_t *entries = NULL;
-         if (num_entries > 0) {
-             entries = (layout_entry_t *)malloc((size_t)num_entries * sizeof(layout_entry_t));
-             if (!entries) return GCC_GEN_BE_ERROR_OOM;
-             
-             int i = 0;
-             for (a_field_ptr f = tp->variant.class_struct_union.field_list; f != NULL; f = f->next) {
-                 entries[i].is_base = 0;
-                 entries[i].ptr = f;
-                 entries[i].offset = (unsigned long)f->offset;
-                 entries[i].bit_rem = f->offset_bit_remainder;
-                 i++;
-             }
-             if (!has_lowered_base_fields && (tp->kind == tk_class || tp->kind == tk_struct)) {
-                 a_class_type_supplement_ptr extra = tp->variant.class_struct_union.extra_info;
-                 if (extra) {
-                     for (a_base_class_ptr b = extra->direct_base_classes; b != NULL; b = b->next_direct) {
-                         entries[i].is_base = 1;
-                         entries[i].ptr = b;
-                         entries[i].offset = (unsigned long)b->offset;
-                         entries[i].bit_rem = 0;
-                         i++;
-                     }
-                     for (a_base_class_ptr b = extra->base_classes; b != NULL; b = b->next) {
-                         if (b->is_virtual && !b->direct) {
-                             entries[i].is_base = 1;
-                             entries[i].ptr = b;
-                             entries[i].offset = (unsigned long)b->offset;
-                             entries[i].bit_rem = 0;
-                             i++;
-                         }
-                     }
-                 }
-             }
-             
-             /* Sort entries by offset and bit_rem using bubble sort for simplicity */
-             for (int pass = 0; pass < num_entries - 1; pass++) {
-                 for (int j = 0; j < num_entries - pass - 1; j++) {
-                     if (entries[j].offset > entries[j+1].offset ||
-                         (entries[j].offset == entries[j+1].offset && entries[j].bit_rem > entries[j+1].bit_rem)) {
-                         layout_entry_t tmp = entries[j];
-                         entries[j] = entries[j+1];
-                         entries[j+1] = tmp;
-                     }
-                 }
-             }
-         }
-         
-         /* We will build the fields array including padding */
-         int max_fields = num_entries * 2 + 1; /* worst case: pad before every field + tail pad */
-         gcc_jit_field **fields = NULL;
-         if (max_fields > 0) {
-             fields = (gcc_jit_field **)malloc((size_t)max_fields * sizeof(gcc_jit_field*));
-             if (!fields) {
-                 if (entries) free(entries);
-                 return GCC_GEN_BE_ERROR_OOM;
-             }
-             
-             int num_jit_fields = 0;
-             unsigned long current_offset = 0;
-             
-             for (int k = 0; k < num_entries; k++) {
-                 layout_entry_t *entry = &entries[k];
-                 
-                 /* Check for padding */
-                 if (entry->offset > current_offset && tp->kind != tk_union) {
-                     unsigned long pad_size = entry->offset - current_offset;
-                     gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
-                     gcc_jit_type *pad_type = gcc_jit_context_new_array_type(ctx, NULL, char_type, (int)pad_size);
-                     char pad_name[32];
-                     snprintf(pad_name, sizeof(pad_name), "__pad_%lu", current_offset);
-                     fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, pad_type, pad_name);
-                     current_offset = entry->offset;
-                 }
-                 
-                 if (entry->is_base) {
-                     a_base_class_ptr b = (a_base_class_ptr)entry->ptr;
-                     gcc_jit_type *btype = NULL;
-                     err = gcc_gen_be_lower_type(b->type, &btype);
-                     if (err != GCC_GEN_BE_SUCCESS) { free(fields); free(entries); return err; }
-                     
-                     if (b->is_optimized_empty_base) {
-                         /* Skip zero-size optimized empty base; tail padding or subsequent fields handle offset */
-                     } else {
-                         char bname[64];
-                         a_const_char *tname = b->type->source_corresp.name;
-                         snprintf(bname, sizeof(bname), "__base_%s", tname ? tname : "unnamed");
-
-                         /* Determine effective base subobject size (without virtual bases and accounting for tail-padding packing) */
-                         unsigned long bsize = (unsigned long)b->type->size;
-                         if (b->type->kind == tk_class || b->type->kind == tk_struct) {
-                             a_class_type_supplement_ptr b_extra = b->type->variant.class_struct_union.extra_info;
-                             if (b_extra && b_extra->size_without_virtual_base_classes > 0 &&
-                                 b_extra->size_without_virtual_base_classes < bsize) {
-                                 bsize = (unsigned long)b_extra->size_without_virtual_base_classes;
-                             }
-                         }
-                         /* Check if subsequent derived fields or bases are packed into the tail padding of this base subobject */
-                         if (k + 1 < num_entries && entries[k + 1].offset >= entry->offset &&
-                             entries[k + 1].offset < entry->offset + bsize) {
-                             bsize = entries[k + 1].offset - entry->offset;
-                         }
-
-                         if (bsize == 0) {
-                             /* Zero-size packed base subobject: skip emitting a 0-length array field */
-                         } else if (bsize < b->type->size) {
-                             gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
-                             gcc_jit_type *subobj_type = gcc_jit_context_new_array_type(ctx, NULL, char_type, (int)bsize);
-                             fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, subobj_type, bname);
-                             GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, b, fields[num_jit_fields]));
-                             num_jit_fields++;
-                             current_offset = entry->offset + bsize;
-                         } else {
-                             fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, btype, bname);
-                             GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, b, fields[num_jit_fields]));
-                             num_jit_fields++;
-                             current_offset = entry->offset + bsize;
-                         }
-                     }
-                 } else {
-                     a_field_ptr f = (a_field_ptr)entry->ptr;
-                     a_const_char *fname = f->source_corresp.name;
-                     if (!fname) fname = "unnamed_field";
-                     
-                     gcc_jit_type *ftype = NULL;
-                     err = gcc_gen_be_lower_type(f->type, &ftype);
-                     if (err != GCC_GEN_BE_SUCCESS) { free(fields); free(entries); return err; }
-                     
-                     if (f->is_optimized_empty_class) {
-                         /* Optimized empty class field (`[[no_unique_address]]`): skip 0-size field */
-                     } else if (f->is_bit_field || f->bit_size > 0) {
-                         /* Phase 6: Bitfield Allocation Engine. 
-                            Synthesize an explicit container field matching EDG's allocation unit 
-                            instead of using gcc_jit_context_new_bitfield. */
-                         a_boolean is_zero_width = (f->bit_size == 0) ? TRUE : FALSE;
-                         a_boolean container_already_emitted = FALSE;
-                         /* If current_offset is ahead of f->offset (in a struct/class), we already emitted a container 
-                            that covers this bitfield. In a union, each overlapping bitfield at offset 0 is its own union member. */
-                         if (tp->kind != tk_union && current_offset > f->offset) {
-                             container_already_emitted = TRUE;
-                         }
-                         
-                         if (!container_already_emitted && !is_zero_width) {
-                             char cname[64];
-                             snprintf(cname, sizeof(cname), "__bf_container_%lu_%d", current_offset, num_jit_fields);
-                             unsigned long unit_sz = (unsigned long)gcc_jit_type_get_size(ftype);
-                             if (unit_sz > 0 && unit_sz < 8 &&
-                                 ((unsigned long)f->offset_bit_remainder + (unsigned long)f->bit_size) > (unit_sz * 8UL) &&
-                                 (f->offset + 8UL) <= tp->size) {
-                                 ftype = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG_LONG);
-                                 unit_sz = 8UL;
-                             }
-                             unsigned long aligned_off = (unit_sz > 0) ? (((unsigned long)f->offset / unit_sz) * unit_sz) : (unsigned long)f->offset;
-                             fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, ftype, cname);
-                             GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[num_jit_fields]));
-                             num_jit_fields++;
-                             if (tp->kind != tk_union) {
-                                 current_offset = aligned_off + unit_sz;
-                             }
-                         } else {
-                             if (num_jit_fields > 0) {
-                                 GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[num_jit_fields - 1]));
-                             }
-                             if (is_zero_width) {
-                                 /* Zero-width bitfields force alignment to next boundary.
-                                    EDG handles offset calculation, so we just let next fields pad. */
-                             }
-                         }
-                     } else {
-                         unsigned long fsize = (unsigned long)f->type->size;
-                         fields[num_jit_fields] = gcc_jit_context_new_field(ctx, NULL, ftype, fname);
-                         GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, f, fields[num_jit_fields]));
-                         if (has_lowered_base_fields && (tp->kind == tk_class || tp->kind == tk_struct) &&
-                             tp->variant.class_struct_union.extra_info) {
-                             a_class_type_supplement_ptr extra = tp->variant.class_struct_union.extra_info;
-                             for (a_base_class_ptr b = extra->base_classes ? extra->base_classes : extra->direct_base_classes;
-                                  b != NULL;
-                                  b = extra->base_classes ? b->next : b->next_direct) {
-                                 if (b->offset == f->offset) {
-                                     GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, b, fields[num_jit_fields]));
-                                 }
-                             }
-                         }
-                         /* If this field is an anonymous union or anonymous struct parent object, ensure its inner fields are lowered and cached */
-                         if (f->is_anonymous_parent_object && f->type &&
-                             (f->type->kind == tk_union || f->type->kind == tk_struct || f->type->kind == tk_class)) {
-                             for (a_field_ptr subf = f->type->variant.class_struct_union.field_list; subf != NULL; subf = subf->next) {
-                                 void *sub_cached = NULL;
-                                 err = cache_lookup(GCC_GEN_BE_CACHE_FIELD, subf, &sub_cached);
-                                 if (err != GCC_GEN_BE_SUCCESS || !sub_cached) {
-                                     GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_FIELD, subf, fields[num_jit_fields]));
-                                 }
-                             }
-                         }
-                         num_jit_fields++;
-                         current_offset = entry->offset + fsize;
-                     }
-                 }
-             }
-             
-             /* Tail padding */
-             if (current_offset < tp->size && tp->kind != tk_union) {
-                 unsigned long pad_size = (unsigned long)tp->size - current_offset;
-                 gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
-                 gcc_jit_type *pad_type = gcc_jit_context_new_array_type(ctx, NULL, char_type, (int)pad_size);
-                 fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, pad_type, "__tail_pad");
-             } else if (num_jit_fields == 0) {
-                 gcc_jit_type *char_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR);
-                 fields[num_jit_fields++] = gcc_jit_context_new_field(ctx, NULL, char_type, "__empty_pad");
-             }
-             
-             if (entries) free(entries);
-             
-            if (tp->kind == tk_union) {
-                res = gcc_jit_context_new_union_type(ctx, NULL, name, num_jit_fields, fields);
-                /* Overwrite cached opaque struct with the actual union */
-                err = cache_insert(GCC_GEN_BE_CACHE_TYPE, tp, res);
-                if (err != GCC_GEN_BE_SUCCESS) { free(fields); return err; }
-            } else {
-                gcc_jit_struct_set_fields(s, NULL, num_jit_fields, fields);
-            }
-            free(fields);
+         GCC_GEN_BE_CHECK(populate_struct_fields(ctx, tp, s, &res));
+         if (def_idx >= 0) {
+             deferred_structs[def_idx].completed = TRUE;
+             deferred_structs[def_idx].in_progress = FALSE;
          }
          *out_type = res;
          return GCC_GEN_BE_SUCCESS;
@@ -672,8 +845,13 @@ gcc_gen_be_error_t gcc_gen_be_get_zero_rvalue(a_type_ptr tp, struct gcc_jit_type
     gcc_jit_type *arr_type = NULL;
     GCC_GEN_BE_CHECK(gcc_gen_be_lower_type(stripped, &arr_type));
     *out_rval = gcc_jit_context_new_array_constructor(ctx, NULL, arr_type, 0, NULL);
-  } else if (stripped && stripped->kind == tk_void) {
+  } else if ((stripped && stripped->kind == tk_void) ||
+             jit_type == gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID)) {
     *out_rval = NULL;
+  } else if (jit_type && gcc_jit_type_is_pointer(jit_type) != NULL) {
+    *out_rval = gcc_jit_context_null(ctx, jit_type);
+  } else if (jit_type && gcc_jit_type_is_struct(jit_type) != NULL) {
+    *out_rval = gcc_jit_context_new_struct_constructor(ctx, NULL, jit_type, 0, NULL, NULL);
   } else {
     *out_rval = gcc_jit_context_zero(ctx, jit_type);
   }

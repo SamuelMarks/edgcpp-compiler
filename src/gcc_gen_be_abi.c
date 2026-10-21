@@ -1330,7 +1330,7 @@ gcc_gen_be_error_t gcc_gen_be_get_coerced_abi_type(
     while (t && t->kind == tk_typeref) t = t->variant.typeref.type;
     if (!t) return GCC_GEN_BE_ERROR_COERCION_FAILED;
 
-    void *cache_key = (void *)((uintptr_t)t ^ (((uintptr_t)target_abi + 1u) << 3));
+    void *cache_key = (void *)(((uintptr_t)t ^ (((uintptr_t)target_abi + 1u) << 48)) | (uintptr_t)1u);
     void *cached_coerced = NULL;
     if (cache_lookup(GCC_GEN_BE_CACHE_TYPE, cache_key, &cached_coerced) == GCC_GEN_BE_SUCCESS && cached_coerced) {
         *out_coerced_type = (gcc_jit_type *)cached_coerced;

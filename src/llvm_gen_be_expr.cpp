@@ -112,7 +112,7 @@ static llvm_gen_be_error_t compute_bitfield_container_bits(
     unsigned bit_size = field->bit_size;
     llvm::Triple triple(be_state->module->getTargetTriple());
     bool is_msvc = triple.isWindowsMSVCEnvironment();
-    unsigned container_bits = field->type->size * 8;
+    unsigned container_bits = static_cast<unsigned>(skip_typerefs(field->type)->size * 8);
     if ((!is_vol && !is_msvc) || container_bits == 0) {
         container_bits = ((bit_offset + bit_size + 7) / 8) * 8;
         if (container_bits == 24) container_bits = 32;
@@ -518,6 +518,18 @@ llvm_gen_be_error_t llvm_lower_lvalue_expression(
   if (!expr || !out_ptr) return llvm_gen_be_error_t::invalid_argument;
   
   switch (expr->kind) {
+    case enk_constant: {
+       if (!expr->variant.constant.ptr || expr->variant.constant.ptr->kind != ck_string) {
+           return llvm_gen_be_error_t::unsupported_expr;
+       }
+       llvm::Constant* out_const = nullptr;
+       LLVM_GEN_BE_ASSERT_OK(evaluate_constant(
+           expr->variant.constant.ptr,
+           llvm::PointerType::getUnqual(*be_state->context),
+           &out_const));
+       *out_ptr = out_const;
+       return llvm_gen_be_error_t::ok;
+    }
     case enk_variable: {
        a_variable_ptr var = expr->variant.variable.ptr;
        if (!var) return llvm_gen_be_error_t::unsupported_expr;
@@ -580,7 +592,7 @@ llvm_gen_be_error_t llvm_lower_lvalue_expression(
        an_expr_operator_kind k = expr->variant.operation.kind;
 
        if (k == eok_parens || k == eok_lvalue || k == eok_lvalue_adjust ||
-           k == eok_lvalue_cast) {
+           k == eok_lvalue_cast || k == eok_array_to_pointer) {
          return llvm_lower_lvalue_expression(op1, out_ptr);
        }
 
@@ -658,7 +670,12 @@ llvm_gen_be_error_t llvm_lower_lvalue_expression(
        }
 
        llvm::Value* v1 = nullptr;
-       LLVM_GEN_BE_CHECK(llvm_lower_expression(op1, &v1));
+       if (k == eok_dot_field ||
+           (k == eok_subscript && op1->type && skip_typerefs(op1->type)->kind == tk_array)) {
+         LLVM_GEN_BE_CHECK(llvm_lower_lvalue_expression(op1, &v1));
+       } else {
+         LLVM_GEN_BE_CHECK(llvm_lower_expression(op1, &v1));
+       }
        if (!v1->getType()->isPointerTy()) return llvm_gen_be_error_t::unsupported_expr;
        if (k == eok_indirect) {
          *out_ptr = v1;
@@ -785,7 +802,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
       } else if (v1->getType()->isFPOrFPVectorTy()) {
         *out_val = be_state->builder->CreateFNeg(v1);
       } else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
-                 int_kind_is_signed[op1->type->variant.integer.int_kind]) {
+                 int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind]) {
         llvm::Value* zero = llvm::ConstantInt::get(v1->getType(), 0);
         llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::ssub_with_overflow, {v1->getType()});
@@ -812,7 +829,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         *out_val = be_state->builder->CreateInsertValue(res, i, 1);
       } else if (v1->getType()->isFPOrFPVectorTy()) *out_val = be_state->builder->CreateFAdd(v1, v2);
       else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
-               int_kind_is_signed[op1->type->variant.integer.int_kind]) {
+               int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind]) {
         llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::sadd_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {v1, v2});
@@ -833,7 +850,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         *out_val = be_state->builder->CreateInsertValue(res, i, 1);
       } else if (v1->getType()->isFPOrFPVectorTy()) *out_val = be_state->builder->CreateFSub(v1, v2);
       else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
-               int_kind_is_signed[op1->type->variant.integer.int_kind]) {
+               int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind]) {
         llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::ssub_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {v1, v2});
@@ -847,7 +864,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         LLVM_GEN_BE_ASSERT_OK(emit_complex_libcall("__mulsc3", "__muldc3", v1, v2, out_val));
       } else if (v1->getType()->isFPOrFPVectorTy()) *out_val = be_state->builder->CreateFMul(v1, v2);
       else if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy() &&
-               int_kind_is_signed[op1->type->variant.integer.int_kind]) {
+               int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind]) {
         llvm::Function* intr = EDG_LLVM_GET_INTRINSIC_DECL(
             be_state->module.get(), llvm::Intrinsic::smul_with_overflow, {v1->getType()});
         llvm::Value* pair = be_state->builder->CreateCall(intr, {v1, v2});
@@ -866,7 +883,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
               v2, llvm::ConstantInt::get(v2->getType(), 0));
           LLVM_GEN_BE_ASSERT_OK(emit_ubsan_check_branch(is_zero, "__ubsan_handle_divrem_overflow"));
         }
-        if (int_kind_is_signed[op1->type->variant.integer.int_kind]) *out_val = be_state->builder->CreateSDiv(v1, v2);
+        if (int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind]) *out_val = be_state->builder->CreateSDiv(v1, v2);
         else *out_val = be_state->builder->CreateUDiv(v1, v2);
       }
       break;
@@ -878,7 +895,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
               v2, llvm::ConstantInt::get(v2->getType(), 0));
           LLVM_GEN_BE_ASSERT_OK(emit_ubsan_check_branch(is_zero, "__ubsan_handle_divrem_overflow"));
         }
-        if (!int_kind_is_signed[expr->type->variant.integer.int_kind]) *out_val = be_state->builder->CreateURem(v1, v2);
+        if (!int_kind_is_signed[skip_typerefs(expr->type)->variant.integer.int_kind]) *out_val = be_state->builder->CreateURem(v1, v2);
         else *out_val = be_state->builder->CreateSRem(v1, v2);
       }
       break;
@@ -890,7 +907,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         cmp = is_min ? be_state->builder->CreateFCmpOLT(v1, v2)
                      : be_state->builder->CreateFCmpOGT(v1, v2);
       } else {
-        bool is_signed = int_kind_is_signed[op1->type->variant.integer.int_kind];
+        bool is_signed = int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind];
         llvm::CmpInst::Predicate pred = is_min
             ? (is_signed ? llvm::CmpInst::ICMP_SLT : llvm::CmpInst::ICMP_ULT)
             : (is_signed ? llvm::CmpInst::ICMP_SGT : llvm::CmpInst::ICMP_UGT);
@@ -901,15 +918,23 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
     }
     case eok_padd:
     case eok_psubtract:
-    case eok_pdiff:
-      if (op1->type->kind == tk_pointer) {
+    case eok_pdiff: {
+      a_type_ptr ptr_edg_ty = skip_typerefs(op1->type);
+      llvm::Value* base_ptr = v1;
+      llvm::Value* idx_val = v2;
+      if (ptr_edg_ty->kind != tk_pointer) {
+        ptr_edg_ty = skip_typerefs(op1->next->type);
+        base_ptr = v2;
+        idx_val = v1;
+      }
+      if (ptr_edg_ty->kind == tk_pointer) {
         llvm::Type* elem_ty = nullptr;
-        if (get_llvm_type(op1->type->variant.pointer.type, &elem_ty) != llvm_gen_be_error_t::ok) return llvm_gen_be_error_t::unsupported_expr;
+        if (get_llvm_type(ptr_edg_ty->variant.pointer.type, &elem_ty) != llvm_gen_be_error_t::ok) return llvm_gen_be_error_t::unsupported_expr;
         if (expr->variant.operation.kind == eok_pdiff) {
           *out_val = be_state->builder->CreatePtrDiff(elem_ty, v1, v2);
         } else {
-          llvm::Value* idx = (expr->variant.operation.kind == eok_psubtract) ? be_state->builder->CreateNeg(v2) : v2;
-          *out_val = be_state->builder->CreateGEP(elem_ty, v1, idx);
+          llvm::Value* idx = (expr->variant.operation.kind == eok_psubtract) ? be_state->builder->CreateNeg(idx_val) : idx_val;
+          *out_val = be_state->builder->CreateGEP(elem_ty, base_ptr, idx);
         }
       } else if (expr->variant.operation.kind == eok_pdiff) {
         return llvm_gen_be_error_t::unsupported_expr;
@@ -917,6 +942,7 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         *out_val = v1;
       }
       break;
+    }
     case eok_fjadd: {
       llvm::Value* res = be_state->builder->CreateInsertValue(llvm::UndefValue::get(llvm::StructType::get(v1->getType(), v2->getType())), v1, 0);
       *out_val = be_state->builder->CreateInsertValue(res, v2, 1);
@@ -971,17 +997,19 @@ llvm_gen_be_error_t llvm_lower_arithmetic_expression(
         llvm::Value* oob = be_state->builder->CreateICmpUGE(v2, llvm::ConstantInt::get(v2->getType(), bw));
         LLVM_GEN_BE_ASSERT_OK(emit_ubsan_check_branch(oob, "__ubsan_handle_shift_out_of_bounds"));
       }
-      *out_val = be_state->builder->CreateShl(v1, v2);
+      *out_val = be_state->builder->CreateShl(v1, be_state->builder->CreateZExtOrTrunc(v2, v1->getType()));
       break;
-    case eok_shiftr:
+    case eok_shiftr: {
       if (be_state->enable_ubsan_checks && v1->getType()->isIntegerTy()) {
         unsigned bw = v1->getType()->getIntegerBitWidth();
         llvm::Value* oob = be_state->builder->CreateICmpUGE(v2, llvm::ConstantInt::get(v2->getType(), bw));
         LLVM_GEN_BE_ASSERT_OK(emit_ubsan_check_branch(oob, "__ubsan_handle_shift_out_of_bounds"));
       }
-      if (!int_kind_is_signed[op1->type->variant.integer.int_kind]) *out_val = be_state->builder->CreateLShr(v1, v2);
-      else *out_val = be_state->builder->CreateAShr(v1, v2);
+      llvm::Value* sh_v2 = be_state->builder->CreateZExtOrTrunc(v2, v1->getType());
+      if (!int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind]) *out_val = be_state->builder->CreateLShr(v1, sh_v2);
+      else *out_val = be_state->builder->CreateAShr(v1, sh_v2);
       break;
+    }
     default: return llvm_gen_be_error_t::unsupported_expr;
   }
   return llvm_gen_be_error_t::ok;
@@ -1073,8 +1101,9 @@ llvm_gen_be_error_t llvm_lower_logical_expression(
 
   bool is_fp = v1->getType()->isFPOrFPVectorTy();
   bool is_ptr = v1->getType()->isPointerTy();
-  bool is_unsigned = !is_fp && !is_ptr && op1->type->kind == tk_integer &&
-                     !int_kind_is_signed[op1->type->variant.integer.int_kind];
+  a_type_ptr raw_op1_ty = skip_typerefs(op1->type);
+  bool is_unsigned = !is_fp && !is_ptr && raw_op1_ty->kind == tk_integer &&
+                     !int_kind_is_signed[raw_op1_ty->variant.integer.int_kind];
 
   if (expr->variant.operation.kind == eok_spaceship) {
      llvm::Value* res = nullptr;
@@ -1117,12 +1146,12 @@ llvm_gen_be_error_t llvm_lower_logical_expression(
   if (is_fp) *out_val = be_state->builder->CreateFCmp(pred, v1, v2);
   else *out_val = be_state->builder->CreateICmp(pred, v1, v2);
   
-  if (expr->variant.operation.kind == eok_not) {
-     if (!expr_llvm_ty->isVectorTy() && expr_llvm_ty->getIntegerBitWidth() > 1) {
-        *out_val = be_state->builder->CreateZExt(*out_val, expr_llvm_ty);
+  if ((*out_val)->getType()->isVectorTy()) {
+     if (expr->variant.operation.kind != eok_not) {
+        *out_val = be_state->builder->CreateSExt(*out_val, expr_llvm_ty);
      }
-  } else if ((*out_val)->getType()->isVectorTy()) {
-      *out_val = be_state->builder->CreateSExt(*out_val, expr_llvm_ty);
+  } else if (expr_llvm_ty->getIntegerBitWidth() > 1) {
+     *out_val = be_state->builder->CreateZExt(*out_val, expr_llvm_ty);
   }
   return llvm_gen_be_error_t::ok;
 }
@@ -1260,7 +1289,7 @@ llvm_gen_be_error_t llvm_lower_cast_expression(
            llvm::Value* is_nan = be_state->builder->CreateFCmpUNO(v1, v1, "ubsan.fpcast.nan");
            LLVM_GEN_BE_ASSERT_OK(emit_ubsan_check_branch(is_nan, "__ubsan_handle_float_cast_overflow"));
         }
-        if (!int_kind_is_signed[expr->type->variant.integer.int_kind]) {
+        if (!int_kind_is_signed[skip_typerefs(expr->type)->variant.integer.int_kind]) {
            *out_val = be_state->builder->CreateFPToUI(v1, dest_ty);
         } else {
            *out_val = be_state->builder->CreateFPToSI(v1, dest_ty);
@@ -1270,7 +1299,7 @@ llvm_gen_be_error_t llvm_lower_cast_expression(
   }
   
   if (src_ty->isIntegerTy()) {
-     bool src_is_unsigned = !int_kind_is_signed[op1->type->variant.integer.int_kind];
+     bool src_is_unsigned = !int_kind_is_signed[skip_typerefs(op1->type)->variant.integer.int_kind];
      if (dest_ty->isFloatingPointTy()) {
         *out_val = src_is_unsigned ? be_state->builder->CreateUIToFP(v1, dest_ty)
                                    : be_state->builder->CreateSIToFP(v1, dest_ty);
@@ -1385,6 +1414,7 @@ static llvm_gen_be_error_t llvm_lower_overloaded_intrinsic_builtin(
     {"__builtin_trunc", llvm::Intrinsic::trunc},
     {"__builtin_floor", llvm::Intrinsic::floor},
     {"__builtin_ceil", llvm::Intrinsic::ceil},
+    {"__builtin_fabs", llvm::Intrinsic::fabs},
     {"__builtin_bswap", llvm::Intrinsic::bswap},
     {"__builtin_constant_p", llvm::Intrinsic::is_constant},
   };
@@ -1435,10 +1465,10 @@ llvm_gen_be_error_t llvm_lower_call_expression(
      if (func_ty_edg->kind == tk_routine) {
          llvm::Triple triple(be_state->module->getTargetTriple());
          llvm_gen_be_error_t err = llvm_gen_be_error_t::ok;
-         if (triple.isOSWindows()) {
-           err = build_win64_function_type(func_ty_edg, &callee_ty, &callee_attrs);
-         } else if (triple.isAArch64()) {
+         if (triple.isAArch64()) {
            err = build_aapcs64_function_type(func_ty_edg, &callee_ty, &callee_attrs);
+         } else if (triple.isOSWindows()) {
+           err = build_win64_function_type(func_ty_edg, &callee_ty, &callee_attrs);
          } else if (triple.getArch() == llvm::Triple::x86) {
            err = build_x86_32_function_type(func_ty_edg, &callee_ty, &callee_attrs);
          } else if (triple.isARM() || triple.isThumb()) {
@@ -2032,11 +2062,11 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  }
                  *out_val = be_state->builder->CreateCall(emutls_fn, {args[0]});
                  return llvm_gen_be_error_t::ok;
-             } else if (rname == "__builtin_memcpy") {
+             } else if (rname == "__builtin_memcpy" || rname == "__builtin___memcpy_chk") {
                  be_state->builder->CreateMemCpy(args[0], llvm::MaybeAlign(), args[1], llvm::MaybeAlign(), args[2]);
                  *out_val = args[0]; // Returns dest
                  return llvm_gen_be_error_t::ok;
-             } else if (rname == "__builtin_memmove") {
+             } else if (rname == "__builtin_memmove" || rname == "__builtin___memmove_chk") {
                  be_state->builder->CreateMemMove(args[0], llvm::MaybeAlign(), args[1], llvm::MaybeAlign(), args[2]);
                  *out_val = args[0]; // Returns dest
                  return llvm_gen_be_error_t::ok;
@@ -2058,10 +2088,18 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  else if (arg1->getType()->getIntegerBitWidth() > 32) arg1 = be_state->builder->CreateTrunc(arg1, llvm::Type::getInt32Ty(*be_state->context));
                  *out_val = be_state->builder->CreateCall(fn, {args[0], arg1});
                  return llvm_gen_be_error_t::ok;
-             } else if (rname == "__builtin_memset") {
+             } else if (rname == "__builtin_memset" || rname == "__builtin___memset_chk") {
                  llvm::Value* val_i8 = be_state->builder->CreateTrunc(args[1], llvm::Type::getInt8Ty(*be_state->context));
                  be_state->builder->CreateMemSet(args[0], val_i8, args[2], llvm::MaybeAlign());
                  *out_val = args[0]; // Returns dest
+                 return llvm_gen_be_error_t::ok;
+             } else if (rname == "__va_start") {
+                 return lower_win64_va_start(args[0], out_val);
+             } else if (llvm::StringRef(rname).starts_with("__builtin___") &&
+                        llvm::StringRef(rname).ends_with("_chk")) {
+                 std::string chk_name = rname.substr(10);
+                 llvm::FunctionCallee fn = be_state->module->getOrInsertFunction(chk_name, callee_ty);
+                 *out_val = be_state->builder->CreateCall(fn, args);
                  return llvm_gen_be_error_t::ok;
              } else if (rname == "__atomic_always_lock_free" || rname == "__atomic_is_lock_free") {
                  llvm::Value* size_val = args[0];
@@ -2201,7 +2239,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  llvm::AtomicOrdering order = llvm::AtomicOrdering::SequentiallyConsistent;
                  LLVM_GEN_BE_ASSERT_OK(decode_atomic_ordering(args.back(), false, &order));
 
-                 if (rname.find("_n") != std::string::npos) {
+                 if (rname != "__atomic_store") {
                      llvm::StoreInst* store = be_state->builder->CreateStore(val_arg, ptr_arg);
                      store->setAtomic(order);
                  } else {
@@ -2234,7 +2272,7 @@ llvm_gen_be_error_t llvm_lower_call_expression(
                  llvm::AtomicOrdering order = llvm::AtomicOrdering::SequentiallyConsistent;
                  LLVM_GEN_BE_ASSERT_OK(decode_atomic_ordering(args.back(), false, &order));
 
-                 if (rname.find("_n") != std::string::npos) {
+                 if (rname != "__atomic_exchange") {
                      *out_val = be_state->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr_arg, val_arg, llvm::MaybeAlign(), order);
                  } else {
                      llvm::Type* val_ty = nullptr;
@@ -3073,7 +3111,8 @@ llvm_gen_be_error_t llvm_lower_expression(
     case enk_operation: {
        if (expr->variant.operation.kind == eok_comma) {
            llvm::Value* v1 = nullptr;
-           return lower_binary_operands(expr->variant.operation.operands, &v1, out_val);
+           LLVM_GEN_BE_CHECK(llvm_lower_expression(expr->variant.operation.operands, &v1));
+           return llvm_lower_expression(expr->variant.operation.operands->next, out_val);
        }
        
        switch (expr->variant.operation.kind) {
@@ -3185,18 +3224,24 @@ llvm_gen_be_error_t llvm_lower_expression(
          case eok_subscript:
          case eok_vector_subscript: {
            an_expr_node_ptr op1 = expr->variant.operation.operands;
-           llvm::Value* v1 = nullptr;
-           llvm::Value* v2 = nullptr;
-           llvm_gen_be_error_t err = lower_binary_operands(op1, &v1, &v2);
-           if (err != llvm_gen_be_error_t::ok) return err;
-           
-           if (v1->getType()->isVectorTy()) {
+           llvm::Type* op1_ll_ty = nullptr;
+           if (op1 && op1->type) {
+             (void)get_llvm_type(op1->type, &op1_ll_ty);
+           }
+           if (expr->variant.operation.kind == eok_vector_subscript ||
+               (op1_ll_ty && op1_ll_ty->isVectorTy())) {
+             llvm::Value* v1 = nullptr;
+             llvm::Value* v2 = nullptr;
+             llvm_gen_be_error_t err = lower_binary_operands(op1, &v1, &v2);
+             if (err != llvm_gen_be_error_t::ok) return err;
+             if (v1->getType()->isVectorTy()) {
                *out_val = be_state->builder->CreateExtractElement(v1, v2);
                return llvm_gen_be_error_t::ok;
+             }
            }
-           
+
            llvm::Value* ptr = nullptr;
-           err = llvm_lower_lvalue_expression(expr, &ptr);
+           llvm_gen_be_error_t err = llvm_lower_lvalue_expression(expr, &ptr);
            if (err != llvm_gen_be_error_t::ok) return err;
            return load_from_lvalue_ptr(ptr, expr->type, out_val);
          }
@@ -3206,6 +3251,11 @@ llvm_gen_be_error_t llvm_lower_expression(
            llvm::Value* ptr = nullptr;
            llvm_gen_be_error_t err = llvm_lower_lvalue_expression(expr, &ptr);
            if (err != llvm_gen_be_error_t::ok) return err;
+           if (expr->variant.operation.kind == eok_indirect &&
+               skip_typerefs(skip_typerefs(expr->variant.operation.operands->type)->variant.pointer.type)->kind == tk_routine) {
+             *out_val = ptr;
+             return llvm_gen_be_error_t::ok;
+           }
 
            a_field_ptr bf_field = nullptr;
            LLVM_GEN_BE_ASSERT_OK(extract_bitfield_target(expr, &bf_field));
@@ -3328,6 +3378,9 @@ llvm_gen_be_error_t llvm_lower_expression(
                *out_val = is_imag ? llvm::Constant::getNullValue(v1->getType()) : v1;
            }
            return llvm_gen_be_error_t::ok;
+         }
+         case eok_array_to_pointer: {
+           return llvm_lower_lvalue_expression(expr->variant.operation.operands, out_val);
          }
          case eok_address_of: {
            an_expr_node_ptr op1 = expr->variant.operation.operands;
@@ -3844,7 +3897,10 @@ llvm_gen_be_error_t llvm_lower_compound_assignment(
       if (err != llvm_gen_be_error_t::ok) return err;
   } else {
       // pre/post incr/decr implicitly 1
-      rhs_val = llvm::ConstantInt::get(loaded_val->getType(), 1);
+      llvm::Type* step_ty = loaded_val->getType()->isPointerTy()
+                                ? llvm::Type::getInt64Ty(*be_state->context)
+                                : loaded_val->getType();
+      rhs_val = llvm::ConstantInt::get(step_ty, 1);
   }
 
   a_type_qualifier_set lhs_quals = f_get_type_qualifiers(op1->type, TRUE);
@@ -3897,7 +3953,9 @@ llvm_gen_be_error_t llvm_lower_compound_assignment(
   llvm::Value* result_val = nullptr;
   bool is_complex = loaded_val->getType()->isStructTy();
   bool is_float = loaded_val->getType()->isFPOrFPVectorTy();
-  bool is_signed = op1->type->kind == tk_integer ? int_kind_is_signed[op1->type->variant.integer.int_kind] : false;
+  bool is_ptr = loaded_val->getType()->isPointerTy();
+  a_type_ptr raw_op1_ty = skip_typerefs(op1->type);
+  bool is_signed = raw_op1_ty->kind == tk_integer ? int_kind_is_signed[raw_op1_ty->variant.integer.int_kind] : false;
   if (is_complex && !rhs_val->getType()->isStructTy()) {
       llvm::Type* c_elem_ty = loaded_val->getType()->getStructElementType(0);
       llvm::Value* r_cast = rhs_val->getType()->isFloatingPointTy()
@@ -3913,6 +3971,7 @@ llvm_gen_be_error_t llvm_lower_compound_assignment(
       case eok_pre_incr:
       case eok_post_incr:
       case eok_add_assign:
+      case eok_padd_assign:
           if (is_complex) {
               llvm::Value* r = be_state->builder->CreateFAdd(
                   be_state->builder->CreateExtractValue(loaded_val, 0),
@@ -3924,11 +3983,23 @@ llvm_gen_be_error_t llvm_lower_compound_assignment(
                   be_state->builder->CreateInsertValue(llvm::UndefValue::get(loaded_val->getType()), r, 0),
                   i, 1);
           } else if (is_float) result_val = be_state->builder->CreateFAdd(loaded_val, rhs_val);
-          else result_val = be_state->builder->CreateAdd(loaded_val, rhs_val);
+          else if (is_ptr && rhs_val->getType()->isIntegerTy()) {
+              llvm::Type* elem_ty = nullptr;
+              LLVM_GEN_BE_ASSERT_OK(get_llvm_type(raw_op1_ty->variant.pointer.type, &elem_ty));
+              result_val = be_state->builder->CreateInBoundsGEP(elem_ty, loaded_val, rhs_val);
+          } else if (expr->variant.operation.kind == eok_padd_assign) {
+              result_val = be_state->builder->CreateInBoundsGEP(llvm::Type::getInt8Ty(*be_state->context), loaded_val, rhs_val);
+          } else {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), is_signed)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateAdd(loaded_val, r_int);
+          }
           break;
       case eok_pre_decr:
       case eok_post_decr:
       case eok_subtract_assign:
+      case eok_psubtract_assign:
           if (is_complex) {
               llvm::Value* r = be_state->builder->CreateFSub(
                   be_state->builder->CreateExtractValue(loaded_val, 0),
@@ -3940,53 +4011,100 @@ llvm_gen_be_error_t llvm_lower_compound_assignment(
                   be_state->builder->CreateInsertValue(llvm::UndefValue::get(loaded_val->getType()), r, 0),
                   i, 1);
           } else if (is_float) result_val = be_state->builder->CreateFSub(loaded_val, rhs_val);
-          else result_val = be_state->builder->CreateSub(loaded_val, rhs_val);
+          else if (is_ptr && raw_op1_ty->kind == tk_pointer && rhs_val->getType()->isIntegerTy()) {
+              llvm::Type* elem_ty = nullptr;
+              LLVM_GEN_BE_ASSERT_OK(get_llvm_type(raw_op1_ty->variant.pointer.type, &elem_ty));
+              result_val = be_state->builder->CreateInBoundsGEP(elem_ty, loaded_val, be_state->builder->CreateNeg(rhs_val));
+          } else if (expr->variant.operation.kind == eok_psubtract_assign) {
+              llvm::Value* neg_rhs = be_state->builder->CreateNeg(rhs_val);
+              result_val = be_state->builder->CreateInBoundsGEP(llvm::Type::getInt8Ty(*be_state->context), loaded_val, neg_rhs);
+          } else {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), is_signed)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateSub(loaded_val, r_int);
+          }
           break;
       case eok_multiply_assign:
           if (is_complex) {
               LLVM_GEN_BE_ASSERT_OK(emit_complex_libcall("__mulsc3", "__muldc3", loaded_val, rhs_val, &result_val));
           } else if (is_float) result_val = be_state->builder->CreateFMul(loaded_val, rhs_val);
-          else result_val = be_state->builder->CreateMul(loaded_val, rhs_val);
+          else {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), is_signed)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateMul(loaded_val, r_int);
+          }
           break;
       case eok_divide_assign:
           if (is_complex) {
               LLVM_GEN_BE_ASSERT_OK(emit_complex_libcall("__divsc3", "__divdc3", loaded_val, rhs_val, &result_val));
           } else if (is_float) result_val = be_state->builder->CreateFDiv(loaded_val, rhs_val);
-          else if (is_signed) result_val = be_state->builder->CreateSDiv(loaded_val, rhs_val);
-          else result_val = be_state->builder->CreateUDiv(loaded_val, rhs_val);
+          else if (is_signed) {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), true)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateSDiv(loaded_val, r_int);
+          } else {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), false)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateUDiv(loaded_val, r_int);
+          }
           break;
       case eok_remainder_assign:
           if (is_float) result_val = be_state->builder->CreateFRem(loaded_val, rhs_val);
-          else if (is_signed) result_val = be_state->builder->CreateSRem(loaded_val, rhs_val);
-          else result_val = be_state->builder->CreateURem(loaded_val, rhs_val);
+          else if (is_signed) {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), true)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateSRem(loaded_val, r_int);
+          } else {
+              llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                       ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), false)
+                                       : rhs_val;
+              result_val = be_state->builder->CreateURem(loaded_val, r_int);
+          }
           break;
-      case eok_and_assign:
-          result_val = be_state->builder->CreateAnd(loaded_val, rhs_val);
+      case eok_and_assign: {
+          llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                   ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), is_signed)
+                                   : rhs_val;
+          result_val = be_state->builder->CreateAnd(loaded_val, r_int);
           break;
-      case eok_or_assign:
-          result_val = be_state->builder->CreateOr(loaded_val, rhs_val);
+      }
+      case eok_or_assign: {
+          llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                   ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), is_signed)
+                                   : rhs_val;
+          result_val = be_state->builder->CreateOr(loaded_val, r_int);
           break;
-      case eok_xor_assign:
-          result_val = be_state->builder->CreateXor(loaded_val, rhs_val);
+      }
+      case eok_xor_assign: {
+          llvm::Value* r_int = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                   ? be_state->builder->CreateIntCast(rhs_val, loaded_val->getType(), is_signed)
+                                   : rhs_val;
+          result_val = be_state->builder->CreateXor(loaded_val, r_int);
           break;
-      case eok_shiftl_assign:
-          result_val = be_state->builder->CreateShl(loaded_val, rhs_val);
+      }
+      case eok_shiftl_assign: {
+          llvm::Value* r_sh = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                  ? be_state->builder->CreateZExtOrTrunc(rhs_val, loaded_val->getType())
+                                  : rhs_val;
+          result_val = be_state->builder->CreateShl(loaded_val, r_sh);
           break;
-      case eok_shiftr_assign:
-          if (is_signed) result_val = be_state->builder->CreateAShr(loaded_val, rhs_val);
-          else result_val = be_state->builder->CreateLShr(loaded_val, rhs_val);
-          break;
-      case eok_padd_assign:
-          result_val = be_state->builder->CreateInBoundsGEP(llvm::Type::getInt8Ty(*be_state->context), loaded_val, rhs_val);
-          break;
-      case eok_psubtract_assign: {
-          llvm::Value* neg_rhs = be_state->builder->CreateNeg(rhs_val);
-          result_val = be_state->builder->CreateInBoundsGEP(llvm::Type::getInt8Ty(*be_state->context), loaded_val, neg_rhs);
+      }
+      case eok_shiftr_assign: {
+          llvm::Value* r_sh = (rhs_val->getType()->isIntOrIntVectorTy() && loaded_val->getType()->isIntOrIntVectorTy())
+                                  ? be_state->builder->CreateZExtOrTrunc(rhs_val, loaded_val->getType())
+                                  : rhs_val;
+          if (is_signed) result_val = be_state->builder->CreateAShr(loaded_val, r_sh);
+          else result_val = be_state->builder->CreateLShr(loaded_val, r_sh);
           break;
       }
       case eok_bassign: {
           // Block assignment
-          uint64_t size = op1->type->size;
+          uint64_t size = raw_op1_ty->size;
           llvm::Align align = llvm::Align(EDG_ALIGN_OF_TYPE(op1->type));
           be_state->builder->CreateMemCpy(lhs_ptr, align, rhs_val, align, size);
           *out_val = lhs_ptr; // Yield destination pointer for bassign

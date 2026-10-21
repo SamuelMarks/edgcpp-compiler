@@ -29462,6 +29462,33 @@ the source form (e.g., digraphs are returned as ordinary tokens).
   if (curr_token == tok_identifier) {
     /* For identifiers reuse the string already stored in IL memory. */
     result = locator_for_curr_id.symbol_header->identifier;
+  } else if (curr_token == tok_float_constant &&
+             start_of_curr_token != NULL &&
+             end_of_curr_token >= start_of_curr_token &&
+             (sizeof_t)(end_of_curr_token - start_of_curr_token + 1) < 64) {
+    sizeof_t tok_len = (sizeof_t)(end_of_curr_token - start_of_curr_token + 1);
+    a_boolean valid_lex = (tok_len > 0);
+    for (sizeof_t i = 0; valid_lex && i < tok_len; ++i) {
+      char ch = start_of_curr_token[i];
+      if (!((ch >= '0' && ch <= '9') || ch == '.' || ch == '_' ||
+            (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            ch == '+' || ch == '-')) {
+        valid_lex = FALSE;
+      }  /* if */
+    }  /* for */
+    if (valid_lex) {
+      char *il_str = (char *)alloc_il(tok_len + 1);
+      (void)memcpy(il_str, start_of_curr_token, size_t_arg(tok_len));
+      il_str[tok_len] = '\0';
+      result = il_str;
+    } else {
+      a_tiny_scanning_token_cache cache;
+      cache_curr_token(cache.ptr());
+      init_token_string(&pos_curr_token, /*keep_spacing=*/FALSE,
+                        /*suppress_identifier_wrapping=*/FALSE);
+      add_token_cache_to_string(cache.ptr());
+      result = make_copy_of_token_string();
+    }  /* if */
   } else if (curr_token == tok_error ||
              curr_token == tok_removed_expr ||
              curr_token == tok_removed_template_body) {

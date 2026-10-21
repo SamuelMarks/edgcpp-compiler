@@ -134,6 +134,9 @@ llvm_gen_be_error_t llvm_sync_fe_target_configuration(const char* triple_str) no
     targ_size_t_int_kind = ik_unsigned_long;
     targ_ptrdiff_t_int_kind = ik_long;
   }
+#if IA64_ABI
+  targ_ia64_vtable_entry_int_kind = targ_ptrdiff_t_int_kind;
+#endif
 
   targ_sizeof_float = 4;
   targ_alignof_float = 4;

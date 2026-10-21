@@ -55,3 +55,10 @@ endif()
 if(EDG_ENABLE_GCC_BACKEND)
   target_link_libraries(${primary_front_end_target} PRIVATE LibGCCJIT::LibGCCJIT)
 endif()
+
+if(MSVC)
+  target_link_options(${primary_front_end_target} PRIVATE "/STACK:67108864")
+elseif(WIN32)
+  target_link_options(${primary_front_end_target} PRIVATE "-Wl,--stack,67108864")
+endif()
+

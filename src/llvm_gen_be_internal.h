@@ -72,17 +72,20 @@
 #endif
 #else
 #define EDG_INT_VAL_LOW64(val) \
-  (static_cast<uint64_t>((val).part[0]) | \
-   (static_cast<uint64_t>((val).part[1]) << 16) | \
-   (static_cast<uint64_t>((val).part[2]) << 32) | \
-   (static_cast<uint64_t>((val).part[3]) << 48))
+  (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 1]) | \
+   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 2]) << 16) | \
+   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 3]) << 32) | \
+   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 4]) << 48))
+#if INT_VALUE_PARTS_PER_INTEGER_VALUE >= 8
 #define EDG_INT_VAL_HIGH64(val) \
-  ((INT_VALUE_PARTS_PER_INTEGER_VALUE >= 8) \
-       ? (static_cast<uint64_t>((val).part[4]) | \
-          (static_cast<uint64_t>((val).part[5]) << 16) | \
-          (static_cast<uint64_t>((val).part[6]) << 32) | \
-          (static_cast<uint64_t>((val).part[7]) << 48)) \
-       : 0ULL)
+  (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 5]) | \
+   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 6]) << 16) | \
+   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 7]) << 32) | \
+   (static_cast<uint64_t>((val).part[INT_VALUE_PARTS_PER_INTEGER_VALUE - 8]) << 48))
+#else
+#define EDG_INT_VAL_HIGH64(val) \
+  ((((val).part[0] & 0x8000U) != 0U) ? ~0ULL : 0ULL)
+#endif
 #endif
 
 #if !GNU_EXTENSIONS_ALLOWED && !MICROSOFT_EXTENSIONS_ALLOWED

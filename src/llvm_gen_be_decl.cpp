@@ -171,7 +171,11 @@ static llvm_gen_be_error_t apply_llvm_attributes(llvm::GlobalObject* global, an_
             } else if (attr->kind == ak_warn_unused_result || attr->kind == ak_nodiscard) {
                 F->addFnAttr("warn-unused-result");
             } else if (attr->kind == ak_alloc_size) {
-                F->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(F->getContext(), 0, std::nullopt));
+                unsigned alloc_arg_idx = (F->arg_size() > 1 && F->getArg(0)->getType()->isPointerTy()) ? 1u : 0u;
+                if (alloc_arg_idx + 1 < F->arg_size() && F->getArg(alloc_arg_idx)->getType()->isPointerTy()) {
+                    alloc_arg_idx += 1u;
+                }
+                F->addFnAttr(llvm::Attribute::getWithAllocSizeArgs(F->getContext(), alloc_arg_idx, std::nullopt));
 #if MICROSOFT_EXTENSIONS_ALLOWED
             } else if (attr->kind == ak_no_sanitize_address) {
                 F->removeFnAttr(llvm::Attribute::SanitizeAddress);
@@ -854,6 +858,11 @@ llvm_gen_be_error_t llvm_lower_global_variable(a_variable_ptr var) noexcept {
     be_state->module->getOrInsertGlobal(sym_name, llvm_ty);
     llvm::GlobalVariable* gvar = be_state->module->getNamedGlobal(sym_name);
     if (gvar) {
+      if (gvar->getValueType() != llvm_ty) {
+        gvar = new llvm::GlobalVariable(
+            *be_state->module, llvm_ty, false, linkage, nullptr, sym_name);
+      }
+      be_state->local_vars[var] = gvar;
       gvar->setLinkage(linkage);
       LLVM_GEN_BE_ASSERT_OK(apply_llvm_attributes(gvar, var->source_corresp.attributes));
       if (var->is_thread_local) {
@@ -1037,7 +1046,13 @@ llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) noexcep
     if (err != llvm_gen_be_error_t::ok) return err;
     if (!func_ty) return llvm_gen_be_error_t::ok;
 
+    bool is_macho_fn = triple.isOSBinFormatMachO();
     llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
+    llvm::Function* func = llvm::Function::Create(
+        func_ty, linkage, routine->source_corresp.name, be_state->module.get());
+    func->setAttributes(attrs);
+    LLVM_GEN_BE_ASSERT_OK(apply_llvm_attributes(func, routine->source_corresp.attributes));
+
     if (routine->function_def_number != 0) {
        if (routine->storage_class == sc_static || routine->source_corresp.name_linkage == nlk_internal) {
          linkage = llvm::GlobalValue::InternalLinkage;
@@ -1051,21 +1066,16 @@ llvm_gen_be_error_t llvm_lower_function_prototype(a_routine_ptr routine) noexcep
          linkage = llvm::GlobalValue::InternalLinkage;
        }
 #endif
-    }
-
-    llvm::Function* func = llvm::Function::Create(
-        func_ty, linkage, routine->source_corresp.name, be_state->module.get());
-    func->setAttributes(attrs);
-    LLVM_GEN_BE_ASSERT_OK(apply_llvm_attributes(func, routine->source_corresp.attributes));
-
-    bool is_macho_fn = triple.isOSBinFormatMachO();
+       func->setLinkage(linkage);
 #if DO_IL_LOWERING && IA64_ABI
-    if (routine->use_comdat && !is_macho_fn) {
-        llvm::Comdat *comdat = be_state->module->getOrInsertComdat(routine->source_corresp.name);
-        comdat->setSelectionKind(llvm::Comdat::Any);
-        func->setComdat(comdat);
-    }
+       if (routine->use_comdat && !is_macho_fn) {
+           llvm::Comdat *comdat = be_state->module->getOrInsertComdat(routine->source_corresp.name);
+           comdat->setSelectionKind(llvm::Comdat::Any);
+           func->setComdat(comdat);
+       }
 #endif
+    }
+
     if (!is_macho_fn && !func->hasComdat() &&
         (linkage == llvm::GlobalValue::LinkOnceODRLinkage ||
          linkage == llvm::GlobalValue::WeakODRLinkage)) {
@@ -2250,7 +2260,10 @@ llvm_gen_be_error_t llvm_lower_function_body(a_routine_ptr routine) noexcept {
       }
       for (a_variable_ptr svar = cur_sc->variables; svar != nullptr; svar = svar->next) {
         if (svar->storage_class == sc_static) {
+          a_scope_ptr saved_ps = il_header.primary_scope;
+          il_header.primary_scope = cur_sc;
           err = llvm_lower_global_variable(svar);
+          il_header.primary_scope = saved_ps;
           if (err != llvm_gen_be_error_t::ok) return err;
         }
       }

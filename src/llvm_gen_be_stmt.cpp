@@ -260,6 +260,12 @@ llvm_gen_be_error_t llvm_lower_block_stmt(a_statement_ptr stmt) noexcept {
       stmt->variant.block.statements, initial_cleanups));
 
   for (a_statement_ptr s = stmt->variant.block.statements; s != nullptr; s = s->next) {
+    if (EDG_LLVM_GET_TERMINATOR(be_state->builder->GetInsertBlock()) &&
+        s->kind != stmk_label && s->kind != stmk_switch_case) {
+      be_state->builder->SetInsertPoint(llvm::BasicBlock::Create(
+          *be_state->context, "unreachable.stmt",
+          be_state->builder->GetInsertBlock()->getParent()));
+    }
     llvm_gen_be_error_t err = llvm_lower_statement(s);
     if (err != llvm_gen_be_error_t::ok) return err;
   }

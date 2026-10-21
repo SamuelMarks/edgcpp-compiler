@@ -338,6 +338,7 @@ a_targ_alignment targ_alignof_long_double = 16;
 a_targ_size_t targ_sizeof_wchar_t = 4;
 an_integer_kind targ_size_t_int_kind = ik_unsigned_long;
 an_integer_kind targ_ptrdiff_t_int_kind = ik_long;
+an_integer_kind targ_ia64_vtable_entry_int_kind = ik_long;
 an_integer_kind targ_wchar_t_int_kind = ik_int;
 an_integer_kind targ_wint_t_int_kind = ik_int;
 a_boolean targ_little_endian = TRUE;

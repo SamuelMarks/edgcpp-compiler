@@ -2917,6 +2917,7 @@ int main(void) {
     a_routine macho_comdat_rout = {};
     macho_comdat_rout.source_corresp.name = "macho_inline_fn";
     macho_comdat_rout.type = &fn_ty;
+    macho_comdat_rout.function_def_number = 1;
     macho_comdat_rout.is_inline = TRUE;
     macho_comdat_rout.use_comdat = TRUE;
     assert(llvm_lower_function_prototype(&macho_comdat_rout) == llvm_gen_be_error_t::ok);

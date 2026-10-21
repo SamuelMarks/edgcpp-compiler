@@ -147,6 +147,13 @@ int main(void) {
   dummy_const.kind = ck_integer;
   dummy_const.type = &dummy_int_ty;
   dummy_const.variant.integer_value = 42;
+
+  uint64_t ext_low = 0;
+  uint64_t ext_high = 0;
+  assert(llvm_extract_edg_int128(dummy_const.variant.integer_value, true, nullptr, &ext_high) == llvm_gen_be_error_t::invalid_argument);
+  assert(llvm_extract_edg_int128(dummy_const.variant.integer_value, true, &ext_low, nullptr) == llvm_gen_be_error_t::invalid_argument);
+  assert(llvm_extract_edg_int128(dummy_const.variant.integer_value, true, &ext_low, &ext_high) == llvm_gen_be_error_t::ok);
+  assert(ext_low == 42 && ext_high == 0);
   
   assert(llvm_const_from_integer(&dummy_const, i32_ty, &out) == llvm_gen_be_error_t::ok);
   assert(llvm::cast<llvm::ConstantInt>(out)->getZExtValue() == 42);
@@ -1225,6 +1232,15 @@ int main(void) {
     con_cur = &bf_c1;
     assert(llvm_pack_constant_bitfield_bytes(&bf_cur, &con_cur, i8_ty, &out) == llvm_gen_be_error_t::ok);
     state.module->setDataLayout("");
+
+    // Test llvm_extract_edg_int128 helper for signed, unsigned, and invalid_argument cases
+    uint64_t ext_lo = 0, ext_hi = 0;
+    assert(llvm_extract_edg_int128(c_fval.variant.integer_value, true, nullptr, &ext_hi) == llvm_gen_be_error_t::invalid_argument);
+    assert(llvm_extract_edg_int128(c_fval.variant.integer_value, true, &ext_lo, nullptr) == llvm_gen_be_error_t::invalid_argument);
+    assert(llvm_extract_edg_int128(c_fval.variant.integer_value, true, &ext_lo, &ext_hi) == llvm_gen_be_error_t::ok);
+    assert(ext_lo == 99 && ext_hi == 0);
+    assert(llvm_extract_edg_int128(c_fval.variant.integer_value, false, &ext_lo, &ext_hi) == llvm_gen_be_error_t::ok);
+    assert(ext_lo == 99 && ext_hi == 0);
   }
   
   printf("All passed\n");

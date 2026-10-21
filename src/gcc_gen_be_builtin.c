@@ -41,8 +41,24 @@ BEGIN_EDG_NAMESPACE
 static gcc_gen_be_error_t get_builtin(gcc_jit_context *ctx, const char *name, gcc_jit_type *ret_type, int num_params, gcc_jit_type **param_types, int is_variadic, gcc_jit_function **out_func) GCC_GEN_BE_NOEXCEPT {
     if (!out_func) return GCC_GEN_BE_ERROR_INVALID_ARGUMENT;
     *out_func = NULL;
-    
-    if (p_gcc_jit_context_get_builtin_function &&
+
+    a_boolean uses_valist_ref = (name != NULL) && (
+        strstr(name, "va_start") != NULL ||
+        strstr(name, "va_end") != NULL ||
+        strstr(name, "va_copy") != NULL ||
+        strstr(name, "va_arg") != NULL ||
+        strstr(name, "vprintf") != NULL ||
+        strstr(name, "vfprintf") != NULL ||
+        strstr(name, "vsprintf") != NULL ||
+        strstr(name, "vsnprintf") != NULL ||
+        strstr(name, "vasprintf") != NULL ||
+        strstr(name, "vdprintf") != NULL ||
+        strstr(name, "vscanf") != NULL ||
+        strstr(name, "vfscanf") != NULL ||
+        strstr(name, "vsscanf") != NULL ||
+        strstr(name, "vsyslog") != NULL);
+
+    if (p_gcc_jit_context_get_builtin_function && !uses_valist_ref &&
         (strncmp(name, "__builtin_", 10) == 0 ||
          strncmp(name, "__sync_", 7) == 0 ||
          strncmp(name, "__atomic_", 9) == 0)) {
@@ -54,6 +70,7 @@ static gcc_gen_be_error_t get_builtin(gcc_jit_context *ctx, const char *name, gc
     }
     
     /* Fallback to importing standard functions (e.g., libatomic, libm) */
+    const char *import_name = (uses_valist_ref && strncmp(name, "__builtin_", 10) == 0) ? (name + 10) : name;
     gcc_jit_param **params = NULL;
     if (num_params > 0) {
         params = (gcc_jit_param **)malloc((size_t)num_params * sizeof(gcc_jit_param *));
@@ -61,7 +78,7 @@ static gcc_gen_be_error_t get_builtin(gcc_jit_context *ctx, const char *name, gc
             params[i] = gcc_jit_context_new_param(ctx, NULL, param_types[i], "p");
         }
     }
-    gcc_jit_function *fn = gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_IMPORTED, ret_type, name, num_params, params, is_variadic);
+    gcc_jit_function *fn = gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_IMPORTED, ret_type, import_name, num_params, params, is_variadic);
     if (params) free(params);
     *out_func = fn;
     return GCC_GEN_BE_SUCCESS;
@@ -221,7 +238,49 @@ static gcc_gen_be_error_t lower_atomic_builtin(const char *name, a_routine_ptr r
         if (arg_types) free(arg_types);
         if (err != GCC_GEN_BE_SUCCESS) return err;
     }
-    *out_rval = gcc_jit_context_new_call(ctx, NULL, fn, safe_args, args);
+    int pcount = fn ? (int)gcc_jit_function_get_param_count(fn) : 0;
+    gcc_jit_rvalue *coerced_args[8];
+    int call_argc = safe_args < 8 ? safe_args : 8;
+    for (int i = 0; i < call_argc; ++i) {
+        coerced_args[i] = args ? args[i] : NULL;
+        if (i < pcount && coerced_args[i]) {
+            gcc_jit_param *p = gcc_jit_function_get_param(fn, i);
+            gcc_jit_type *pt = p ? gcc_jit_rvalue_get_type(gcc_jit_param_as_rvalue(p)) : NULL;
+            gcc_jit_type *at = gcc_jit_rvalue_get_type(coerced_args[i]);
+            if (pt && at && pt != at) {
+                if (gcc_jit_type_is_pointer(pt) != NULL && gcc_jit_type_is_pointer(at) == NULL) {
+                    gcc_jit_type *ul_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG);
+                    gcc_jit_rvalue *ul_v = (at == ul_t) ? coerced_args[i] : gcc_jit_context_new_cast(ctx, NULL, coerced_args[i], ul_t);
+                    gcc_jit_block *cblock = NULL;
+                    if (gcc_gen_be_get_current_block(&cblock) == GCC_GEN_BE_SUCCESS && cblock) {
+                        gcc_jit_function *cfunc = gcc_jit_block_get_function(cblock);
+                        gcc_jit_lvalue *tmp = gcc_jit_function_new_local(cfunc, NULL, ul_t, "atomic_i2p");
+                        gcc_jit_block_add_assignment(cblock, NULL, tmp, ul_v);
+                        gcc_jit_rvalue *addr = gcc_jit_lvalue_get_address(tmp, NULL);
+                        gcc_jit_rvalue *dptr = gcc_jit_context_new_cast(ctx, NULL, addr, gcc_jit_type_get_pointer(pt));
+                        coerced_args[i] = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(dptr, NULL));
+                    } else {
+                        coerced_args[i] = gcc_jit_context_null(ctx, pt);
+                    }
+                } else if (gcc_jit_type_is_pointer(pt) == NULL && gcc_jit_type_is_pointer(at) != NULL) {
+                    gcc_jit_type *ul_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_UNSIGNED_LONG);
+                    gcc_jit_block *cblock = NULL;
+                    if (gcc_gen_be_get_current_block(&cblock) == GCC_GEN_BE_SUCCESS && cblock) {
+                        gcc_jit_function *cfunc = gcc_jit_block_get_function(cblock);
+                        gcc_jit_lvalue *tmp = gcc_jit_function_new_local(cfunc, NULL, at, "atomic_p2i");
+                        gcc_jit_block_add_assignment(cblock, NULL, tmp, coerced_args[i]);
+                        gcc_jit_rvalue *addr = gcc_jit_lvalue_get_address(tmp, NULL);
+                        gcc_jit_rvalue *uptr = gcc_jit_context_new_cast(ctx, NULL, addr, gcc_jit_type_get_pointer(ul_t));
+                        gcc_jit_rvalue *ul_v = gcc_jit_lvalue_as_rvalue(gcc_jit_rvalue_dereference(uptr, NULL));
+                        coerced_args[i] = (pt == ul_t) ? ul_v : gcc_jit_context_new_cast(ctx, NULL, ul_v, pt);
+                    }
+                } else {
+                    coerced_args[i] = gcc_jit_context_new_cast(ctx, NULL, coerced_args[i], pt);
+                }
+            }
+        }
+    }
+    *out_rval = gcc_jit_context_new_call(ctx, NULL, fn, call_argc, coerced_args);
     return GCC_GEN_BE_SUCCESS;
 }
 
@@ -482,6 +541,24 @@ static gcc_gen_be_error_t lower_math_bitwise_builtin(const char *name, a_routine
             memcpy(libc_name, base_start, base_len);
             libc_name[base_len] = '\0';
             int forwarded_args = (num_args > 1) ? (num_args - 1) : num_args;
+            if (strcmp(libc_name, "vsnprintf") == 0 && num_args >= 6) {
+                /* __builtin___vsnprintf_chk(s, maxlen, flag, os, fmt, ap) -> vsnprintf(s, maxlen, fmt, ap) */
+                gcc_jit_type *int_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT);
+                gcc_jit_type *char_ptr_t = gcc_jit_type_get_pointer(gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CHAR));
+                gcc_jit_type *const_char_ptr_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CONST_CHAR_PTR);
+                gcc_jit_type *sz_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_SIZE_T);
+                gcc_jit_type *ap_t = args[5] ? gcc_jit_rvalue_get_type(args[5]) : char_ptr_t;
+                gcc_jit_type *vsn_arg_types[4] = { char_ptr_t, sz_t, const_char_ptr_t, ap_t };
+                gcc_jit_function *vsn_fn = NULL;
+                GCC_GEN_BE_CHECK(get_builtin(ctx, "vsnprintf", int_t, 4, vsn_arg_types, 0, &vsn_fn));
+                gcc_jit_rvalue *vsn_args[4];
+                vsn_args[0] = gcc_jit_context_new_cast(ctx, NULL, args[0], char_ptr_t);
+                vsn_args[1] = gcc_jit_context_new_cast(ctx, NULL, args[1], sz_t);
+                vsn_args[2] = gcc_jit_context_new_cast(ctx, NULL, args[4], const_char_ptr_t);
+                vsn_args[3] = args[5];
+                *out_rval = gcc_jit_context_new_call(ctx, NULL, vsn_fn, 4, vsn_args);
+                return GCC_GEN_BE_SUCCESS;
+            }
             if ((strcmp(libc_name, "snprintf") == 0 || strcmp(libc_name, "vsnprintf") == 0) && num_args >= 4) {
                 /* __builtin___snprintf_chk(s, maxlen, flag, os, fmt, ...) -> snprintf(s, maxlen, fmt, ...) */
                 gcc_jit_type *int_t = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT);

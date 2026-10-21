@@ -81,7 +81,7 @@ static gcc_gen_be_error_t hash_key(void *key, size_t capacity, size_t *out_hash)
     if (capacity == 0) { *out_hash = 0; return GCC_GEN_BE_SUCCESS; }
     /* Basic pointer hash: shift right by 3 to ignore alignment bits */
     size_t k = (size_t)key;
-    *out_hash = (k >> 3) % capacity;
+    *out_hash = ((k >> 3) ^ (k & 7u) ^ (k >> 48)) % capacity;
     return GCC_GEN_BE_SUCCESS;
 }
 
@@ -213,6 +213,19 @@ gcc_gen_be_error_t cache_insert(gcc_gen_be_cache_type_t cache_type, void *key, v
     be_cache_map *map = NULL;
     GCC_GEN_BE_CHECK(get_cache_map(cache_type, &map));
     
+    if (map->capacity > 0 && map->buckets) {
+        size_t existing_hash = 0;
+        GCC_GEN_BE_CHECK(hash_entry(map, key, map->capacity, &existing_hash));
+        for (be_cache_entry *cur = map->buckets[existing_hash]; cur != NULL; cur = cur->next) {
+            a_boolean eq = FALSE;
+            GCC_GEN_BE_CHECK(keys_equal(map, cur->key, key, &eq));
+            if (eq) {
+                cur->value = value;
+                return GCC_GEN_BE_SUCCESS;
+            }
+        }
+    }
+
     /* Resize if needed */
     if (map->capacity == 0 || (double)map->size / (double)map->capacity >= MAX_LOAD_FACTOR) {
         GCC_GEN_BE_CHECK(cache_resize(map));

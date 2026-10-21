@@ -234,7 +234,7 @@ gcc_gen_be_error_t gcc_gen_be_lower_global_variable_decl(a_variable_ptr var, str
   gcc_jit_lvalue *global = gcc_jit_context_new_global(ctx, loc, linkage, var_type, name);
   GCC_GEN_BE_CHECK(cache_insert(GCC_GEN_BE_CACHE_VAR, var, global));
 
-  if (var->is_inline || var->is_weak) {
+  if ((var->is_inline || var->is_weak) && linkage == GCC_JIT_GLOBAL_EXPORTED) {
       GCC_GEN_BE_CHECK(gcc_gen_be_apply_variable_attributes(var, global));
       GCC_GEN_BE_CHECK(gcc_gen_be_apply_comdat_linkage(global, name, FALSE));
   }
@@ -308,7 +308,12 @@ gcc_gen_be_error_t gcc_gen_be_lower_global_variable_decl(a_variable_ptr var, str
           } else {
               gcc_jit_rvalue *init_rval = NULL;
               extern gcc_gen_be_error_t gcc_gen_be_lower_constant_rvalue(a_constant_ptr con, gcc_jit_type *expected_type, gcc_jit_rvalue **out_rval) GCC_GEN_BE_NOEXCEPT;
-              GCC_GEN_BE_CHECK(gcc_gen_be_lower_constant_rvalue(init_con, var_type, &init_rval));
+              gcc_jit_block *saved_blk = NULL;
+              GCC_GEN_BE_CHECK(gcc_gen_be_get_current_block(&saved_blk));
+              GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(NULL));
+              gcc_gen_be_error_t cst_err = gcc_gen_be_lower_constant_rvalue(init_con, var_type, &init_rval);
+              GCC_GEN_BE_CHECK(gcc_gen_be_set_current_block(saved_blk));
+              GCC_GEN_BE_CHECK(cst_err);
               if (init_rval) {
                   gcc_jit_type *init_type = gcc_jit_rvalue_get_type(init_rval);
                   if (init_type != var_type) {
@@ -718,13 +723,25 @@ gcc_gen_be_error_t gcc_gen_be_lower_function_decl(a_routine_ptr rout, struct gcc
       return err;
   }
 
+  a_boolean has_always_inline = FALSE;
+  for (an_attribute_ptr ap = rout->source_corresp.attributes; ap != NULL; ap = ap->next) {
+      if (ap->kind == ak_always_inline) {
+          has_always_inline = TRUE;
+          break;
+      }
+  }
+  if (has_always_inline && rout->function_def_number != NULL_function_def_number) {
+      linkage = GCC_JIT_FUNCTION_ALWAYS_INLINE;
+  }
+
   gcc_jit_function *func = gcc_jit_context_new_function(
       ctx, loc, linkage, ret_type, name, num_params, params, is_variadic);
   extern gcc_gen_be_error_t gcc_gen_be_apply_function_attributes(a_routine_ptr rout, gcc_jit_function *func) GCC_GEN_BE_NOEXCEPT;
   GCC_GEN_BE_CHECK(gcc_gen_be_apply_function_attributes(rout, func));
       
   if (rout->function_def_number != NULL_function_def_number && p_gcc_jit_function_add_attribute) {
-      if (rout->is_weak || rout->is_inline || rout->is_template_function) {
+      if (linkage == GCC_JIT_FUNCTION_EXPORTED &&
+          (rout->is_weak || rout->is_inline || rout->is_template_function)) {
           p_gcc_jit_function_add_attribute(func, GCC_JIT_FN_ATTRIBUTE_WEAK);
       }
   }

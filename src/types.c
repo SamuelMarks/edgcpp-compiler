@@ -2251,8 +2251,10 @@ Return TRUE if the given type is trivially copyable.
         member is more constrained (N4878 [special]/6).
       */
       a_class_symbol_supplement_ptr  cssp;
-      if (symbol_for(tp) == NULL) {
-        result = FALSE;
+      if (C_mode() || symbol_for(tp) == NULL) {
+        result = !tp->variant.class_struct_union
+                      .any_virtual_functions_including_in_base_classes &&
+                 !tp->variant.class_struct_union.any_virtual_base_classes;
         goto done;
       } else {
         cssp = class_symbol_supp(symbol_for(tp));

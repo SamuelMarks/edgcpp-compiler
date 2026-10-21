@@ -35,6 +35,24 @@ llvm_gen_be_error_t evaluate_constant(
     llvm::Constant** out_const) noexcept;
 
 /**
+ * @brief Extracts the low and high 64-bit words from an EDG `an_integer_value`.
+ * @details Handles both host-integer (`INTEGER_VALUE_REPR_IS_A_HOST_INTEGER=1`) and
+ *          multi-part big-endian (`INTEGER_VALUE_REPR_IS_A_HOST_INTEGER=0`) representations,
+ *          including sign-extension into the upper 64 bits when the underlying representation
+ *          is 64 bits wide (`INT_VALUE_PARTS_PER_INTEGER_VALUE == 4` or `sizeof(an_integer_value) == 8`).
+ * @param[in] val The EDG `an_integer_value` to extract.
+ * @param[in] is_signed True if the integer type is signed (for 64-to-128 sign extension when needed).
+ * @param[out] out_low Receives the least-significant 64 bits.
+ * @param[out] out_high Receives the most-significant 64 bits.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_low` or `out_high` is null.
+ */
+[[nodiscard]] llvm_gen_be_error_t llvm_extract_edg_int128(
+    const an_integer_value& val,
+    bool is_signed,
+    uint64_t* out_low,
+    uint64_t* out_high) noexcept;
+
+/**
  * @brief Translates an EDG integer constant (`ck_integer`) into an `llvm::ConstantInt`.
  * @details Supports signed and unsigned integral values up to 128 bits (`APInt`).
  * @param[in] con Pointer to the EDG constant structure.

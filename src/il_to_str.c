@@ -272,7 +272,15 @@ Emit the attribute arguments, if any, associated with ap.
           break;
         case aak_token:
         case aak_raw_token:
-          octl->output_str(aap->variant.token, octl);
+          if (ap->kind == ak_availability && aap->variant.token != NULL &&
+              aap->variant.token[0] == '(') {
+            double ver = strtod(aap->variant.token + 1, NULL);
+            char vbuf[32];
+            (void)snprintf(vbuf, sizeof(vbuf), "%.6g", ver);
+            octl->output_str(vbuf, octl);
+          } else {
+            octl->output_str(aap->variant.token, octl);
+          }  /* if */
           break;
         case aak_constant:
           form_constant(aap->variant.constant, /*need_parens=*/FALSE, octl);

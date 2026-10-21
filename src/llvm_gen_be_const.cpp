@@ -27,6 +27,50 @@
 BEGIN_EDG_NAMESPACE
 
 /**
+ * @brief Extracts the low and high 64-bit words from an EDG `an_integer_value`.
+ * @details Handles both host-integer (`INTEGER_VALUE_REPR_IS_A_HOST_INTEGER=1`) and
+ *          multi-part big-endian (`INTEGER_VALUE_REPR_IS_A_HOST_INTEGER=0`) representations,
+ *          including sign-extension into the upper 64 bits when the underlying representation
+ *          is 64 bits wide (`INT_VALUE_PARTS_PER_INTEGER_VALUE == 4` or `sizeof(an_integer_value) == 8`).
+ * @param[in] val The EDG `an_integer_value` to extract.
+ * @param[in] is_signed True if the integer type is signed (for 64-to-128 sign extension when needed).
+ * @param[out] out_low Receives the least-significant 64 bits.
+ * @param[out] out_high Receives the most-significant 64 bits.
+ * @return llvm_gen_be_error_t::ok on success, or `invalid_argument` if `out_low` or `out_high` is null.
+ */
+llvm_gen_be_error_t llvm_extract_edg_int128(
+    const an_integer_value& val,
+    bool is_signed,
+    uint64_t* out_low,
+    uint64_t* out_high) noexcept {
+  if (!out_low || !out_high) {
+    return llvm_gen_be_error_t::invalid_argument;
+  }
+  uint64_t low = EDG_INT_VAL_LOW64(val);
+  uint64_t high = EDG_INT_VAL_HIGH64(val);
+#if INTEGER_VALUE_REPR_IS_A_HOST_INTEGER
+#if !INT128_EXTENSIONS_ALLOWED
+  if (is_signed && (low & (1ULL << 63)) != 0ULL) {
+    high = ~0ULL;
+  }
+#else
+  (void)is_signed;
+#endif
+#else
+#if INT_VALUE_PARTS_PER_INTEGER_VALUE < 8
+  if (!is_signed) {
+    high = 0ULL;
+  }
+#else
+  (void)is_signed;
+#endif
+#endif
+  *out_low = low;
+  *out_high = high;
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
  * @brief Translates an EDG integer constant (`ck_integer`) into an `llvm::ConstantInt`.
  * @details Supports signed and unsigned integral values up to 128 bits (`APInt`).
  * @param[in] con Pointer to the EDG constant structure.
@@ -42,11 +86,13 @@ llvm_gen_be_error_t llvm_const_from_integer(
     return llvm_gen_be_error_t::invalid_argument;
   }
 
-  bool is_unsigned = (con->type->kind == tk_integer)
-                         ? !int_kind_is_signed[con->type->variant.integer.int_kind]
+  a_type_ptr ctype = skip_typerefs(con->type);
+  bool is_unsigned = (ctype->kind == tk_integer)
+                         ? !int_kind_is_signed[ctype->variant.integer.int_kind]
                          : false;
-  uint64_t low = EDG_INT_VAL_LOW64(con->variant.integer_value);
-  uint64_t high = EDG_INT_VAL_HIGH64(con->variant.integer_value);
+  uint64_t low = 0;
+  uint64_t high = 0;
+  LLVM_GEN_BE_ASSERT_OK(llvm_extract_edg_int128(con->variant.integer_value, !is_unsigned, &low, &high));
 
   if (expected_ty->isPointerTy()) {
     if (low == 0) {
@@ -119,7 +165,7 @@ llvm_gen_be_error_t llvm_const_from_float(
     return llvm_gen_be_error_t::invalid_argument;
   }
 
-  a_float_kind fk = con->type->variant.float_kind;
+  a_float_kind fk = skip_typerefs(con->type)->variant.float_kind;
   return build_fp_constant_from_internal_value(
       fk, &con->variant.float_value, expected_ty, out_const);
 }
@@ -147,11 +193,11 @@ llvm_gen_be_error_t llvm_const_from_complex(
     st_ty = llvm::cast<llvm::StructType>(expected_ty);
     elem_ty = st_ty->getElementType(0);
   } else {
-    LLVM_GEN_BE_CHECK(llvm_type_from_float(con->type, &elem_ty));
+    LLVM_GEN_BE_CHECK(llvm_type_from_float(skip_typerefs(con->type), &elem_ty));
     st_ty = llvm::StructType::get(*be_state->context, {elem_ty, elem_ty});
   }
 
-  a_float_kind fk = con->type->variant.float_kind;
+  a_float_kind fk = skip_typerefs(con->type)->variant.float_kind;
   llvm::Constant* real_c = nullptr;
   llvm::Constant* imag_c = nullptr;
   llvm_gen_be_error_t err = build_fp_constant_from_internal_value(
@@ -389,9 +435,12 @@ llvm_gen_be_error_t llvm_const_from_string(
     llvm::ArrayRef<uint32_t> wide_chars(reinterpret_cast<const uint32_t*>(chars), len / 4);
     arr = llvm::ConstantDataArray::get(*be_state->context, wide_chars);
   } else {
+    uint64_t target_len = expected_ty->isArrayTy() ? expected_ty->getArrayNumElements() : len;
+    std::string padded(chars, len);
+    padded.resize(target_len, '\0');
     arr = llvm::ConstantDataArray::get(
         *be_state->context,
-        llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t*>(chars), len));
+        llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t*>(padded.data()), target_len));
   }
 
   if (expected_ty->isPointerTy()) {
@@ -692,6 +741,10 @@ llvm_gen_be_error_t llvm_const_from_address(
     base = llvm::ConstantExpr::getGetElementPtr(i8_ty, base, offset_val);
   }
 
+  if (expected_ty->isIntegerTy()) {
+    base = llvm::ConstantExpr::getPtrToInt(base, expected_ty);
+  }
+
   *out_const = base;
   return llvm_gen_be_error_t::ok;
 }
@@ -871,7 +924,8 @@ llvm_gen_be_error_t llvm_const_from_aggregate(
     return llvm_gen_be_error_t::ok;
   } else if (expected_ty->isStructTy()) {
     llvm::StructType* st_ty = llvm::cast<llvm::StructType>(expected_ty);
-    if (con->type->kind == tk_union) {
+    a_type_ptr agg_tp = skip_typerefs(con->type);
+    if (agg_tp->kind == tk_union) {
       llvm::Constant* active_val = nullptr;
       a_constant_ptr c = con->variant.aggregate.first_constant;
       if (c && c->kind == ck_designator) {
@@ -920,8 +974,8 @@ llvm_gen_be_error_t llvm_const_from_aggregate(
       return llvm_gen_be_error_t::ok;
     }
 
-    a_field_ptr field_head = (con->type->kind == tk_struct || con->type->kind == tk_class)
-                                 ? con->type->variant.class_struct_union.field_list
+    a_field_ptr field_head = (agg_tp->kind == tk_struct || agg_tp->kind == tk_class)
+                                 ? agg_tp->variant.class_struct_union.field_list
                                  : nullptr;
     a_constant_ptr c = con->variant.aggregate.first_constant;
 
