@@ -255,14 +255,42 @@ def load_edgy_config(args: argparse.Namespace, test_home: Path) -> EdgyConfig:
     )
 
     test_suites = config_file_dict.get('test_suites', {})
+    primary_test_suites = test_suites.get('primary', [])
+    secondary_test_suites = test_suites.get('secondary', [])
+    _validate_configured_suites(
+      config_file_path,
+      {'primary': primary_test_suites, 'secondary': secondary_test_suites}
+    )
     config_sets = config_file_dict.get('config_sets', {})
     return EdgyConfig(
       test_home,
       loaded_configs,
       config_sets,
-      test_suites.get('primary', []),
-      test_suites.get('secondary', [])
+      primary_test_suites,
+      secondary_test_suites
     )
+
+def _validate_configured_suites(config_file_path: Path,
+                                test_suites: Dict[str, Any]) -> None:
+  '''Exit unless each list of suites ``config_file_path`` gives is a list of
+  valid names.'''
+  invalid_test_suite_encountered = False
+  for kind, test_suite_names in test_suites.items():
+    if not isinstance(test_suite_names, list):
+      edgutil.eprint(f"Invalid {kind} test suites {test_suite_names!r} in "
+                     f"{config_file_path} (expected a list of names).")
+      invalid_test_suite_encountered = True
+      continue
+    for test_suite in test_suite_names:
+      if not (isinstance(test_suite, str) and
+              edgtest.is_valid_suite_name(test_suite)):
+        edgutil.eprint(f"Invalid test suite name {test_suite!r} in "
+                       f"{config_file_path} (expected 1-64 of A-Z, a-z, "
+                       "0-9, _ and -).")
+        invalid_test_suite_encountered = True
+
+  if invalid_test_suite_encountered:
+    sys.exit(1)
 
 def get_expectation_path(run_config: TestRunConfig,
                          test_suite_name: str) -> Path:
@@ -627,7 +655,7 @@ def _diagnose_bad_expectations_file(file_path: Path) -> None:
       line_ctr += 1
       try:
         parse_test_status(line_text)
-      except:
+      except Exception:
         if len(line_text) != 0:
           edgutil.eprint(
             f"{file_path_str}, line {line_ctr}: "
@@ -668,7 +696,7 @@ def _construct_replay_filters(
         )
         for key in comparison:
           desired_tests.add(parsed_test_status_key_to_name(key))
-    except:
+    except Exception:
       edgutil.eprint(
         f"Failed to compare the previous run of the {test_suite.name} "
         'suite to its expectations.'
@@ -691,7 +719,7 @@ def _construct_replay_filters(
           elif (args.replay == 'output-mismatch' and
                 parsed_test_status.is_output_mismatch()):
             desired_tests.add(parsed_test_status_key_to_name(key))
-    except:
+    except Exception:
       edgutil.eprint(
         f"Failed to parse test statuses in previous run of {test_suite.name}."
       )
@@ -902,7 +930,9 @@ def get_latest_replay_number(replay_dir: Path) -> int:
 
 def get_run_dir(test_runs_dir: Path, args: argparse.Namespace,
                 test_suites: List[TestSuiteConfig]) -> Path:
-  if is_replay_run(args):
+  if args.output_directory is not None:
+    return args.output_directory
+  elif is_replay_run(args):
     # This is guaranteed to exist as the checks on test counts prior to calling
     # this function ensure that at least one test from the last run is being
     # replay (so there must be a last run).
@@ -933,6 +963,12 @@ def prepare_for_test_run(test_runs_dir: Path, args: argparse.Namespace,
 
     run_dir.mkdir(parents = True)
 
+    # Let a wrapping tool (e.g. edg-docker-test) learn exactly which directory
+    # this invocation is using, even for replays, without racing other runs.
+    run_dir_file = os.environ.get('EDGY_RUN_DIR_FILE')
+    if run_dir_file:
+      Path(run_dir_file).write_text(f"{run_dir}\n")
+
     setup_cache = RunSetupCache(run_dir)
 
     for test_suite in test_suites:
@@ -949,7 +985,12 @@ def prepare_for_test_run(test_runs_dir: Path, args: argparse.Namespace,
 
       # Set the test suite run as the current run
       test_suite.set_current_run(test_suite_run)
-  except FileExistsError:
+  except FileExistsError as ex:
+    if args.output_directory is not None:
+      # Retrying can't help, as an explicit output directory is never bumped.
+      edgutil.eprint(f"Path already exists: {ex.filename}")
+      sys.exit(1)
+
     # This can happen if edgy is rapidly invoked, just wait a bit and retry (to
     # bump the directory name).
     time.sleep(.5)
@@ -1233,7 +1274,7 @@ class TestStatusChecker:
                 encountered_lines: List[str]) -> Optional['TestStatusChecker']:
     try:
       return TestStatusChecker(expected_lines, encountered_lines)
-    except:
+    except Exception:
       return None
 
   def _get_status_for_comparison(
@@ -1620,7 +1661,7 @@ class DynamicLoadingTestRunner:
         # Yield back to the event loop to work on other work if possible.
         await asyncio.sleep(0)
       except asyncio.CancelledError:
-        # This task cannot be cancelled; it must complete so that the
+        # This task cannot be canceled; it must complete so that the
         # expectations can be written correctly.
         pass
 
@@ -2177,6 +2218,16 @@ def parse_args() -> argparse.Namespace:
     help = 'override the directory where tests runs are stored'
   )
   parser.add_argument(
+    '--output-directory',
+    dest = 'output_directory',
+    type = Path,
+    help = (
+      'store the output of this run in exactly this directory, in place of a '
+      'new run or replay directory (replays still read the previous run from '
+      'the runs directory, and no old runs are cleaned up)'
+    )
+  )
+  parser.add_argument(
     '--run-timestamp',
     dest = 'test_run_timestamp',
     type = str,
@@ -2262,7 +2313,11 @@ def parse_args() -> argparse.Namespace:
     '--disp-run-dir',
     dest = 'disp_run_dir',
     action = 'store_true',
-    help = 'print the directory where the run output is being stored'
+    help = (
+      'print the directory where the run output is being stored (if '
+      'scripting, prefer setting EDGY_RUN_DIR_FILE to have the run directory '
+      'path written there)'
+    )
   )
   parser.add_argument(
     '-W',
@@ -2432,7 +2487,8 @@ def main() -> None:
 
   generate_logs(args, test_suites, tests, skipped_tests)
   maybe_dump_performance_info(args, tests, multi_config_run = multi_config_run)
-  try_cleanup_test_runs(test_runs_dir, args)
+  if args.output_directory is None:
+    try_cleanup_test_runs(test_runs_dir, args)
   sys.exit(exit_code)
 
 main()
