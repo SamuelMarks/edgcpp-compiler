@@ -2652,7 +2652,6 @@ llvm_gen_be_error_t llvm_lower_global_ctors_and_dtors(void) noexcept {
   std::vector<std::pair<int, llvm::Constant*>> msvc_dtors;
   
   llvm::Type* int32_ty = llvm::Type::getInt32Ty(*be_state->context);
-  llvm::Type* void_fn_ty = llvm::FunctionType::get(llvm::Type::getVoidTy(*be_state->context), false);
   llvm::Type* ptr_ty = llvm::PointerType::getUnqual(*be_state->context);
   llvm::StructType* ctor_struct_ty = llvm::StructType::get(
       int32_ty, ptr_ty, ptr_ty); // { i32, void ()*, i8* }

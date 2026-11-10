@@ -186,6 +186,23 @@ if(EDG_ENABLE_LLVM_BACKEND OR ENABLE_LLVM_BACKEND)
       endif()
     endif()
   endif()
+  if(NOT LLVM_DIR AND NOT WIN32)
+    find_program(
+      LLVM_CONFIG_EXECUTABLE
+      NAMES llvm-config llvm-config-21 llvm-config-20 llvm-config-19 llvm-config-18 llvm-config-17
+    )
+    if(LLVM_CONFIG_EXECUTABLE)
+      execute_process(
+        COMMAND ${LLVM_CONFIG_EXECUTABLE} --cmakedir
+        OUTPUT_VARIABLE LLVM_CONFIG_CMAKEDIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+      )
+      if(EXISTS "${LLVM_CONFIG_CMAKEDIR}/LLVMConfig.cmake")
+        set(LLVM_DIR "${LLVM_CONFIG_CMAKEDIR}" CACHE PATH "LLVM config dir" FORCE)
+      endif()
+    endif()
+  endif()
 
   find_package(LLVM CONFIG)
   if(NOT LLVM_FOUND)

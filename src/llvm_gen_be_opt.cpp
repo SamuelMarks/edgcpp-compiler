@@ -126,6 +126,39 @@ static llvm_gen_be_error_t add_pipeline_start_passes(
 }
 
 /**
+ * @brief Configures LLVM PGOOptions from the backend optimization options.
+ * @details Populates @p out_pgo for IR instrumentation generation or profile use when
+ *          enabled in @p opts, adapting to the LLVM version's `llvm::PGOOptions` constructor.
+ * @param[in] opts Pointer to the optimization options configuration.
+ * @param[out] out_pgo Pointer to the optional `llvm::PGOOptions` to populate.
+ * @return llvm_gen_be_error_t::ok on success.
+ */
+static llvm_gen_be_error_t configure_pgo_options(
+    const llvm_opt_options_t* opts,
+    std::optional<llvm::PGOOptions>* out_pgo) noexcept {
+  extern a_const_char* fprofile_generate_path;
+  const char* path = nullptr;
+  llvm::PGOOptions::PGOAction action = llvm::PGOOptions::NoAction;
+  if (opts->pgo_generate) {
+    path = fprofile_generate_path ? fprofile_generate_path : "default.profraw";
+    action = llvm::PGOOptions::IRInstr;
+  } else if (opts->pgo_use_path) {
+    path = opts->pgo_use_path;
+    action = llvm::PGOOptions::IRUse;
+  }
+  if (path) {
+#if LLVM_VERSION_MAJOR >= 20
+    out_pgo->emplace(path, "", "", "", action);
+#elif LLVM_VERSION_MAJOR >= 17
+    out_pgo->emplace(path, "", "", "", llvm::vfs::getRealFileSystem(), action);
+#else
+    out_pgo->emplace(path, "", "", llvm::vfs::getRealFileSystem(), action);
+#endif
+  }
+  return llvm_gen_be_error_t::ok;
+}
+
+/**
  * @brief Executes the LLVM PassBuilder optimization pipeline on a Module.
  * @details Constructs PassManagers, adds sanitizer passes, PGO, LTO, and runs module passes.
  * @param[in,out] module The LLVM Module to optimize.
@@ -176,27 +209,18 @@ llvm_gen_be_error_t run_optimization_pipeline(llvm::Module* module, const llvm_o
 
   llvm::PassInstrumentationCallbacks pic;
   llvm::StandardInstrumentations si(module->getContext(), /*DebugLogging=*/false);
+#if LLVM_VERSION_MAJOR >= 17
   si.registerCallbacks(pic, &mam);
+#else
+  si.registerCallbacks(pic, &fam);
+#endif
 
   llvm::PipelineTuningOptions pto;
   pto.LoopVectorization = opts->vectorize_loops;
   pto.SLPVectorization = opts->vectorize_slp;
 
   std::optional<llvm::PGOOptions> pgo_opts;
-  extern a_const_char* fprofile_generate_path;
-  auto emplace_pgo = [](auto& opt_pgo, const char* path, llvm::PGOOptions::PGOAction action) {
-      using PGOType = typename std::decay_t<decltype(opt_pgo)>::value_type;
-      if constexpr (std::is_constructible_v<PGOType, const char*, const char*, const char*, const char*, llvm::PGOOptions::PGOAction>) {
-          opt_pgo.emplace(path, "", "", "", action);
-      } else {
-          opt_pgo.emplace(path, "", "", "", llvm::vfs::getRealFileSystem(), action);
-      }
-  };
-  if (opts->pgo_generate) {
-      emplace_pgo(pgo_opts, fprofile_generate_path ? fprofile_generate_path : "default.profraw", llvm::PGOOptions::IRInstr);
-  } else if (opts->pgo_use_path) {
-      emplace_pgo(pgo_opts, opts->pgo_use_path, llvm::PGOOptions::IRUse);
-  }
+  LLVM_GEN_BE_ASSERT_OK(configure_pgo_options(opts, &pgo_opts));
 
   llvm::PassBuilder pb(nullptr, pto, pgo_opts, &pic);
 

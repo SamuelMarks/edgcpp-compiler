@@ -479,7 +479,7 @@ llvm_gen_be_error_t llvm_type_from_struct(
     }
 
     llvm::Type* ty = nullptr;
-    llvm_gen_be_error_t err = llvm_type_from_edg_type(field->type, &ty);
+    LLVM_GEN_BE_ASSERT_OK(llvm_type_from_edg_type(field->type, &ty));
     elem_tys.push_back(ty);
     current_offset += field_size;
   }
